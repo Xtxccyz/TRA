@@ -76,12 +76,16 @@
     "pytest": "455 passed, 2 skipped (2026-09-04)",
     "ruff": "PASS",
     "compileall": "PASS",
+    "sbom": "PASS (Docker Scout CycloneDX, 211 packages)",
+    "cve_scan": "BLOCKED (Docker Scout requires Docker Hub authentication)",
     "postgres_warm_schema_recheck": "PASS",
     "postgres_migration_policy": "warm startup performs no repeat DROP NOT NULL DDL; legacy evidence index backfill is explicit opt-in"
   },
   "artifacts": [
     "release-artifacts/final-round/comhost-static-baseline-postdeploy-20260904.json",
     "release-artifacts/final-round/comhost-semantic-differential-postdeploy-20260904.json",
+    "release-artifacts/final-round/threat-report-agent-api-sbom-20260904.json",
+    "release-artifacts/final-round/threat-report-agent-api-cve-scan-20260904.json",
     ".scratch/final-completion-live-20260904/comhost-task-view-d114e2d4.json",
     ".scratch/final-completion-live-20260903/comhost-model-actions.json",
     ".scratch/final-completion-live-20260903/comhost-coverage.json",

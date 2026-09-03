@@ -23,6 +23,8 @@ after the runtime completed, by the offline evaluator.
 | Fresh ComHost static run | PASS as execution, PARTIAL as semantics | task `d114e2d4-1de2-4770-aab0-82fff16e0d5f`, 43,289 Evidence, 187 Claims, 10 ToolRuns, audit integrity true |
 | Static execution boundary | PASS | sample execution/network/emulator flags are false in baseline and task audit |
 | Docker service health | PASS | Compose API, PostgreSQL, MinIO, Temporal and workers healthy/running |
+| API image SBOM | PASS | Docker Scout CycloneDX inventory: 211 packages |
+| API image CVE scan | BLOCKED | Docker Scout requires Docker Hub authentication; failure artifact is retained |
 
 ## Gate results that remain blocked
 
