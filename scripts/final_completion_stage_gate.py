@@ -659,6 +659,7 @@ def build_gate(
     pytest_summary_path: Path | None = None,
     baseline_manifest_path: Path = FINAL_ROUND / "baseline-manifest.json",
     format_debt_path: Path = FINAL_ROUND / "ruff-format-debt-check-20260904.json",
+    readiness_path: Path | None = None,
     seeded_gate_path: Path | None = None,
     model_effectiveness_path: Path | None = None,
     analysis_depth_path: Path | None = None,
@@ -695,6 +696,7 @@ def build_gate(
         independent_reviews_path = independent_reviews_path or ROOT / "release-artifacts" / "round11.2" / "independent-reviews.json"
         resume_regression_path = resume_regression_path or FINAL_ROUND / "resume-static-baseline-20260904.json"
         issue_register_path = issue_register_path or DEFAULT_ISSUE_REGISTER_PATH
+        readiness_path = readiness_path or FINAL_ROUND / "readiness-20260904.json"
     baseline = _load(baseline_path)
     semantic = _load(semantic_path)
     sbom = _load(sbom_path)
@@ -789,6 +791,7 @@ def build_gate(
     # is bound to this checkout; missing evidence remains NOT_PROVEN and an
     # invalid or stale artifact is BLOCKED.
     evidence_specs = {
+        "readiness_probe": (readiness_path, "Readiness probe"),
         "seeded_c1_c4_l1": (seeded_gate_path, "Seeded C1-C4"),
         "model_action_productivity_real_provider": (model_effectiveness_path, "Model effectiveness"),
         "analysis_depth_gate": (analysis_depth_path, "Analysis depth"),
@@ -985,7 +988,7 @@ def build_gate(
     gates = {
         "schema_migration_deadlock_regression": "PASS",
         "unit_and_integration_tests": f"{pytest_gate_status} ({pytest_summary or 'pytest summary not supplied'})",
-        "readiness_probe": "PASS (/readyz=200, database=ok)",
+        "readiness_probe": projected_statuses["readiness_probe"],
         "seeded_c1_c4_l1": projected_statuses["seeded_c1_c4_l1"],
         "real_comhost_l2": "PASS" if critical_closed else "BLOCKED",
         "model_action_productivity_real_provider": projected_statuses["model_action_productivity_real_provider"],
@@ -1216,6 +1219,7 @@ def build_gate(
         and bool(image_digest)
         and source_worktree_clean
         and pytest_gate_status == "PASS"
+        and projected_statuses.get("readiness_probe") in {"PASS", "APPROVED"}
     )
     payload = {
         "schema_version": "final-completion-stage-gate-v3",
@@ -1286,6 +1290,7 @@ def main() -> int:
     parser.add_argument("--pytest-summary", type=Path)
     parser.add_argument("--ruff-result", type=Path)
     parser.add_argument("--compileall-result", type=Path)
+    parser.add_argument("--readiness", type=Path)
     parser.add_argument("--seeded-gate", type=Path)
     parser.add_argument("--model-effectiveness", type=Path)
     parser.add_argument("--analysis-depth", type=Path)
@@ -1323,6 +1328,7 @@ def main() -> int:
         "independent_reviews": ROOT / "release-artifacts" / "round11.2" / "independent-reviews.json",
         "resume_regression": FINAL_ROUND / "resume-static-baseline-20260904.json",
         "issue_register": DEFAULT_ISSUE_REGISTER_PATH,
+        "readiness": FINAL_ROUND / "readiness-20260904.json",
     }
 
     def selected(name: str) -> Path | None:
@@ -1333,6 +1339,7 @@ def main() -> int:
         pytest_summary_path=args.pytest_summary,
         ruff_path=args.ruff_result,
         compileall_path=args.compileall_result,
+        readiness_path=selected("readiness"),
         seeded_gate_path=selected("seeded_gate"),
         model_effectiveness_path=selected("model_effectiveness"),
         analysis_depth_path=selected("analysis_depth"),
