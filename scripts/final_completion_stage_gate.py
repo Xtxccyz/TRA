@@ -346,6 +346,11 @@ def build_gate(
             pytest_gate_status = "BLOCKED"
             blockers.append(summary_identity_error)
         pytest_summary = str(summary.get("summary") or "NOT_SUPPLIED")
+    else:
+        # A display-only summary string cannot prove which source was tested.
+        # Require the JSON artifact so both commit and tree can be checked.
+        pytest_gate_status = "BLOCKED"
+        blockers.append("Pytest summary evidence is missing or has no artifact path.")
 
     blockers = list(dict.fromkeys(blockers))
 
