@@ -83,6 +83,5 @@ def test_final_gate_has_plan_schema_projection_and_preserves_blockers(tmp_path) 
     assert gate["comhost_c1_c4"] == "BLOCKED"
     assert gate["release_identity"]["fresh_task_id"] == "task-1"
     assert gate["release_identity"]["fresh_case_id"] == "case-1"
-    assert len(gate["artifact_manifest"]) == 4
+    assert len(gate["artifact_manifest"]) == 5
     assert any("CVE" in item for item in gate["blockers"])
-

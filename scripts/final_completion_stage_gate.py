@@ -249,6 +249,22 @@ def build_gate(
             missing_fields=["sample_sha256", "case_id", "task_id", "session_id", "event_cursor_range"],
         ),
     ]
+    if task_view_path.exists():
+        artifact_manifest.insert(
+            2,
+            _artifact_metadata(
+                task_view_path,
+                generated_at=generated_at,
+                commit=commit,
+                tree=tree,
+                config_fingerprint=config_fingerprint,
+                sample_sha256=sample_sha256,
+                case_id=case_id,
+                task_id=task_id,
+                evaluator_only=False,
+                missing_fields=["session_id", "event_cursor_range"],
+            ),
+        )
     try:
         semantic_artifact_path = semantic_path.relative_to(ROOT).as_posix()
     except ValueError:
