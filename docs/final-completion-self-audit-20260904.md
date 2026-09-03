@@ -1,8 +1,8 @@
 # Final Completion Stage Self-Audit
 
 Date: 2026-09-04
-Release candidate source commit: `1cb5ccf`
-Evidence artifact commit: `9967dd9`
+Release candidate source commit: `e152aab`
+Evidence artifact generated from source commit: `e152aab`
 Gate artifact: `release-artifacts/final-round/final-completion-stage-gate-20260904.json`
 
 ## Scope and boundary

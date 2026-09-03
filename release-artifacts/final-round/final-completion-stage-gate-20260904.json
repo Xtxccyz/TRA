@@ -1,15 +1,30 @@
 {
-  "schema_version": "final-completion-stage-gate-v2",
-  "generated_at": "2026-09-04T00:56:00+08:00",
+  "schema_version": "final-completion-stage-gate-v3",
+  "generated_at": "2026-09-03T17:28:06.272464+00:00",
   "evidence_policy": "verified-local-evidence-only",
   "status": "BLOCKED",
   "production_ready": false,
+  "open_p0": 0,
+  "open_p1": 0,
+  "agentic_mechanism_effectiveness": "BLOCKED",
+  "comhost_c1_c4": "BLOCKED",
+  "analysis_depth_gate": "BLOCKED",
+  "report_depth_gate": "BLOCKED",
+  "browser_e2e": "NOT_PROVEN",
+  "generalization": "NOT_CERTIFIED",
+  "recovery": "NOT_PROVEN",
+  "concurrency": "NOT_PROVEN",
+  "soak_24h": "NOT_PROVEN",
+  "production_hardening": "BLOCKED",
+  "independent_reviews": "NOT_PROVEN",
   "release_identity": {
-    "git_commit": "1cb5ccf",
+    "git_commit": "e152aabc1c416346afe99776a066aa89a580e466",
+    "git_tree": "0b05069cc275d35d9035ba23a85670a7cc620994",
     "container_image": "threat-report-agent-api@sha256:ecb0adabefac6473f86bd6c0a247a7267e33a97098a1726de385864b454cf673",
-    "sample": "D:\\test\\Resume\\ComHost.exe.VIR",
+    "source_sample_sha256": "b405a781dbf24a6f6429f122b40b06c9158d78480d6bca4c8fe5db9d74e8f7e1",
     "fresh_task_id": "d114e2d4-1de2-4770-aab0-82fff16e0d5f",
-    "fresh_case_id": "7fb21010-8489-4d37-894a-3891807930e2"
+    "fresh_case_id": "7fb21010-8489-4d37-894a-3891807930e2",
+    "working_tree_clean": false
   },
   "execution_boundary": {
     "sample_execution": false,
@@ -22,41 +37,21 @@
     "lifecycle": "SUCCEEDED",
     "outcome": "PARTIAL",
     "analysis_class": "BOUNDED_STATIC_ANALYSIS",
-    "artifacts": 1,
     "evidence": 43289,
     "claims": 187,
     "tool_runs": 10,
-    "model_calls": 8,
-    "audit_integrity": true,
-    "semantic_evidence": {
-      "indirect_function_pointer_link": 6,
-      "mechanism_dynamic_api_link": 5,
-      "mechanism_shell_output_link": 1,
-      "mechanism_http_transport_link": 0,
-      "mechanism_etw_patch_link": 0
-    },
+    "semantic_supported": 2,
     "critical_mechanisms": {
-      "C1_dynamic_hash_api_resolution": "NOT_VERIFIED",
-      "C2_configured_secure_winhttp_transport": "NOT_VERIFIED",
-      "C3_command_shell_output_capture": "NOT_VERIFIED",
-      "C4_etw_patch": "NOT_VERIFIED"
+      "comhost-dynamic-api": "UNKNOWN",
+      "comhost-c2-transport": "UNKNOWN",
+      "comhost-shell": "SUPPORTED",
+      "comhost-etw-patch": "UNKNOWN"
     },
-    "critical_unsupported": "UNRESOLVED",
-    "model_effect": "NOT_PROVEN",
-    "model_failure_summary": "custom/ali/qwen3.7-max HTTPStatusError; fallback provider not configured",
-    "semantic_differential": {
-      "evidence_level": "L2",
-      "evaluator_only": true,
-      "supported": 2,
-      "unknown": 9,
-      "critical_mechanisms_supported": 1,
-      "critical_mechanisms_required": 4,
-      "artifact": "release-artifacts/final-round/comhost-semantic-differential-postdeploy-20260904.json"
-    }
+    "semantic_artifact": "release-artifacts/final-round/comhost-semantic-differential-postdeploy-20260904.json"
   },
   "gates": {
     "schema_migration_deadlock_regression": "PASS",
-    "unit_and_integration_tests": "PASS (455 passed, 2 skipped)",
+    "unit_and_integration_tests": "PASS (457 passed, 2 skipped)",
     "readiness_probe": "PASS (/readyz=200, database=ok)",
     "seeded_c1_c4_l1": "PASS",
     "real_comhost_l2": "BLOCKED",
@@ -73,30 +68,104 @@
     "independent_reviews": "NOT_PROVEN"
   },
   "verification": {
-    "pytest": "455 passed, 2 skipped (2026-09-04)",
+    "pytest": "457 passed, 2 skipped (2026-09-04)",
     "ruff": "PASS",
     "compileall": "PASS",
     "sbom": "PASS (Docker Scout CycloneDX, 211 packages)",
-    "cve_scan": "BLOCKED (Docker Scout requires Docker Hub authentication)",
-    "postgres_warm_schema_recheck": "PASS",
-    "postgres_migration_policy": "warm startup performs no repeat DROP NOT NULL DDL; legacy evidence index backfill is explicit opt-in"
+    "cve_scan": "BLOCKED"
   },
-  "artifacts": [
-    "release-artifacts/final-round/comhost-static-baseline-postdeploy-20260904.json",
-    "release-artifacts/final-round/comhost-semantic-differential-postdeploy-20260904.json",
-    "release-artifacts/final-round/threat-report-agent-api-sbom-20260904.json",
-    "release-artifacts/final-round/threat-report-agent-api-cve-scan-20260904.json",
-    ".scratch/final-completion-live-20260904/comhost-task-view-d114e2d4.json",
-    ".scratch/final-completion-live-20260903/comhost-model-actions.json",
-    ".scratch/final-completion-live-20260903/comhost-coverage.json",
-    "release-artifacts/final-round/final-completion-local-gate-20260903.json"
+  "artifact_manifest": [
+    {
+      "path": "release-artifacts/final-round/comhost-static-baseline-postdeploy-20260904.json",
+      "artifact_sha256": "c61a410f1b98c56b16e2dea75f85b3ba1a89e190a5e97228dfc42e9396886058",
+      "git_commit": "e152aabc1c416346afe99776a066aa89a580e466",
+      "git_tree": "0b05069cc275d35d9035ba23a85670a7cc620994",
+      "generated_at": "2026-09-03T17:28:06.272464+00:00",
+      "configuration_fingerprint": "27c2085dc8b6308b7a081ddbc3176acee3bd502223ac673212e571da4f1d8167",
+      "sample_sha256": "b405a781dbf24a6f6429f122b40b06c9158d78480d6bca4c8fe5db9d74e8f7e1",
+      "case_id": "7fb21010-8489-4d37-894a-3891807930e2",
+      "task_id": "d114e2d4-1de2-4770-aab0-82fff16e0d5f",
+      "session_id": null,
+      "event_cursor_range": null,
+      "redaction_status": "redacted",
+      "metadata_status": "PARTIAL",
+      "missing_fields": [
+        "session_id",
+        "event_cursor_range"
+      ],
+      "evaluator_only": false
+    },
+    {
+      "path": "release-artifacts/final-round/comhost-semantic-differential-postdeploy-20260904.json",
+      "artifact_sha256": "8ac57b16e8df4bbf6e869af7c89e32fdc020597b0ff2b3672628b2735e50e4a5",
+      "git_commit": "e152aabc1c416346afe99776a066aa89a580e466",
+      "git_tree": "0b05069cc275d35d9035ba23a85670a7cc620994",
+      "generated_at": "2026-09-03T17:28:06.272464+00:00",
+      "configuration_fingerprint": "27c2085dc8b6308b7a081ddbc3176acee3bd502223ac673212e571da4f1d8167",
+      "sample_sha256": "b405a781dbf24a6f6429f122b40b06c9158d78480d6bca4c8fe5db9d74e8f7e1",
+      "case_id": "7fb21010-8489-4d37-894a-3891807930e2",
+      "task_id": "d114e2d4-1de2-4770-aab0-82fff16e0d5f",
+      "session_id": null,
+      "event_cursor_range": null,
+      "redaction_status": "evaluator-only",
+      "metadata_status": "PARTIAL",
+      "missing_fields": [
+        "session_id",
+        "event_cursor_range"
+      ],
+      "evaluator_only": true
+    },
+    {
+      "path": "release-artifacts/final-round/threat-report-agent-api-sbom-20260904.json",
+      "artifact_sha256": "b3b132e4051e85b1bb30678fb4599e8bd0b691045c2de6f75211e0248010464c",
+      "git_commit": "e152aabc1c416346afe99776a066aa89a580e466",
+      "git_tree": "0b05069cc275d35d9035ba23a85670a7cc620994",
+      "generated_at": "2026-09-03T17:28:06.272464+00:00",
+      "configuration_fingerprint": "27c2085dc8b6308b7a081ddbc3176acee3bd502223ac673212e571da4f1d8167",
+      "sample_sha256": null,
+      "case_id": null,
+      "task_id": null,
+      "session_id": null,
+      "event_cursor_range": null,
+      "redaction_status": "redacted",
+      "metadata_status": "PARTIAL",
+      "missing_fields": [
+        "sample_sha256",
+        "case_id",
+        "task_id",
+        "session_id",
+        "event_cursor_range"
+      ],
+      "evaluator_only": false
+    },
+    {
+      "path": "release-artifacts/final-round/threat-report-agent-api-cve-scan-20260904.json",
+      "artifact_sha256": "a4e179f6e62ceb4072a4d657203379a15bd1d5c354bd3e8ae8a76f64471ee57e",
+      "git_commit": "e152aabc1c416346afe99776a066aa89a580e466",
+      "git_tree": "0b05069cc275d35d9035ba23a85670a7cc620994",
+      "generated_at": "2026-09-03T17:28:06.272464+00:00",
+      "configuration_fingerprint": "27c2085dc8b6308b7a081ddbc3176acee3bd502223ac673212e571da4f1d8167",
+      "sample_sha256": null,
+      "case_id": null,
+      "task_id": null,
+      "session_id": null,
+      "event_cursor_range": null,
+      "redaction_status": "redacted",
+      "metadata_status": "PARTIAL",
+      "missing_fields": [
+        "sample_sha256",
+        "case_id",
+        "task_id",
+        "session_id",
+        "event_cursor_range"
+      ],
+      "evaluator_only": false
+    }
   ],
   "blockers": [
-    "Fresh ComHost static run is PARTIAL and C1-C4 are not all SUPPORTED or VERIFIED.",
-    "The configured real model provider failed; no attributable model Evidence delta was produced.",
-    "Only one fresh ComHost run is available; three consecutive runs are not proven.",
-    "Browser, long-turn, context-pressure, restart/recovery, concurrency, and 24-hour soak evidence are absent.",
-    "The commit is locally identified, but no trusted remote provenance/signature is available for release freeze.",
-    "External held-out corpus and independent review approvals are absent."
+    "Fresh ComHost static semantic gate is not closed: critical C1-C4 are not all supported or verified.",
+    "Real model contribution is not proven; the configured provider returned HTTP 402 and no fallback is configured.",
+    "Browser, recovery, replay, concurrency, soak, held-out corpus, CVE, hardening and independent-review evidence is absent.",
+    "CVE scan is blocked or incomplete."
   ]
 }
