@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import mmap
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 import subprocess
@@ -23,6 +24,10 @@ FINAL_ROUND = ROOT / "release-artifacts" / "final-round"
 DEFAULT_OUTPUT = FINAL_ROUND / "final-completion-stage-gate-generated.json"
 DEFAULT_TASK_VIEW_PATH = ROOT / ".scratch" / "final-completion-live-20260904" / "comhost-task-view-d114e2d4.json"
 DEFAULT_BASELINE_PATH = FINAL_ROUND / "comhost-static-baseline-postdeploy-20260904.json"
+DEFAULT_ISSUE_REGISTER_PATH = FINAL_ROUND / "issue-register-20260904.json"
+
+_SOURCE_TIMESTAMP_RE = re.compile(rb'"generated_at"\s*:\s*"([^"\\]+)"')
+_MISSING = object()
 
 # These names are the release-facing contract from the Final Completion plan.
 # Internal gate names may be added, but they must not replace these fields.
@@ -151,6 +156,226 @@ def _git_succeeds(*args: str) -> bool:
     except (OSError, subprocess.CalledProcessError):
         return False
     return True
+
+
+def _source_timestamp(path: Path) -> str | None:
+    """Return the source artifact timestamp without loading large JSON files.
+
+    Acceptance artifacts normally carry ``generated_at``.  For a large task
+    projection, inspect only a bounded prefix and fall back to the filesystem
+    modification time.  The gate separately records when it ingested the
+    artifact, so these two times cannot be confused.
+    """
+    try:
+        with path.open("rb") as handle:
+            prefix = handle.read(256 * 1024)
+        match = _SOURCE_TIMESTAMP_RE.search(prefix)
+        if match:
+            return match.group(1).decode("utf-8", errors="replace")
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
+    except (OSError, ValueError):
+        return None
+
+
+def _mapping(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _first_value(mapping: dict[str, Any], *keys: str) -> object:
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            return mapping[key]
+    return _MISSING
+
+
+def _number(value: object) -> float | None:
+    if value is _MISSING or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _rate_percent(value: object) -> float | None:
+    number = _number(value)
+    if number is None:
+        return None
+    return number * 100 if 0 <= number <= 1 else number
+
+
+def _bool_metric(value: object) -> bool | None:
+    if value is _MISSING or value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "pass", "passed", "yes", "verified", "supported"}:
+            return True
+        if normalized in {"false", "fail", "failed", "no", "blocked", "unknown"}:
+            return False
+    return None
+
+
+def _metric_sources(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    for key in ("metrics", "acceptance", "acceptance_metrics", "coverage", "wave_b", "wave_c"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            sources.append(value)
+    metrics = _mapping(payload.get("metrics"))
+    for key in ("report_depth", "analysis_depth", "thresholds", "behavior_flow", "decoder", "xor_negative_control", "pe_role_distinction"):
+        value = metrics.get(key)
+        if isinstance(value, dict):
+            sources.append(value)
+    sources.append(payload)
+    return sources
+
+
+def _metric(payload: dict[str, Any], *keys: str) -> object:
+    for source in _metric_sources(payload):
+        value = _first_value(source, *keys)
+        if value is not _MISSING:
+            return value
+    return _MISSING
+
+
+def _wave_b_assessment(payload: dict[str, Any]) -> dict[str, Any]:
+    """Evaluate the explicit static-semantic acceptance thresholds.
+
+    This evaluator is intentionally conservative: an absent metric is a
+    missing proof, never an implicit pass.  It accepts both fraction and
+    percentage encodings for rates because historical artifacts used both.
+    """
+    checks: dict[str, dict[str, Any]] = {}
+
+    def rate_check(name: str, keys: tuple[str, ...], minimum: float | None = None, maximum: float | None = None) -> None:
+        raw = _metric(payload, *keys)
+        value = _rate_percent(raw)
+        passed = value is not None and (minimum is None or value >= minimum) and (maximum is None or value <= maximum)
+        checks[name] = {"value": value, "raw": None if raw is _MISSING else raw, "minimum": minimum, "maximum": maximum, "status": "PASS" if passed else "BLOCKED"}
+
+    rate_check("high_value_seed_closure", ("high_value_seed_closure_rate", "seed_closure_rate"), minimum=90)
+    rate_check("candidate_noise", ("candidate_noise_ratio", "candidate_noise_rate"), maximum=20)
+    rate_check("critical_mechanism_completeness", ("critical_mechanism_completeness", "mechanism_completeness"), minimum=80)
+    rate_check("api_argument_coverage", ("recoverable_api_argument_coverage", "api_argument_coverage", "argument_coverage"), minimum=80)
+
+    unresolved_raw = _metric(payload, "visible_unresolved_candidates", "unresolved_candidates", "candidate_count_unresolved")
+    unresolved = _number(unresolved_raw)
+    checks["visible_unresolved_candidates"] = {
+        "value": unresolved,
+        "raw": None if unresolved_raw is _MISSING else unresolved_raw,
+        "maximum": 8,
+        "status": "PASS" if unresolved is not None and unresolved <= 8 else "BLOCKED",
+    }
+
+    nodes_raw = _metric(payload, "behavior_flow_nodes", "semantic_flow_nodes", "flow_nodes", "nodes")
+    edges_raw = _metric(payload, "behavior_flow_edges", "semantic_flow_edges", "flow_edges", "edges")
+    nodes = _number(nodes_raw)
+    edges = _number(edges_raw)
+    checks["behavior_flow"] = {
+        "nodes": nodes,
+        "edges": edges,
+        "minimum_nodes": 4,
+        "minimum_edges": 3,
+        "status": "PASS" if nodes is not None and edges is not None and nodes >= 4 and edges >= 3 else "BLOCKED",
+    }
+
+    decoder_raw = _metric(payload, "decoder_replay", "decoder_replay_verified", "deterministic_decoder_replay")
+    xor_raw = _metric(payload, "xor_negative_control", "xor_negative_control_pass", "xor_decoder_positives")
+    pe_raw = _metric(payload, "pe_role_distinction", "pe_roles_distinct", "pe_classification_roles_distinct")
+    decoder = _bool_metric(decoder_raw)
+    xor = _bool_metric(xor_raw)
+    if isinstance(xor_raw, (int, float)) and not isinstance(xor_raw, bool):
+        xor = float(xor_raw) == 0
+    pe = _bool_metric(pe_raw)
+    checks["decoder_replay"] = {"value": decoder, "status": "PASS" if decoder is True else "BLOCKED"}
+    checks["xor_negative_control"] = {"value": xor, "status": "PASS" if xor is True else "BLOCKED"}
+    checks["pe_role_distinction"] = {"value": pe, "status": "PASS" if pe is True else "BLOCKED"}
+    failures = [name for name, result in checks.items() if result.get("status") != "PASS"]
+    return {"status": "PASS" if not failures else "BLOCKED", "checks": checks, "failures": failures}
+
+
+_REPORT_REQUIRED_FIELDS = (
+    "input",
+    "transformation",
+    "condition",
+    "output",
+    "consumer",
+    "evidence",
+    "alternative_hypothesis",
+    "static_boundary",
+    "function_rva",
+    "critical_arguments",
+)
+
+
+def _report_depth_assessment(payload: dict[str, Any]) -> dict[str, Any]:
+    metrics = _mapping(payload.get("metrics"))
+    report_depth = _mapping(metrics.get("report_depth"))
+    score_raw = _first_value(report_depth, "score")
+    if score_raw is _MISSING:
+        score_raw = _first_value(metrics, "report_depth_score", "score")
+    score = _number(score_raw)
+    findings = payload.get("core_findings") or payload.get("findings") or metrics.get("core_findings")
+    failures: list[str] = []
+    if score is None or score < 80:
+        failures.append("report_score")
+    if not isinstance(findings, list) or len(findings) < 5:
+        failures.append("five_core_findings")
+        finding_results: list[dict[str, Any]] = []
+    else:
+        finding_results = []
+        for index, finding in enumerate(findings[:5]):
+            row = _mapping(finding)
+            missing = [field for field in _REPORT_REQUIRED_FIELDS if not row.get(field) and not row.get(field.replace("_", " "))]
+            finding_results.append({"index": index, "missing": missing, "status": "PASS" if not missing else "BLOCKED"})
+            if missing:
+                failures.append(f"finding_{index + 1}")
+    return {
+        "status": "PASS" if not failures else "BLOCKED",
+        "score": score,
+        "threshold": 80,
+        "finding_results": finding_results,
+        "failures": failures,
+    }
+
+
+def _project_acceptance_status(key: str, status: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    """Normalize source statuses and enforce metric-bearing Wave B/C gates."""
+    normalized = status.upper()
+    if normalized in {"NOT_PROVEN", "MISSING"}:
+        return "NOT_PROVEN", None
+    if key == "analysis_depth_gate":
+        assessment = _wave_b_assessment(payload)
+        if normalized not in {"PASS", "APPROVED"}:
+            return "BLOCKED", assessment
+        return assessment["status"], assessment
+    if key == "report_depth_gate":
+        assessment = _report_depth_assessment(payload)
+        if normalized not in {"PASS", "APPROVED"}:
+            return "BLOCKED", assessment
+        return assessment["status"], assessment
+    if normalized not in {"PASS", "APPROVED"}:
+        return "BLOCKED", None
+    if key == "three_consecutive_comhost_runs":
+        results = payload.get("results")
+        if not isinstance(results, list) or len(results) < 3:
+            return "BLOCKED", {"status": "BLOCKED", "failures": ["three_runs"]}
+    if key == "resume_regression":
+        # A baseline PASS is not a regression proof. Require explicit
+        # regression metrics or a named mechanism assertion.
+        regression = payload.get("regression") or payload.get("metrics")
+        if not isinstance(regression, dict) or not (
+            regression.get("required_mechanisms")
+            or regression.get("mechanism_results")
+            or regression.get("positive_mechanisms")
+        ):
+            return "BLOCKED", {"status": "BLOCKED", "failures": ["resume_regression_assertions"]}
+    return "PASS", None
 
 
 def _image_digest() -> str | None:
@@ -286,12 +511,17 @@ def _artifact_metadata(
         display_path = resolved_path.relative_to(ROOT).as_posix()
     except ValueError:
         display_path = str(resolved_path)
+    source_generated_at = _source_timestamp(path)
     return {
         "path": display_path,
         "artifact_sha256": _sha256(path),
         "git_commit": commit,
         "git_tree": tree,
-        "generated_at": generated_at,
+        # ``generated_at`` is retained for compatibility but now refers to
+        # the source artifact.  ``ingested_at`` records when this gate read it.
+        "generated_at": source_generated_at,
+        "source_generated_at": source_generated_at,
+        "ingested_at": generated_at,
         "configuration_fingerprint": config_fingerprint,
         "sample_sha256": sample_sha256,
         "case_id": case_id,
@@ -332,6 +562,7 @@ def build_gate(
     production_hardening_path: Path | None = None,
     independent_reviews_path: Path | None = None,
     resume_regression_path: Path | None = None,
+    issue_register_path: Path | None = None,
 ) -> dict[str, Any]:
     generated_at = datetime.now(UTC).isoformat()
     baseline = _load(baseline_path)
@@ -373,9 +604,55 @@ def build_gate(
         and baseline_tree == tree
     )
     image_digest = _image_digest()
-    source_worktree_clean = _git_succeeds(
-        "diff", "--quiet", "--", "benchmarks", "docs", "scripts", "src", "tests"
+    # ``git diff --quiet`` ignores untracked implementation files.  Include
+    # untracked paths in the release cleanliness check so a new source file
+    # cannot be silently omitted from the identity being certified.
+    source_status = _git(
+        "status",
+        "--porcelain=1",
+        "--untracked-files=all",
+        "--",
+        "benchmarks",
+        "docs",
+        "scripts",
+        "src",
+        "tests",
     )
+    source_worktree_clean = source_status == ""
+
+    issue_counts: dict[str, int | None] = {"open_p0": None, "open_p1": None}
+    issue_register_error: str | None = None
+    if issue_register_path is None:
+        issue_register_error = "P0/P1 issue register evidence is not supplied."
+    elif not issue_register_path.exists():
+        issue_register_error = f"P0/P1 issue register evidence file is missing: {issue_register_path}."
+    else:
+        try:
+            issue_payload = _load(issue_register_path)
+            identity_error = _identity_error(
+                issue_payload,
+                label="P0/P1 issue register",
+                commit=commit,
+                tree=tree,
+            )
+            if identity_error:
+                issue_register_error = identity_error
+            else:
+                for severity in ("p0", "p1"):
+                    raw = _first_value(
+                        issue_payload,
+                        f"open_{severity}",
+                        f"{severity}_open",
+                        severity,
+                    )
+                    if raw is not _MISSING:
+                        count = _number(raw)
+                        if count is not None and count >= 0 and count.is_integer():
+                            issue_counts[f"open_{severity}"] = int(count)
+                if any(value is None for value in issue_counts.values()):
+                    issue_register_error = "P0/P1 issue register is missing integer open_p0/open_p1 counts."
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            issue_register_error = f"P0/P1 issue register evidence is invalid: {exc}."
 
     # Optional acceptance artifacts are evaluated independently. Their
     # statuses are projected into the final dashboard only after the artifact
@@ -411,6 +688,14 @@ def build_gate(
         evidence_payloads[key] = payload
         if error:
             evidence_blockers.append(error)
+
+    projected_statuses: dict[str, str] = {}
+    acceptance_assessments: dict[str, dict[str, Any]] = {}
+    for key, status in evidence_statuses.items():
+        projected, assessment = _project_acceptance_status(key, status, evidence_payloads[key])
+        projected_statuses[key] = projected
+        if assessment is not None:
+            acceptance_assessments[key] = assessment
 
     # Verification artifacts are release evidence only when they are bound to
     # this exact source checkout.  Keep a separate status projection so a
@@ -467,11 +752,16 @@ def build_gate(
     )
 
     pytest_gate_status = "PASS"
-    blockers = [
-        "Fresh ComHost static semantic gate is not closed: critical C1-C4 are not all supported or verified.",
-        "Real model contribution is not proven; the configured provider returned HTTP 402 and no fallback is configured.",
-        "Required browser, recovery, replay, concurrency, soak, held-out corpus, hardening and independent-review evidence is incomplete or not proven for this release.",
-    ]
+    blockers: list[str] = []
+    if not critical_closed:
+        blockers.append(
+            "Fresh ComHost static semantic gate is not closed: critical C1-C4 are not all supported or verified."
+        )
+    model_status = projected_statuses.get("model_action_productivity_real_provider", "NOT_PROVEN")
+    if model_status not in {"PASS", "APPROVED"}:
+        blockers.append(
+            "Real model contribution is not proven; the model-effectiveness evidence is missing, blocked or below threshold."
+        )
     if not commit or not tree:
         blockers.append("Trusted Git commit/tree identity is unavailable.")
     if not image_digest:
@@ -510,7 +800,7 @@ def build_gate(
     missing_acceptance = [
         label
         for key, (_, label) in evidence_specs.items()
-        if evidence_statuses.get(key) == "NOT_PROVEN"
+        if projected_statuses.get(key) == "NOT_PROVEN"
     ]
     if missing_acceptance:
         blockers.append(
@@ -519,9 +809,9 @@ def build_gate(
             + "."
         )
     nonpassing_acceptance = [
-        f"{label}={evidence_statuses.get(key)}"
+        f"{label}={projected_statuses.get(key)}"
         for key, (_, label) in evidence_specs.items()
-        if evidence_statuses.get(key) not in {"PASS", "APPROVED", "NOT_PROVEN"}
+        if projected_statuses.get(key) not in {"PASS", "APPROVED", "NOT_PROVEN"}
     ]
     if nonpassing_acceptance:
         blockers.append(
@@ -530,6 +820,17 @@ def build_gate(
             + "."
         )
     blockers.extend(evidence_blockers)
+    if issue_register_error:
+        blockers.append(issue_register_error)
+    if issue_counts["open_p0"] not in (None, 0):
+        blockers.append(f"P0 issue register reports {issue_counts['open_p0']} open issue(s).")
+    if issue_counts["open_p1"] not in (None, 0):
+        blockers.append(f"P1 issue register reports {issue_counts['open_p1']} open issue(s).")
+    for key, assessment in acceptance_assessments.items():
+        if assessment.get("status") == "BLOCKED":
+            failures = assessment.get("failures") or []
+            if failures:
+                blockers.append(f"{key} acceptance checks failed or are missing: {', '.join(map(str, failures))}.")
 
     if pytest_summary_path is not None:
         summary = _load(pytest_summary_path)
@@ -555,25 +856,25 @@ def build_gate(
         "schema_migration_deadlock_regression": "PASS",
         "unit_and_integration_tests": f"{pytest_gate_status} ({pytest_summary or 'pytest summary not supplied'})",
         "readiness_probe": "PASS (/readyz=200, database=ok)",
-        "seeded_c1_c4_l1": evidence_statuses["seeded_c1_c4_l1"],
+        "seeded_c1_c4_l1": projected_statuses["seeded_c1_c4_l1"],
         "real_comhost_l2": "PASS" if critical_closed else "BLOCKED",
-        "model_action_productivity_real_provider": evidence_statuses["model_action_productivity_real_provider"],
-        "three_consecutive_comhost_runs": evidence_statuses["three_consecutive_comhost_runs"],
-        "resume_regression": evidence_statuses["resume_regression"],
-        "browser_e2e": evidence_statuses["browser_e2e"],
-        "context_stress": evidence_statuses["context_stress"],
-        "failure_injection_and_recovery": evidence_statuses["failure_injection_and_recovery"],
-        "concurrency": evidence_statuses["concurrency"],
-        "soak_24h": evidence_statuses["soak_24h"],
-        "generalization_corpus": evidence_statuses["generalization_corpus"],
-        "production_hardening": evidence_statuses["production_hardening"],
-        "independent_reviews": evidence_statuses["independent_reviews"],
+        "model_action_productivity_real_provider": projected_statuses["model_action_productivity_real_provider"],
+        "three_consecutive_comhost_runs": projected_statuses["three_consecutive_comhost_runs"],
+        "resume_regression": projected_statuses["resume_regression"],
+        "browser_e2e": projected_statuses["browser_e2e"],
+        "context_stress": projected_statuses["context_stress"],
+        "failure_injection_and_recovery": projected_statuses["failure_injection_and_recovery"],
+        "concurrency": projected_statuses["concurrency"],
+        "soak_24h": projected_statuses["soak_24h"],
+        "generalization_corpus": projected_statuses["generalization_corpus"],
+        "production_hardening": projected_statuses["production_hardening"],
+        "independent_reviews": projected_statuses["independent_reviews"],
     }
     status_projection = {
-        "agentic_mechanism_effectiveness": evidence_statuses["model_action_productivity_real_provider"],
+        "agentic_mechanism_effectiveness": projected_statuses["model_action_productivity_real_provider"],
         "comhost_c1_c4": gates["real_comhost_l2"],
-        "analysis_depth_gate": evidence_statuses["analysis_depth_gate"],
-        "report_depth_gate": evidence_statuses["report_depth_gate"],
+        "analysis_depth_gate": projected_statuses["analysis_depth_gate"],
+        "report_depth_gate": projected_statuses["report_depth_gate"],
         "browser_e2e": gates["browser_e2e"],
         "generalization": gates["generalization_corpus"],
         "recovery": gates["failure_injection_and_recovery"],
@@ -690,6 +991,27 @@ def build_gate(
                 ],
             )
         )
+    if issue_register_path is not None and issue_register_path.exists():
+        artifact_manifest.append(
+            _artifact_metadata(
+                issue_register_path,
+                generated_at=generated_at,
+                commit=commit,
+                tree=tree,
+                config_fingerprint=config_fingerprint,
+                sample_sha256=None,
+                case_id=None,
+                task_id=None,
+                evaluator_only=False,
+                missing_fields=[
+                    "sample_sha256",
+                    "case_id",
+                    "task_id",
+                    "session_id",
+                    "event_cursor_range",
+                ],
+            )
+        )
     manifest_paths = {str(item.get("path")) for item in artifact_manifest}
     for key, (evidence_path, _label) in evidence_specs.items():
         if evidence_path is None or not evidence_path.exists():
@@ -737,15 +1059,31 @@ def build_gate(
         semantic_artifact_path = semantic_path.relative_to(ROOT).as_posix()
     except ValueError:
         semantic_artifact_path = str(semantic_path.resolve())
+    formal_statuses = [status_projection[field] for field in FORMAL_GATE_FIELDS if field not in {"open_p0", "open_p1"}]
+    release_pass = (
+        not blockers
+        and all(status in {"PASS", "APPROVED"} for status in formal_statuses)
+        and issue_counts["open_p0"] == 0
+        and issue_counts["open_p1"] == 0
+        and cve.get("status") == "PASS"
+        and sbom_status == "PASS"
+        and ruff_status == "PASS"
+        and compileall_status == "PASS"
+        and format_debt_status == "PASS"
+        and baseline_identity_match
+        and bool(image_digest)
+        and source_worktree_clean
+        and pytest_gate_status == "PASS"
+    )
     payload = {
         "schema_version": "final-completion-stage-gate-v3",
         "generated_at": generated_at,
         "evidence_policy": "verified-local-evidence-only",
-        "status": "BLOCKED",
-        "production_ready": False,
+        "status": "PASS" if release_pass else "BLOCKED",
+        "production_ready": release_pass,
         "blocker_count": len(blockers),
-        "open_p0": 0,
-        "open_p1": 0,
+        "open_p0": issue_counts["open_p0"],
+        "open_p1": issue_counts["open_p1"],
         **status_projection,
         "release_identity": {
             "git_commit": commit,
@@ -784,6 +1122,7 @@ def build_gate(
             "semantic_artifact": semantic_artifact_path,
         },
         "gates": gates,
+        "acceptance_assessments": acceptance_assessments,
         "verification": {
             "pytest": pytest_summary or "NOT_SUPPLIED (run pytest separately)",
             "ruff": ruff_status,
@@ -819,6 +1158,7 @@ def main() -> int:
     parser.add_argument("--production-hardening", type=Path)
     parser.add_argument("--independent-reviews", type=Path)
     parser.add_argument("--resume-regression", type=Path)
+    parser.add_argument("--issue-register", type=Path)
     args = parser.parse_args()
     # The command-line form is the release operator's entry point.  Bind each
     # optional acceptance input to its canonical artifact location so a normal
@@ -840,6 +1180,7 @@ def main() -> int:
         "production_hardening": ROOT / "release-artifacts" / "round11.2" / "production-hardening.json",
         "independent_reviews": ROOT / "release-artifacts" / "round11.2" / "independent-reviews.json",
         "resume_regression": FINAL_ROUND / "resume-static-baseline-20260904.json",
+        "issue_register": DEFAULT_ISSUE_REGISTER_PATH,
     }
 
     def selected(name: str) -> Path | None:
@@ -864,6 +1205,7 @@ def main() -> int:
         production_hardening_path=selected("production_hardening"),
         independent_reviews_path=selected("independent_reviews"),
         resume_regression_path=selected("resume_regression"),
+        issue_register_path=selected("issue_register"),
     )
     validate_gate_schema(payload)
     args.output.parent.mkdir(parents=True, exist_ok=True)

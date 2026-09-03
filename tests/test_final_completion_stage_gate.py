@@ -8,6 +8,7 @@ from scripts.final_completion_stage_gate import (
     FORMAL_GATE_FIELDS,
     _git,
     _load_task_view_metadata,
+    _project_acceptance_status,
     build_gate,
     validate_gate_schema,
 )
@@ -362,3 +363,82 @@ def test_large_task_projection_uses_bounded_metadata_mode(tmp_path) -> None:
     assert metadata["_metadata_only"] is True
     assert metadata["case_id"] == "case-large"
     assert metadata["request_snapshot"]["sample_package"]["content_sha256"] == "a" * 64
+
+
+def test_wave_b_requires_all_static_thresholds_and_negative_controls() -> None:
+    payload = {
+        "metrics": {
+            "high_value_seed_closure_rate": 0.95,
+            "candidate_noise_ratio": 0.10,
+            "mechanism_completeness": 0.90,
+            "recoverable_api_argument_coverage": 0.85,
+            "visible_unresolved_candidates": 4,
+            "behavior_flow_nodes": 5,
+            "behavior_flow_edges": 4,
+            "decoder_replay": True,
+            "xor_negative_control": True,
+            "pe_role_distinction": True,
+        }
+    }
+
+    status, assessment = _project_acceptance_status("analysis_depth_gate", "PASS", payload)
+
+    assert status == "PASS"
+    assert assessment is not None
+    assert assessment["failures"] == []
+
+
+def test_wave_b_missing_argument_coverage_cannot_pass() -> None:
+    payload = {
+        "metrics": {
+            "high_value_seed_closure_rate": 0.95,
+            "candidate_noise_ratio": 0.10,
+            "mechanism_completeness": 0.90,
+            "visible_unresolved_candidates": 4,
+            "behavior_flow_nodes": 5,
+            "behavior_flow_edges": 4,
+            "decoder_replay": True,
+            "xor_negative_control": True,
+            "pe_role_distinction": True,
+        }
+    }
+
+    status, assessment = _project_acceptance_status("analysis_depth_gate", "PASS", payload)
+
+    assert status == "BLOCKED"
+    assert assessment is not None
+    assert "api_argument_coverage" in assessment["failures"]
+
+
+def test_report_depth_requires_score_and_five_how_complete_findings() -> None:
+    finding = {
+        "input": "buffer",
+        "transformation": "decode",
+        "condition": "length > 0",
+        "output": "plaintext",
+        "consumer": "loader",
+        "evidence": ["e1"],
+        "alternative_hypothesis": "benign parser",
+        "static_boundary": "runtime not observed",
+        "function_rva": "0x1234",
+        "critical_arguments": {"size": "r1"},
+    }
+    payload = {"metrics": {"report_depth": {"score": 85}}, "core_findings": [finding] * 5}
+
+    status, assessment = _project_acceptance_status("report_depth_gate", "PASS", payload)
+
+    assert status == "PASS"
+    assert assessment is not None
+    assert assessment["finding_results"][-1]["status"] == "PASS"
+
+
+def test_three_run_and_resume_baseline_are_not_implicitly_certified() -> None:
+    status, assessment = _project_acceptance_status(
+        "three_consecutive_comhost_runs", "PASS", {"results": [{"status": "PASS"}]}
+    )
+    assert status == "BLOCKED"
+    assert assessment == {"status": "BLOCKED", "failures": ["three_runs"]}
+
+    status, assessment = _project_acceptance_status("resume_regression", "PASS", {"status": "PASS"})
+    assert status == "BLOCKED"
+    assert assessment == {"status": "BLOCKED", "failures": ["resume_regression_assertions"]}
