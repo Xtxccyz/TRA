@@ -101,6 +101,7 @@ def test_final_gate_has_plan_schema_projection_and_preserves_blockers(tmp_path) 
     assert len(gate["artifact_manifest"]) == 6
     assert all(isinstance(item, dict) for item in gate["artifact_manifest"])
     assert any("CVE" in item for item in gate["blockers"])
+    assert any("Release artifact metadata is incomplete" in item for item in gate["blockers"])
     assert gate["blocker_count"] == len(gate["blockers"])
 
 
