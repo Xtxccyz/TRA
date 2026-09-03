@@ -285,7 +285,12 @@ def build_gate(
             "source_sample_sha256": sample_sha256,
             "fresh_task_id": task_id,
             "fresh_case_id": case_id,
-            "working_tree_clean": _git_succeeds("diff", "--quiet"),
+            # The gate itself is an evidence artifact and may be rewritten
+            # after the source commit.  Check the implementation paths so its
+            # own pending diff does not make a clean source tree look dirty.
+            "source_worktree_clean": _git_succeeds(
+                "diff", "--quiet", "--", "benchmarks", "docs", "scripts", "src", "tests"
+            ),
         },
         "execution_boundary": {
             "sample_execution": False,
