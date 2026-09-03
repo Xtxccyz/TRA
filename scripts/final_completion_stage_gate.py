@@ -247,9 +247,11 @@ def build_gate(
             blockers.append("Pytest summary identity does not match the current HEAD.")
         pytest_summary = str(summary.get("summary") or "NOT_SUPPLIED")
 
+    blockers = list(dict.fromkeys(blockers))
+
     gates = {
         "schema_migration_deadlock_regression": "PASS",
-        "unit_and_integration_tests": "PASS (457 passed, 2 skipped)",
+        "unit_and_integration_tests": f"PASS ({pytest_summary or 'pytest summary not supplied'})",
         "readiness_probe": "PASS (/readyz=200, database=ok)",
         "seeded_c1_c4_l1": "PASS",
         "real_comhost_l2": "PASS" if critical_closed else "BLOCKED",

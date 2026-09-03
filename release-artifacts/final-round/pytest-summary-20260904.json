@@ -1,0 +1,15 @@
+{
+  "schema_version": "pytest-summary-v1",
+  "status": "PASS",
+  "summary": "460 passed, 2 skipped (2026-09-04)",
+  "passed": 460,
+  "skipped": 2,
+  "failed": 0,
+  "duration_seconds": 40.03,
+  "git_commit": "147723c5af3cf67451c629eb47040ba013d99d64",
+  "git_tree": "389c885581ff87a900df8d60c70c1ad9fbf5a04a",
+  "generated_at": "2026-09-03T17:49:30.1446858Z",
+  "command": "python -m pytest -q",
+  "sample_execution": false,
+  "sample_network_access": false
+}

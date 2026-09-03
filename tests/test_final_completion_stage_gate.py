@@ -115,6 +115,7 @@ def test_final_gate_uses_current_pytest_summary_and_rejects_stale_identity(tmp_p
     )
 
     assert gate["verification"]["pytest"] == "457 passed, 2 skipped (2026-09-04)"
+    assert gate["gates"]["unit_and_integration_tests"] == "PASS (457 passed, 2 skipped (2026-09-04))"
     assert any("Pytest summary identity" in item for item in gate["blockers"])
     assert gate["blocker_count"] == len(gate["blockers"])
 

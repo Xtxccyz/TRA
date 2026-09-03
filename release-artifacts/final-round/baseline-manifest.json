@@ -6,9 +6,9 @@
   "repository": {
     "root": "D:/threat report agent",
     "git_metadata_available": true,
-    "backend_commit": "347d22410025794642c33f9815db1e7a6407b017",
+    "backend_commit": "147723c5af3cf67451c629eb47040ba013d99d64",
     "dsh_commit": null,
-    "backend_tree": "2ff63e22763c6ca9d181e6e1f706c34ad85f3a07",
+    "backend_tree": "389c885581ff87a900df8d60c70c1ad9fbf5a04a",
     "note": "Git commit/tree, source hashes and image digests are recorded; DSH provenance remains unavailable."
   },
   "source_hashes_sha256": {
