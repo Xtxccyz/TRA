@@ -411,7 +411,7 @@ def _seeded_assessment(payload: dict[str, Any]) -> dict[str, Any]:
     question_raw = _metric(payload, "question_quality", "question_quality_passed", "questions_validated")
     question_pass = False
     if isinstance(question_raw, list):
-        question_pass = len(question_raw) >= 4 and all(_bool_metric(item) is not False for item in question_raw[:4])
+        question_pass = len(question_raw) >= 4 and all(_bool_metric(item) is True for item in question_raw[:4])
     else:
         question_number = _number(question_raw)
         question_pass = bool(question_number is not None and question_number >= 4) or _bool_metric(question_raw) is True

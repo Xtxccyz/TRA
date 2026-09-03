@@ -418,6 +418,23 @@ def test_seeded_pass_requires_wave_a_evidence_contract() -> None:
     assert "verifier_pass" in assessment["failures"]
 
 
+def test_seeded_question_quality_does_not_treat_unknown_entries_as_pass() -> None:
+    payload = {
+        "question_quality": [None, None, None, None],
+        "competing_hypotheses_applicable": True,
+        "useful_action": True,
+        "new_evidence": True,
+        "mechanism_completeness": 0.90,
+        "verifier_pass": True,
+        "unsupported_critical": 0,
+    }
+    status, assessment = _project_acceptance_status("seeded_c1_c4_l1", "PASS", payload)
+
+    assert status == "BLOCKED"
+    assert assessment is not None
+    assert "question_quality" in assessment["failures"]
+
+
 def test_wave_b_missing_argument_coverage_cannot_pass() -> None:
     payload = {
         "metrics": {
