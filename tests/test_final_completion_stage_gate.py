@@ -439,6 +439,30 @@ def test_report_depth_requires_score_and_five_how_complete_findings() -> None:
     assert assessment["finding_results"][-1]["status"] == "PASS"
 
 
+def test_report_depth_accepts_structured_how_aliases() -> None:
+    finding = {
+        "how": {
+            "input": "buffer",
+            "transformation": "decode",
+            "condition": "length > 0",
+            "output": "plaintext",
+            "consumer": "loader",
+            "static_boundary": "runtime not observed",
+        },
+        "evidence_ids": ["e1"],
+        "alternative": "benign parser",
+        "function": "decode_blob",
+        "rva": "0x1234",
+        "critical_args": {"size": "r1"},
+    }
+    payload = {"metrics": {"report_depth": {"score": 85}}, "findings": [finding] * 5}
+
+    status, assessment = _project_acceptance_status("report_depth_gate", "PASS", payload)
+
+    assert status == "PASS"
+    assert assessment is not None
+
+
 def test_three_run_and_resume_baseline_are_not_implicitly_certified() -> None:
     status, assessment = _project_acceptance_status(
         "three_consecutive_comhost_runs", "PASS", {"results": [{"status": "PASS"}]}

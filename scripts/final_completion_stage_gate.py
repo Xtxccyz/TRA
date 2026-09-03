@@ -333,7 +333,21 @@ def _report_depth_assessment(payload: dict[str, Any]) -> dict[str, Any]:
         finding_results = []
         for index, finding in enumerate(findings[:5]):
             row = _mapping(finding)
-            missing = [field for field in _REPORT_REQUIRED_FIELDS if not row.get(field) and not row.get(field.replace("_", " "))]
+            how = _mapping(row.get("how"))
+            aliases = {
+                "evidence": ("evidence_ids", "evidence_refs"),
+                "alternative_hypothesis": ("alternative", "alternatives"),
+                "static_boundary": ("limitations", "boundary"),
+                "function_rva": ("function", "rva", "function_id"),
+                "critical_arguments": ("critical_args", "arguments"),
+            }
+
+            def present(field: str) -> bool:
+                if row.get(field) or row.get(field.replace("_", " ")) or how.get(field):
+                    return True
+                return any(row.get(alias) for alias in aliases.get(field, ()))
+
+            missing = [field for field in _REPORT_REQUIRED_FIELDS if not present(field)]
             finding_results.append({"index": index, "missing": missing, "status": "PASS" if not missing else "BLOCKED"})
             if missing:
                 failures.append(f"finding_{index + 1}")
