@@ -107,6 +107,31 @@ def _baseline_identity(baseline: dict[str, Any]) -> tuple[str | None, str | None
     )
 
 
+def _identity_error(
+    payload: dict[str, Any],
+    *,
+    label: str,
+    commit: str | None,
+    tree: str | None,
+) -> str | None:
+    """Return a fail-closed identity error for a verification artifact.
+
+    A verification result is only evidence for this release when it records
+    both the commit and tree it checked and those values match the current
+    checkout.  Missing identity is intentionally not treated as legacy
+    compatibility: a PASS without provenance is not trustworthy evidence.
+    """
+    observed_commit = payload.get("git_commit")
+    observed_tree = payload.get("git_tree")
+    if not observed_commit or not observed_tree:
+        return f"{label} evidence is missing git_commit and/or git_tree identity."
+    if not commit or not tree:
+        return f"{label} evidence cannot be trusted because current HEAD/tree identity is unavailable."
+    if str(observed_commit) != commit or str(observed_tree) != tree:
+        return f"{label} evidence identity does not match the current HEAD/tree."
+    return None
+
+
 def validate_gate_schema(payload: dict[str, Any]) -> None:
     """Fail closed when the release-facing gate contract is malformed."""
     missing = sorted(FORMAL_GATE_FIELDS - payload.keys())
@@ -213,6 +238,36 @@ def build_gate(
     source_worktree_clean = _git_succeeds(
         "diff", "--quiet", "--", "benchmarks", "docs", "scripts", "src", "tests"
     )
+
+    # Verification artifacts are release evidence only when they are bound to
+    # this exact source checkout.  Keep a separate status projection so a
+    # stale/malformed PASS cannot be mistaken for a successful gate.
+    ruff_status = str(ruff.get("status") or "NOT_PROVEN")
+    compileall_status = str(compileall.get("status") or "NOT_PROVEN")
+    format_debt_status = str(format_debt.get("status") or "NOT_PROVEN")
+    verification_identity_blockers: list[str] = []
+    for label, artifact, artifact_path in (
+        ("Ruff", ruff, ruff_path),
+        ("compileall", compileall, compileall_path),
+        ("Ruff format-debt", format_debt, format_debt_path),
+    ):
+        if artifact_path is None or not artifact_path.exists():
+            continue
+        identity_error = _identity_error(
+            artifact,
+            label=label,
+            commit=commit,
+            tree=tree,
+        )
+        if identity_error:
+            verification_identity_blockers.append(identity_error)
+            if label == "Ruff" and ruff_status == "PASS":
+                ruff_status = "BLOCKED"
+            elif label == "compileall" and compileall_status == "PASS":
+                compileall_status = "BLOCKED"
+            elif label == "Ruff format-debt" and format_debt_status == "PASS":
+                format_debt_status = "BLOCKED"
+
     config_fingerprint = hashlib.sha256(
         json.dumps(
             {
@@ -238,6 +293,7 @@ def build_gate(
         status in {"SUPPORTED", "VERIFIED"} for status in critical_status.values()
     )
 
+    pytest_gate_status = "PASS"
     blockers = [
         "Fresh ComHost static semantic gate is not closed: critical C1-C4 are not all supported or verified.",
         "Real model contribution is not proven; the configured provider returned HTTP 402 and no fallback is configured.",
@@ -254,8 +310,9 @@ def build_gate(
             "Baseline manifest identity does not match the current HEAD/tree; "
             "a current release baseline is required."
         )
-    if format_debt.get("status") != "PASS":
+    if format_debt_status != "PASS":
         blockers.append("Ruff format-debt gate is missing or not PASS.")
+    blockers.extend(verification_identity_blockers)
 
     sbom_status = str(
         sbom.get("status")
@@ -266,8 +323,6 @@ def build_gate(
             else "NOT_PROVEN"
         )
     )
-    ruff_status = str(ruff.get("status") or "NOT_PROVEN")
-    compileall_status = str(compileall.get("status") or "NOT_PROVEN")
     if sbom_status != "PASS":
         blockers.append("SBOM evidence is missing or not PASS.")
     if ruff_status != "PASS":
@@ -281,16 +336,22 @@ def build_gate(
 
     if pytest_summary_path is not None:
         summary = _load(pytest_summary_path)
-        summary_commit = summary.get("git_commit")
-        if summary_commit and commit and summary_commit != commit:
-            blockers.append("Pytest summary identity does not match the current HEAD.")
+        summary_identity_error = _identity_error(
+            summary,
+            label="Pytest summary",
+            commit=commit,
+            tree=tree,
+        )
+        if summary_identity_error:
+            pytest_gate_status = "BLOCKED"
+            blockers.append(summary_identity_error)
         pytest_summary = str(summary.get("summary") or "NOT_SUPPLIED")
 
     blockers = list(dict.fromkeys(blockers))
 
     gates = {
         "schema_migration_deadlock_regression": "PASS",
-        "unit_and_integration_tests": f"PASS ({pytest_summary or 'pytest summary not supplied'})",
+        "unit_and_integration_tests": f"{pytest_gate_status} ({pytest_summary or 'pytest summary not supplied'})",
         "readiness_probe": "PASS (/readyz=200, database=ok)",
         "seeded_c1_c4_l1": "PASS",
         "real_comhost_l2": "PASS" if critical_closed else "BLOCKED",
@@ -479,7 +540,7 @@ def build_gate(
             "compileall": compileall_status,
             "sbom": sbom_status,
             "cve_scan": cve.get("status", "BLOCKED"),
-            "ruff_format_debt": format_debt.get("status", "BLOCKED"),
+            "ruff_format_debt": format_debt_status,
         },
         "artifact_manifest": artifact_manifest,
         "blockers": blockers,

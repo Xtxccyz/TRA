@@ -21,6 +21,21 @@ DEFAULT_TARGETS = ("src", "tests", "scripts", "benchmarks")
 DEFAULT_BASELINE = ROOT / "release-artifacts" / "final-round" / "ruff-format-debt-baseline.json"
 
 
+def _git(*args: str) -> str | None:
+    """Return a repository identity value, or None when Git is unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
 def parse_ruff_format_output(output: str) -> list[str]:
     """Extract normalized repository-relative paths from Ruff output."""
     paths: set[str] = set()
@@ -96,11 +111,15 @@ def main() -> int:
     args = parser.parse_args()
     targets = tuple(args.targets or DEFAULT_TARGETS)
     current_paths, raw_output = collect_format_debt(targets)
+    git_commit = _git("rev-parse", "HEAD")
+    git_tree = _git("rev-parse", "HEAD^{tree}")
     if args.write_baseline:
         payload = {
             "schema_version": "ruff-format-debt-baseline-v1",
             "status": "RECORDED",
             "generated_at": datetime.now(UTC).isoformat(),
+            "git_commit": git_commit,
+            "git_tree": git_tree,
             "targets": list(targets),
             "planned_count": 63,
             "observed_count": len(current_paths),
@@ -124,6 +143,8 @@ def main() -> int:
     result["baseline"] = str(args.baseline.resolve())
     result["targets"] = list(targets)
     result["checked_at"] = datetime.now(UTC).isoformat()
+    result["git_commit"] = git_commit
+    result["git_tree"] = git_tree
     result["raw_output_tail"] = raw_output[-2000:]
     if args.output:
         _write(args.output, result)

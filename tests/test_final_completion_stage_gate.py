@@ -128,7 +128,14 @@ def test_final_gate_uses_current_pytest_summary_and_rejects_stale_identity(tmp_p
         (cve, {"status": "BLOCKED"}),
     ):
         _write(path, value)
-    _write(summary, {"summary": "457 passed, 2 skipped (2026-09-04)", "git_commit": "stale"})
+    _write(
+        summary,
+        {
+            "summary": "457 passed, 2 skipped (2026-09-04)",
+            "git_commit": "stale",
+            "git_tree": "stale",
+        },
+    )
 
     gate = build_gate(
         baseline_path=baseline,
@@ -139,8 +146,8 @@ def test_final_gate_uses_current_pytest_summary_and_rejects_stale_identity(tmp_p
     )
 
     assert gate["verification"]["pytest"] == "457 passed, 2 skipped (2026-09-04)"
-    assert gate["gates"]["unit_and_integration_tests"] == "PASS (457 passed, 2 skipped (2026-09-04))"
-    assert any("Pytest summary identity" in item for item in gate["blockers"])
+    assert gate["gates"]["unit_and_integration_tests"] == "BLOCKED (457 passed, 2 skipped (2026-09-04))"
+    assert any("Pytest summary evidence" in item for item in gate["blockers"])
     assert gate["blocker_count"] == len(gate["blockers"])
 
 
@@ -206,4 +213,65 @@ def test_final_gate_fails_closed_when_verification_evidence_is_missing(tmp_path)
     assert any("SBOM evidence" in item for item in gate["blockers"])
     assert any("Ruff lint evidence" in item for item in gate["blockers"])
     assert any("compileall evidence" in item for item in gate["blockers"])
+    assert gate["blocker_count"] == len(gate["blockers"])
+
+
+def test_final_gate_fails_closed_when_format_debt_identity_is_missing(tmp_path) -> None:
+    baseline = tmp_path / "baseline.json"
+    semantic = tmp_path / "semantic.json"
+    sbom = tmp_path / "sbom.json"
+    cve = tmp_path / "cve.json"
+    format_debt = tmp_path / "format-debt.json"
+    for path, value in (
+        (baseline, {"results": [{}]}),
+        (semantic, {"summary": {}, "mechanisms": []}),
+        (sbom, {"status": "PASS"}),
+        (cve, {"status": "BLOCKED"}),
+        (format_debt, {"status": "PASS"}),
+    ):
+        _write(path, value)
+
+    gate = build_gate(
+        baseline_path=baseline,
+        semantic_path=semantic,
+        sbom_path=sbom,
+        cve_path=cve,
+        format_debt_path=format_debt,
+    )
+
+    assert gate["verification"]["ruff_format_debt"] == "BLOCKED"
+    assert any("Ruff format-debt evidence is missing" in item for item in gate["blockers"])
+    assert gate["blocker_count"] == len(gate["blockers"])
+
+
+def test_final_gate_fails_closed_when_ruff_or_compileall_tree_is_stale(tmp_path) -> None:
+    baseline = tmp_path / "baseline.json"
+    semantic = tmp_path / "semantic.json"
+    sbom = tmp_path / "sbom.json"
+    cve = tmp_path / "cve.json"
+    ruff = tmp_path / "ruff.json"
+    compileall = tmp_path / "compileall.json"
+    for path, value in (
+        (baseline, {"results": [{}]}),
+        (semantic, {"summary": {}, "mechanisms": []}),
+        (sbom, {"status": "PASS"}),
+        (cve, {"status": "BLOCKED"}),
+        (ruff, {"status": "PASS", "git_commit": "stale", "git_tree": "stale"}),
+        (compileall, {"status": "PASS", "git_commit": "stale", "git_tree": "stale"}),
+    ):
+        _write(path, value)
+
+    gate = build_gate(
+        baseline_path=baseline,
+        semantic_path=semantic,
+        sbom_path=sbom,
+        cve_path=cve,
+        ruff_path=ruff,
+        compileall_path=compileall,
+    )
+
+    assert gate["verification"]["ruff"] == "BLOCKED"
+    assert gate["verification"]["compileall"] == "BLOCKED"
+    assert any("Ruff evidence identity does not match" in item for item in gate["blockers"])
+    assert any("compileall evidence identity does not match" in item for item in gate["blockers"])
     assert gate["blocker_count"] == len(gate["blockers"])
