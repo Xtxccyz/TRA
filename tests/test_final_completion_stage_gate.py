@@ -4,7 +4,13 @@ import json
 
 import pytest
 
-from scripts.final_completion_stage_gate import FORMAL_GATE_FIELDS, _git, build_gate, validate_gate_schema
+from scripts.final_completion_stage_gate import (
+    FORMAL_GATE_FIELDS,
+    _git,
+    _load_task_view_metadata,
+    build_gate,
+    validate_gate_schema,
+)
 
 
 def _write(path, value) -> None:
@@ -338,3 +344,21 @@ def test_final_gate_rejects_unbound_wave_evidence(tmp_path) -> None:
 
     assert gate["gates"]["seeded_c1_c4_l1"] == "BLOCKED"
     assert any("Seeded C1-C4 evidence is missing git_commit" in item for item in gate["blockers"])
+
+
+def test_large_task_projection_uses_bounded_metadata_mode(tmp_path) -> None:
+    path = tmp_path / "large-task.json"
+    content = (
+        b'{"case_id":"case-large","content_sha256":"'
+        + b"a" * 64
+        + b'","padding":"'
+        + b"x" * (8 * 1024 * 1024)
+        + b'"}'
+    )
+    path.write_bytes(content)
+
+    metadata = _load_task_view_metadata(path)
+
+    assert metadata["_metadata_only"] is True
+    assert metadata["case_id"] == "case-large"
+    assert metadata["request_snapshot"]["sample_package"]["content_sha256"] == "a" * 64

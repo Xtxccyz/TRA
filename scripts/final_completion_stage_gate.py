@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import mmap
 from datetime import UTC, datetime
 from pathlib import Path
 import subprocess
@@ -79,6 +80,47 @@ def _load(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"expected JSON object: {path}")
     return value
+
+
+def _json_string_from_mmap(mapped: mmap.mmap, key: str) -> str | None:
+    """Read one simple JSON string value without materialising a large object.
+
+    Live task projections contain a potentially very large Evidence ledger.
+    The release gate only needs a few identifiers from that document, so use a
+    memory-mapped bounded scan for those scalar metadata fields.  Values are
+    UUIDs or SHA-256 digests and therefore cannot contain escaped quotes.
+    """
+    marker = f'"{key}"'.encode("ascii")
+    offset = mapped.find(marker)
+    if offset < 0:
+        return None
+    colon = mapped.find(b":", offset + len(marker))
+    if colon < 0:
+        return None
+    quote = mapped.find(b'"', colon + 1)
+    if quote < 0:
+        return None
+    end = mapped.find(b'"', quote + 1)
+    if end < 0:
+        return None
+    return bytes(mapped[quote + 1 : end]).decode("utf-8", errors="replace")
+
+
+def _load_task_view_metadata(path: Path) -> dict[str, Any]:
+    """Load a task projection, using bounded metadata mode for huge ledgers."""
+    # Small fixtures retain the complete JSON shape.  The live ComHost
+    # projection is intentionally read as metadata-only to keep the gate
+    # usable on constrained workstations.
+    if path.stat().st_size <= 8 * 1024 * 1024:
+        return _load(path)
+    with path.open("rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+        case_id = _json_string_from_mmap(mapped, "case_id")
+        sample_sha256 = _json_string_from_mmap(mapped, "content_sha256")
+    return {
+        "case_id": case_id,
+        "request_snapshot": {"sample_package": {"content_sha256": sample_sha256}},
+        "_metadata_only": True,
+    }
 
 
 def _sha256(path: Path) -> str:
@@ -310,7 +352,7 @@ def build_gate(
     use_task_view = task_view_path.exists() and (
         task_view_path != DEFAULT_TASK_VIEW_PATH or baseline_path == DEFAULT_BASELINE_PATH
     )
-    task_view = _load(task_view_path) if use_task_view else {}
+    task_view = _load_task_view_metadata(task_view_path) if use_task_view else {}
 
     result = (baseline.get("results") or [{}])[0]
     sample_sha256 = ((task_view.get("request_snapshot") or {}).get("sample_package") or {}).get("content_sha256")
