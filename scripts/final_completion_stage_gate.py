@@ -472,6 +472,27 @@ def build_gate(
                     ],
                 )
             )
+    if pytest_summary_path is not None and pytest_summary_path.exists():
+        artifact_manifest.append(
+            _artifact_metadata(
+                pytest_summary_path,
+                generated_at=generated_at,
+                commit=commit,
+                tree=tree,
+                config_fingerprint=config_fingerprint,
+                sample_sha256=None,
+                case_id=None,
+                task_id=None,
+                evaluator_only=False,
+                missing_fields=[
+                    "sample_sha256",
+                    "case_id",
+                    "task_id",
+                    "session_id",
+                    "event_cursor_range",
+                ],
+            )
+        )
     if task_view_path.exists():
         artifact_manifest.insert(
             2,

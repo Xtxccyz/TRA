@@ -149,6 +149,7 @@ def test_final_gate_uses_current_pytest_summary_and_rejects_stale_identity(tmp_p
     assert gate["gates"]["unit_and_integration_tests"] == "BLOCKED (457 passed, 2 skipped (2026-09-04))"
     assert any("Pytest summary evidence" in item for item in gate["blockers"])
     assert gate["blocker_count"] == len(gate["blockers"])
+    assert any(item["path"].endswith("pytest.json") for item in gate["artifact_manifest"])
 
 
 def test_final_gate_rejects_blocked_payload_without_blockers() -> None:
