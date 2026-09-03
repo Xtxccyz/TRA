@@ -2,13 +2,13 @@
   "manifest_version": "final-round-baseline-v1",
   "status": "RECORDED",
   "freeze_mode": "content-hash-only",
-  "generated_at": "2026-09-04T01:20:00+08:00",
+  "generated_at": "2026-09-04T01:50:00+08:00",
   "repository": {
     "root": "D:/threat report agent",
     "git_metadata_available": true,
-    "backend_commit": "cd752694390219a6ce47caa9ceab19735bf486e6",
+    "backend_commit": "347d22410025794642c33f9815db1e7a6407b017",
     "dsh_commit": null,
-    "backend_tree": "b52537ed437650b0deb08f18b7bc6bf6db91f415",
+    "backend_tree": "2ff63e22763c6ca9d181e6e1f706c34ad85f3a07",
     "note": "Git commit/tree, source hashes and image digests are recorded; DSH provenance remains unavailable."
   },
   "source_hashes_sha256": {
@@ -23,11 +23,11 @@
     "src/threat_report_agent/analysis_trace.py": "01FE82B4A9CF4B8654FAAFFE5FAECBC484B5BEA99A61A0886796BE9020E3801D",
     "src/threat_report_agent/main.py": "0AA7DA7704C61B535B1A59490C030CAF1C246D32EED1964A7B8D8FD928EE0E64",
     "benchmarks/semantic_differential.py": "D3D4E6F1D65A0B3D9C3CD171FAEA15504ABDECB1C938F44FED7DDF14DE73FA55",
-    "scripts/final_completion_stage_gate.py": "9246656E030B11AD9D1F406BB860D8990CD15AB8E458B337EEF320EA768C4193",
+    "scripts/final_completion_stage_gate.py": "E0CDFFD1E786E26B37AD71C5FAA266F9DE525F22403AC0635D9D5F57E1AE3980",
     "scripts/round11_2_certify.py": "95EE26EB7CD26A831B5D6E042D9521B11D693881EAADBD1E31CA44A8C68C50CC",
     "tests/test_round11_2_certify.py": "7D91A5247D71AC280E2264FBFB0CBF7A58334F1703E3E2B8E09C4D3FFF15EB9D",
     "tests/test_comhost_benchmark.py": "FC3AD9E05AD13F48ACA718AF00A639CCAB249684A570E89A5932B38A81F8D5C3",
-    "tests/test_final_completion_stage_gate.py": "18E73E55ACFB0B42CF4B280FA4F7DDD3FCBB6C120C7260912D1EA5B3E3758F4D"
+    "tests/test_final_completion_stage_gate.py": "9E8DCFCB321F3248A4CCC7327BC904BF8971613E66991A4D3BDADC5B07447D67"
   },
   "dsh": {
     "path": "threat-dsh-workbench",

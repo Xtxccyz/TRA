@@ -21,6 +21,26 @@ ROOT = Path(__file__).resolve().parents[1]
 FINAL_ROUND = ROOT / "release-artifacts" / "final-round"
 DEFAULT_OUTPUT = FINAL_ROUND / "final-completion-stage-gate-generated.json"
 
+# These names are the release-facing contract from the Final Completion plan.
+# Internal gate names may be added, but they must not replace these fields.
+FORMAL_GATE_FIELDS = frozenset(
+    {
+        "open_p0",
+        "open_p1",
+        "agentic_mechanism_effectiveness",
+        "comhost_c1_c4",
+        "analysis_depth_gate",
+        "report_depth_gate",
+        "browser_e2e",
+        "generalization",
+        "recovery",
+        "concurrency",
+        "soak_24h",
+        "production_hardening",
+        "independent_reviews",
+    }
+)
+
 
 def _load(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -74,6 +94,38 @@ def _image_digest() -> str | None:
     return value.removeprefix("sha256:") or None
 
 
+def _baseline_identity(baseline: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Read the source identity from either baseline schema revision."""
+    repository = baseline.get("repository")
+    if not isinstance(repository, dict):
+        return None, None
+    commit = repository.get("backend_commit") or repository.get("git_commit")
+    tree = repository.get("backend_tree") or repository.get("git_tree")
+    return (
+        str(commit) if commit else None,
+        str(tree) if tree else None,
+    )
+
+
+def validate_gate_schema(payload: dict[str, Any]) -> None:
+    """Fail closed when the release-facing gate contract is malformed."""
+    missing = sorted(FORMAL_GATE_FIELDS - payload.keys())
+    if missing:
+        raise ValueError(f"final gate is missing formal fields: {', '.join(missing)}")
+    if payload.get("status") == "PASS" and payload.get("blockers"):
+        raise ValueError("a PASS final gate cannot contain blockers")
+    if payload.get("status") == "BLOCKED" and not payload.get("blockers"):
+        raise ValueError("a BLOCKED final gate must name at least one blocker")
+    blocker_count = payload.get("blocker_count")
+    blockers = payload.get("blockers") or []
+    if blocker_count != len(blockers):
+        raise ValueError("blocker_count must equal the number of unique blockers")
+    if payload.get("status") == "PASS" and blocker_count != 0:
+        raise ValueError("a PASS final gate must have blocker_count=0")
+    if payload.get("production_ready") is True and payload.get("status") != "PASS":
+        raise ValueError("production_ready=true requires status=PASS")
+
+
 def _artifact_metadata(
     path: Path,
     *,
@@ -117,6 +169,9 @@ def build_gate(
     sbom_path: Path = FINAL_ROUND / "threat-report-agent-api-sbom-20260904.json",
     cve_path: Path = FINAL_ROUND / "threat-report-agent-api-cve-scan-20260904.json",
     task_view_path: Path = ROOT / ".scratch" / "final-completion-live-20260904" / "comhost-task-view-d114e2d4.json",
+    pytest_summary: str | None = None,
+    pytest_summary_path: Path | None = None,
+    baseline_manifest_path: Path = FINAL_ROUND / "baseline-manifest.json",
 ) -> dict[str, Any]:
     generated_at = datetime.now(UTC).isoformat()
     baseline = _load(baseline_path)
@@ -130,6 +185,18 @@ def build_gate(
     case_id = str(task_view.get("case_id") or "") or None
     commit = _git("rev-parse", "HEAD")
     tree = _git("rev-parse", "HEAD^{tree}")
+    identity_source = baseline
+    identity_path = baseline_path
+    if not isinstance(baseline.get("repository"), dict) and baseline_manifest_path.exists():
+        identity_source = _load(baseline_manifest_path)
+        identity_path = baseline_manifest_path
+    baseline_commit, baseline_tree = _baseline_identity(identity_source)
+    baseline_identity_match = bool(
+        commit
+        and tree
+        and baseline_commit == commit
+        and baseline_tree == tree
+    )
     image_digest = _image_digest()
     config_fingerprint = hashlib.sha256(
         json.dumps(
@@ -167,6 +234,18 @@ def build_gate(
         blockers.append("Running API image digest is unavailable.")
     if cve.get("status") != "PASS":
         blockers.append("CVE scan is blocked or incomplete.")
+    if not baseline_identity_match:
+        blockers.append(
+            "Baseline manifest identity does not match the current HEAD/tree; "
+            "a current release baseline is required."
+        )
+
+    if pytest_summary_path is not None:
+        summary = _load(pytest_summary_path)
+        summary_commit = summary.get("git_commit")
+        if summary_commit and commit and summary_commit != commit:
+            blockers.append("Pytest summary identity does not match the current HEAD.")
+        pytest_summary = str(summary.get("summary") or "NOT_SUPPLIED")
 
     gates = {
         "schema_migration_deadlock_regression": "PASS",
@@ -269,12 +348,13 @@ def build_gate(
         semantic_artifact_path = semantic_path.relative_to(ROOT).as_posix()
     except ValueError:
         semantic_artifact_path = str(semantic_path.resolve())
-    return {
+    payload = {
         "schema_version": "final-completion-stage-gate-v3",
         "generated_at": generated_at,
         "evidence_policy": "verified-local-evidence-only",
         "status": "BLOCKED",
         "production_ready": False,
+        "blocker_count": len(blockers),
         "open_p0": 0,
         "open_p1": 0,
         **status_projection,
@@ -285,6 +365,12 @@ def build_gate(
             "source_sample_sha256": sample_sha256,
             "fresh_task_id": task_id,
             "fresh_case_id": case_id,
+            "baseline_manifest": identity_path.relative_to(ROOT).as_posix()
+            if identity_path.is_relative_to(ROOT)
+            else str(identity_path.resolve()),
+            "baseline_git_commit": baseline_commit,
+            "baseline_git_tree": baseline_tree,
+            "baseline_identity_match": baseline_identity_match,
             # The gate itself is an evidence artifact and may be rewritten
             # after the source commit.  Check the implementation paths so its
             # own pending diff does not make a clean source tree look dirty.
@@ -312,7 +398,7 @@ def build_gate(
         },
         "gates": gates,
         "verification": {
-            "pytest": "457 passed, 2 skipped (2026-09-04)",
+            "pytest": pytest_summary or "NOT_SUPPLIED (run pytest separately)",
             "ruff": "PASS",
             "compileall": "PASS",
             "sbom": "PASS (Docker Scout CycloneDX, 211 packages)",
@@ -321,13 +407,17 @@ def build_gate(
         "artifact_manifest": artifact_manifest,
         "blockers": blockers,
     }
+    validate_gate_schema(payload)
+    return payload
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--pytest-summary", type=Path)
     args = parser.parse_args()
-    payload = build_gate()
+    payload = build_gate(pytest_summary_path=args.pytest_summary)
+    validate_gate_schema(payload)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
