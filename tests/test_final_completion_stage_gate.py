@@ -6,6 +6,7 @@ import pytest
 
 from scripts.final_completion_stage_gate import (
     FORMAL_GATE_FIELDS,
+    _bool_metric,
     _git,
     _load_task_view_metadata,
     _project_acceptance_status,
@@ -16,6 +17,11 @@ from scripts.final_completion_stage_gate import (
 
 def _write(path, value) -> None:
     path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def test_gate_boolean_metrics_accept_numeric_strings() -> None:
+    assert _bool_metric("1") is True
+    assert _bool_metric("0") is False
 
 
 def test_final_gate_has_plan_schema_projection_and_preserves_blockers(tmp_path) -> None:
