@@ -1324,6 +1324,7 @@ def main() -> int:
     parser.add_argument("--pytest-summary", type=Path)
     parser.add_argument("--ruff-result", type=Path)
     parser.add_argument("--compileall-result", type=Path)
+    parser.add_argument("--format-debt", type=Path)
     parser.add_argument("--readiness", type=Path)
     parser.add_argument("--seeded-gate", type=Path)
     parser.add_argument("--model-effectiveness", type=Path)
@@ -1363,6 +1364,7 @@ def main() -> int:
         "resume_regression": FINAL_ROUND / "resume-static-baseline-20260904.json",
         "issue_register": DEFAULT_ISSUE_REGISTER_PATH,
         "readiness": FINAL_ROUND / "readiness-20260904.json",
+        "format_debt": FINAL_ROUND / "ruff-format-debt-check-20260904.json",
     }
 
     def selected(name: str) -> Path | None:
@@ -1373,6 +1375,7 @@ def main() -> int:
         pytest_summary_path=args.pytest_summary,
         ruff_path=args.ruff_result,
         compileall_path=args.compileall_result,
+        format_debt_path=selected("format_debt"),
         readiness_path=selected("readiness"),
         seeded_gate_path=selected("seeded_gate"),
         model_effectiveness_path=selected("model_effectiveness"),
