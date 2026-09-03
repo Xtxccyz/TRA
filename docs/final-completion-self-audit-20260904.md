@@ -20,13 +20,13 @@ after the runtime completed, by the offline evaluator.
 | API liveness/readiness | PASS | `/healthz=200`; `/readyz=200`, database=`ok` |
 | Trace privacy and fallback diagnostics | PASS | `tests/test_analysis_trace.py`: 8 passed; model call projection is whitelist-only |
 | Seeded C1-C4 | PASS (L1 only) | `release-artifacts/final-round/final-completion-local-gate-20260903.json` |
-| Fresh ComHost static run | PASS as execution, PARTIAL as semantics | task `3dd28200-99dc-4637-b189-e822ab92ea68`, 43,289 Evidence, 187 Claims, 10 ToolRuns, audit integrity true |
+| Fresh ComHost static run | PASS as execution, PARTIAL as semantics | task `d114e2d4-1de2-4770-aab0-82fff16e0d5f`, 43,289 Evidence, 187 Claims, 10 ToolRuns, audit integrity true |
 | Static execution boundary | PASS | sample execution/network/emulator flags are false in baseline and task audit |
 | Docker service health | PASS | Compose API, PostgreSQL, MinIO, Temporal and workers healthy/running |
 
 ## Gate results that remain blocked
 
-- The fresh ComHost semantic differential supports 2/11 Gold mechanisms; 9 remain `UNKNOWN`.
+- The post-deploy fresh ComHost semantic differential supports 2/11 Gold mechanisms; 9 remain `UNKNOWN`.
   The critical mechanisms are not all `SUPPORTED` or `VERIFIED`, so the L2 semantic gate is
   `BLOCKED`.
 - The configured `custom/ali/qwen3.7-max` provider returned HTTP 402 (`insufficient_balance`)
@@ -49,4 +49,3 @@ The only defensible status is:
 This is not a claim that the product is broken. It records the distinction between verified
 local implementation evidence and the external/sample/production evidence required by the
 release plan. No lower-level synthetic result is promoted to a higher-level gate.
-

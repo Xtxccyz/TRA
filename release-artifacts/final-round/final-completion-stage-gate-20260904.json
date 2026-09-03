@@ -1,6 +1,6 @@
 {
   "schema_version": "final-completion-stage-gate-v2",
-  "generated_at": "2026-09-04T00:35:00+08:00",
+  "generated_at": "2026-09-04T00:56:00+08:00",
   "evidence_policy": "verified-local-evidence-only",
   "status": "BLOCKED",
   "production_ready": false,
@@ -8,8 +8,8 @@
     "git_commit": "1cb5ccf",
     "container_image": "threat-report-agent-api@sha256:ecb0adabefac6473f86bd6c0a247a7267e33a97098a1726de385864b454cf673",
     "sample": "D:\\test\\Resume\\ComHost.exe.VIR",
-    "fresh_task_id": "3dd28200-99dc-4637-b189-e822ab92ea68",
-    "fresh_case_id": "87e63d3f-1dfe-4964-aa94-b600fd858ddf"
+    "fresh_task_id": "d114e2d4-1de2-4770-aab0-82fff16e0d5f",
+    "fresh_case_id": "7fb21010-8489-4d37-894a-3891807930e2"
   },
   "execution_boundary": {
     "sample_execution": false,
@@ -51,7 +51,7 @@
       "unknown": 9,
       "critical_mechanisms_supported": 1,
       "critical_mechanisms_required": 4,
-      "artifact": ".scratch/final-completion-live-20260904/comhost-semantic-differential-20260904.json"
+      "artifact": "release-artifacts/final-round/comhost-semantic-differential-postdeploy-20260904.json"
     }
   },
   "gates": {
@@ -80,9 +80,9 @@
     "postgres_migration_policy": "warm startup performs no repeat DROP NOT NULL DDL; legacy evidence index backfill is explicit opt-in"
   },
   "artifacts": [
-    ".scratch/final-completion-live-20260904/comhost-baseline-fresh-20260904.json",
-    ".scratch/final-completion-live-20260904/comhost-semantic-differential-20260904.json",
-    ".scratch/final-completion-live-20260904/comhost-task-view-3dd28200.json",
+    "release-artifacts/final-round/comhost-static-baseline-postdeploy-20260904.json",
+    "release-artifacts/final-round/comhost-semantic-differential-postdeploy-20260904.json",
+    ".scratch/final-completion-live-20260904/comhost-task-view-d114e2d4.json",
     ".scratch/final-completion-live-20260903/comhost-model-actions.json",
     ".scratch/final-completion-live-20260903/comhost-coverage.json",
     "release-artifacts/final-round/final-completion-local-gate-20260903.json"

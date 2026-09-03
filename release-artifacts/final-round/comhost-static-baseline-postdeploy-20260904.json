@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "sample_count": 1,
+  "results": [
+    {
+      "status": "PASS",
+      "sample_name": "ComHost.exe.VIR",
+      "size": 1045504,
+      "task_id": "d114e2d4-1de2-4770-aab0-82fff16e0d5f",
+      "lifecycle": "SUCCEEDED",
+      "outcome": "PARTIAL",
+      "analysis_class": "BOUNDED_STATIC_ANALYSIS",
+      "artifact_count": 1,
+      "evidence_count": 43289,
+      "claim_modules": [
+        "anti_analysis",
+        "c2_network",
+        "execution",
+        "loader",
+        "static_triage"
+      ],
+      "trace_steps": 9959,
+      "audit_integrity": true,
+      "sample_execution": false
+    }
+  ]
+}
