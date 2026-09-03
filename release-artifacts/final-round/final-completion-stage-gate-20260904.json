@@ -1,0 +1,98 @@
+{
+  "schema_version": "final-completion-stage-gate-v2",
+  "generated_at": "2026-09-04T00:35:00+08:00",
+  "evidence_policy": "verified-local-evidence-only",
+  "status": "BLOCKED",
+  "production_ready": false,
+  "release_identity": {
+    "git_commit": "1cb5ccf",
+    "container_image": "threat-report-agent-api@sha256:ecb0adabefac6473f86bd6c0a247a7267e33a97098a1726de385864b454cf673",
+    "sample": "D:\\test\\Resume\\ComHost.exe.VIR",
+    "fresh_task_id": "3dd28200-99dc-4637-b189-e822ab92ea68",
+    "fresh_case_id": "87e63d3f-1dfe-4964-aa94-b600fd858ddf"
+  },
+  "execution_boundary": {
+    "sample_execution": false,
+    "sample_network_access": false,
+    "dynamic_emulators_invoked": false,
+    "static_only": "PASS"
+  },
+  "fresh_comhost_static_run": {
+    "evidence_level": "L2",
+    "lifecycle": "SUCCEEDED",
+    "outcome": "PARTIAL",
+    "analysis_class": "BOUNDED_STATIC_ANALYSIS",
+    "artifacts": 1,
+    "evidence": 43289,
+    "claims": 187,
+    "tool_runs": 10,
+    "model_calls": 8,
+    "audit_integrity": true,
+    "semantic_evidence": {
+      "indirect_function_pointer_link": 6,
+      "mechanism_dynamic_api_link": 5,
+      "mechanism_shell_output_link": 1,
+      "mechanism_http_transport_link": 0,
+      "mechanism_etw_patch_link": 0
+    },
+    "critical_mechanisms": {
+      "C1_dynamic_hash_api_resolution": "NOT_VERIFIED",
+      "C2_configured_secure_winhttp_transport": "NOT_VERIFIED",
+      "C3_command_shell_output_capture": "NOT_VERIFIED",
+      "C4_etw_patch": "NOT_VERIFIED"
+    },
+    "critical_unsupported": "UNRESOLVED",
+    "model_effect": "NOT_PROVEN",
+    "model_failure_summary": "custom/ali/qwen3.7-max HTTPStatusError; fallback provider not configured",
+    "semantic_differential": {
+      "evidence_level": "L2",
+      "evaluator_only": true,
+      "supported": 2,
+      "unknown": 9,
+      "critical_mechanisms_supported": 1,
+      "critical_mechanisms_required": 4,
+      "artifact": ".scratch/final-completion-live-20260904/comhost-semantic-differential-20260904.json"
+    }
+  },
+  "gates": {
+    "schema_migration_deadlock_regression": "PASS",
+    "unit_and_integration_tests": "PASS (455 passed, 2 skipped)",
+    "readiness_probe": "PASS (/readyz=200, database=ok)",
+    "seeded_c1_c4_l1": "PASS",
+    "real_comhost_l2": "BLOCKED",
+    "model_action_productivity_real_provider": "BLOCKED",
+    "three_consecutive_comhost_runs": "NOT_PROVEN",
+    "resume_regression": "NOT_PROVEN_IN_THIS_RELEASE",
+    "browser_e2e": "NOT_PROVEN",
+    "context_stress": "NOT_PROVEN",
+    "failure_injection_and_recovery": "NOT_PROVEN",
+    "concurrency": "NOT_PROVEN",
+    "soak_24h": "NOT_PROVEN",
+    "generalization_corpus": "NOT_CERTIFIED",
+    "production_hardening": "BLOCKED",
+    "independent_reviews": "NOT_PROVEN"
+  },
+  "verification": {
+    "pytest": "455 passed, 2 skipped (2026-09-04)",
+    "ruff": "PASS",
+    "compileall": "PASS",
+    "postgres_warm_schema_recheck": "PASS",
+    "postgres_migration_policy": "warm startup performs no repeat DROP NOT NULL DDL; legacy evidence index backfill is explicit opt-in"
+  },
+  "artifacts": [
+    ".scratch/final-completion-live-20260904/comhost-baseline-fresh-20260904.json",
+    ".scratch/final-completion-live-20260904/comhost-semantic-differential-20260904.json",
+    ".scratch/final-completion-live-20260904/comhost-task-view-3dd28200.json",
+    ".scratch/final-completion-live-20260903/comhost-model-actions.json",
+    ".scratch/final-completion-live-20260903/comhost-coverage.json",
+    "release-artifacts/final-round/final-completion-local-gate-20260903.json"
+  ],
+  "blockers": [
+    "Fresh ComHost static run is PARTIAL and C1-C4 are not all SUPPORTED or VERIFIED.",
+    "The configured real model provider failed; no attributable model Evidence delta was produced.",
+    "Only one fresh ComHost run is available; three consecutive runs are not proven.",
+    "Browser, long-turn, context-pressure, restart/recovery, concurrency, and 24-hour soak evidence are absent.",
+    "The commit is locally identified, but no trusted remote provenance/signature is available for release freeze.",
+    "External held-out corpus and independent review approvals are absent."
+  ]
+}
