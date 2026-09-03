@@ -20,6 +20,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 FINAL_ROUND = ROOT / "release-artifacts" / "final-round"
 DEFAULT_OUTPUT = FINAL_ROUND / "final-completion-stage-gate-generated.json"
+DEFAULT_TASK_VIEW_PATH = ROOT / ".scratch" / "final-completion-live-20260904" / "comhost-task-view-d114e2d4.json"
+DEFAULT_BASELINE_PATH = FINAL_ROUND / "comhost-static-baseline-postdeploy-20260904.json"
 
 # These names are the release-facing contract from the Final Completion plan.
 # Internal gate names may be added, but they must not replace these fields.
@@ -40,6 +42,36 @@ FORMAL_GATE_FIELDS = frozenset(
         "independent_reviews",
     }
 )
+
+# Acceptance artifacts are deliberately mapped here instead of encoding a
+# permanent answer in the gate.  A release artifact can promote a gate only
+# when it contains an explicit PASS and the same source identity as the
+# current checkout (see ``_load_gate_evidence``).  Missing, stale, or
+# incomplete artifacts therefore remain NOT_PROVEN/BLOCKED.
+DEFAULT_GATE_EVIDENCE_SOURCES: dict[str, tuple[Path, ...]] = {
+    "agentic_mechanism_effectiveness": (
+        FINAL_ROUND / "model-effectiveness-real-20260902.json",
+    ),
+    "analysis_depth_gate": (
+        FINAL_ROUND / "report-depth-comhost-20260902-r2.json",
+        FINAL_ROUND / "resume-regression-summary-20260904.json",
+    ),
+    "report_depth_gate": (
+        FINAL_ROUND / "report-depth-comhost-20260902-r2.json",
+        FINAL_ROUND / "resume-regression-summary-20260904.json",
+    ),
+    "browser_e2e": (FINAL_ROUND / "browser-e2e-20260902.json",),
+    "generalization": (ROOT / "release-artifacts" / "round11.2" / "heldout-results.json",),
+    "recovery": (ROOT / "release-artifacts" / "round11.2" / "restart-recovery.json",),
+    "concurrency": (ROOT / "release-artifacts" / "round11.2" / "concurrency.json",),
+    "soak_24h": (ROOT / "release-artifacts" / "round11.2" / "soak-24h.json",),
+    "production_hardening": (
+        ROOT / "release-artifacts" / "round11.2" / "production-hardening.json",
+    ),
+    "independent_reviews": (
+        ROOT / "release-artifacts" / "round11.2" / "independent-reviews.json",
+    ),
+}
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -132,6 +164,49 @@ def _identity_error(
     return None
 
 
+def _load_gate_evidence(
+    path: Path | None,
+    *,
+    label: str,
+    commit: str | None,
+    tree: str | None,
+) -> tuple[str, dict[str, Any], str | None]:
+    """Load one release gate artifact without trusting unbound PASS values.
+
+    A missing optional artifact means the corresponding acceptance activity was
+    not proven for this release.  A present artifact with malformed JSON or a
+    stale/missing source identity is an explicit BLOCKED condition.  Callers
+    may then project the artifact status while retaining the blocker.
+    """
+    if path is None:
+        return "NOT_PROVEN", {}, f"{label} evidence is not supplied."
+    if not path.exists():
+        return "NOT_PROVEN", {}, f"{label} evidence file is missing: {path}."
+    try:
+        payload = _load(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return "BLOCKED", {}, f"{label} evidence is invalid: {exc}."
+    identity_error = _identity_error(payload, label=label, commit=commit, tree=tree)
+    if identity_error:
+        return "BLOCKED", payload, identity_error
+    status_value: object = payload.get("status")
+    if not status_value:
+        # Older acceptance artifacts put the gate result under a metrics or
+        # report-depth envelope. Read those projections without treating a
+        # missing value as success.
+        metrics = payload.get("metrics")
+        if isinstance(metrics, dict):
+            status_value = metrics.get("status") or metrics.get("readiness")
+            report_depth = metrics.get("report_depth")
+            if not status_value and isinstance(report_depth, dict):
+                status_value = report_depth.get("status")
+        status_value = status_value or payload.get("gate_status") or payload.get("overall_status")
+    status = str(status_value or "").strip().upper()
+    if not status:
+        return "BLOCKED", payload, f"{label} evidence has no status."
+    return status, payload, None
+
+
 def validate_gate_schema(payload: dict[str, Any]) -> None:
     """Fail closed when the release-facing gate contract is malformed."""
     missing = sorted(FORMAL_GATE_FIELDS - payload.keys())
@@ -190,17 +265,31 @@ def _artifact_metadata(
 
 def build_gate(
     *,
-    baseline_path: Path = FINAL_ROUND / "comhost-static-baseline-postdeploy-20260904.json",
+    baseline_path: Path = DEFAULT_BASELINE_PATH,
     semantic_path: Path = FINAL_ROUND / "comhost-semantic-differential-postdeploy-20260904.json",
     sbom_path: Path = FINAL_ROUND / "threat-report-agent-api-sbom-20260904.json",
     cve_path: Path = FINAL_ROUND / "threat-report-agent-api-cve-scan-20260904.json",
     ruff_path: Path | None = None,
     compileall_path: Path | None = None,
-    task_view_path: Path = ROOT / ".scratch" / "final-completion-live-20260904" / "comhost-task-view-d114e2d4.json",
+    task_view_path: Path = DEFAULT_TASK_VIEW_PATH,
     pytest_summary: str | None = None,
     pytest_summary_path: Path | None = None,
     baseline_manifest_path: Path = FINAL_ROUND / "baseline-manifest.json",
     format_debt_path: Path = FINAL_ROUND / "ruff-format-debt-check-20260904.json",
+    seeded_gate_path: Path | None = None,
+    model_effectiveness_path: Path | None = None,
+    analysis_depth_path: Path | None = None,
+    report_depth_path: Path | None = None,
+    browser_e2e_path: Path | None = None,
+    context_stress_path: Path | None = None,
+    recovery_path: Path | None = None,
+    concurrency_path: Path | None = None,
+    soak_path: Path | None = None,
+    comhost_runs_path: Path | None = None,
+    generalization_path: Path | None = None,
+    production_hardening_path: Path | None = None,
+    independent_reviews_path: Path | None = None,
+    resume_regression_path: Path | None = None,
 ) -> dict[str, Any]:
     generated_at = datetime.now(UTC).isoformat()
     baseline = _load(baseline_path)
@@ -214,7 +303,14 @@ def build_gate(
         else {}
     )
     format_debt = _load(format_debt_path) if format_debt_path.exists() else {}
-    task_view = _load(task_view_path) if task_view_path.exists() else {}
+    # The live ComHost task projection can be hundreds of megabytes because it
+    # contains the complete Evidence ledger. Test/fixture callers commonly
+    # replace the baseline with a temporary artifact; do not eagerly parse the
+    # unrelated live projection in that case (and risk an avoidable OOM).
+    use_task_view = task_view_path.exists() and (
+        task_view_path != DEFAULT_TASK_VIEW_PATH or baseline_path == DEFAULT_BASELINE_PATH
+    )
+    task_view = _load(task_view_path) if use_task_view else {}
 
     result = (baseline.get("results") or [{}])[0]
     sample_sha256 = ((task_view.get("request_snapshot") or {}).get("sample_package") or {}).get("content_sha256")
@@ -238,6 +334,41 @@ def build_gate(
     source_worktree_clean = _git_succeeds(
         "diff", "--quiet", "--", "benchmarks", "docs", "scripts", "src", "tests"
     )
+
+    # Optional acceptance artifacts are evaluated independently. Their
+    # statuses are projected into the final dashboard only after the artifact
+    # is bound to this checkout; missing evidence remains NOT_PROVEN and an
+    # invalid or stale artifact is BLOCKED.
+    evidence_specs = {
+        "seeded_c1_c4_l1": (seeded_gate_path, "Seeded C1-C4"),
+        "model_action_productivity_real_provider": (model_effectiveness_path, "Model effectiveness"),
+        "analysis_depth_gate": (analysis_depth_path, "Analysis depth"),
+        "report_depth_gate": (report_depth_path, "Report depth"),
+        "browser_e2e": (browser_e2e_path, "Browser E2E"),
+        "context_stress": (context_stress_path, "Context stress"),
+        "failure_injection_and_recovery": (recovery_path, "Recovery"),
+        "concurrency": (concurrency_path, "Concurrency"),
+        "soak_24h": (soak_path, "24-hour soak"),
+        "three_consecutive_comhost_runs": (comhost_runs_path, "Three consecutive ComHost runs"),
+        "generalization_corpus": (generalization_path, "Generalization"),
+        "production_hardening": (production_hardening_path, "Production hardening"),
+        "independent_reviews": (independent_reviews_path, "Independent reviews"),
+        "resume_regression": (resume_regression_path, "Resume regression"),
+    }
+    evidence_statuses: dict[str, str] = {}
+    evidence_payloads: dict[str, dict[str, Any]] = {}
+    evidence_blockers: list[str] = []
+    for key, (path, label) in evidence_specs.items():
+        status, payload, error = _load_gate_evidence(
+            path,
+            label=label,
+            commit=commit,
+            tree=tree,
+        )
+        evidence_statuses[key] = status
+        evidence_payloads[key] = payload
+        if error:
+            evidence_blockers.append(error)
 
     # Verification artifacts are release evidence only when they are bound to
     # this exact source checkout.  Keep a separate status projection so a
@@ -297,7 +428,7 @@ def build_gate(
     blockers = [
         "Fresh ComHost static semantic gate is not closed: critical C1-C4 are not all supported or verified.",
         "Real model contribution is not proven; the configured provider returned HTTP 402 and no fallback is configured.",
-        "Browser, recovery, replay, concurrency, soak, held-out corpus, CVE, hardening and independent-review evidence is absent.",
+        "Required browser, recovery, replay, concurrency, soak, held-out corpus, hardening and independent-review evidence is incomplete or not proven for this release.",
     ]
     if not commit or not tree:
         blockers.append("Trusted Git commit/tree identity is unavailable.")
@@ -334,6 +465,30 @@ def build_gate(
             "Source implementation worktree is dirty; release evidence must be bound to a clean commit."
         )
 
+    missing_acceptance = [
+        label
+        for key, (_, label) in evidence_specs.items()
+        if evidence_statuses.get(key) == "NOT_PROVEN"
+    ]
+    if missing_acceptance:
+        blockers.append(
+            "Acceptance evidence is not proven for: "
+            + ", ".join(missing_acceptance)
+            + "."
+        )
+    nonpassing_acceptance = [
+        f"{label}={evidence_statuses.get(key)}"
+        for key, (_, label) in evidence_specs.items()
+        if evidence_statuses.get(key) not in {"PASS", "APPROVED", "NOT_PROVEN"}
+    ]
+    if nonpassing_acceptance:
+        blockers.append(
+            "Acceptance evidence did not pass for: "
+            + ", ".join(nonpassing_acceptance)
+            + "."
+        )
+    blockers.extend(evidence_blockers)
+
     if pytest_summary_path is not None:
         summary = _load(pytest_summary_path)
         summary_identity_error = _identity_error(
@@ -358,25 +513,25 @@ def build_gate(
         "schema_migration_deadlock_regression": "PASS",
         "unit_and_integration_tests": f"{pytest_gate_status} ({pytest_summary or 'pytest summary not supplied'})",
         "readiness_probe": "PASS (/readyz=200, database=ok)",
-        "seeded_c1_c4_l1": "PASS",
+        "seeded_c1_c4_l1": evidence_statuses["seeded_c1_c4_l1"],
         "real_comhost_l2": "PASS" if critical_closed else "BLOCKED",
-        "model_action_productivity_real_provider": "BLOCKED",
-        "three_consecutive_comhost_runs": "NOT_PROVEN",
-        "resume_regression": "NOT_PROVEN_IN_THIS_RELEASE",
-        "browser_e2e": "NOT_PROVEN",
-        "context_stress": "NOT_PROVEN",
-        "failure_injection_and_recovery": "NOT_PROVEN",
-        "concurrency": "NOT_PROVEN",
-        "soak_24h": "NOT_PROVEN",
-        "generalization_corpus": "NOT_CERTIFIED",
-        "production_hardening": "BLOCKED",
-        "independent_reviews": "NOT_PROVEN",
+        "model_action_productivity_real_provider": evidence_statuses["model_action_productivity_real_provider"],
+        "three_consecutive_comhost_runs": evidence_statuses["three_consecutive_comhost_runs"],
+        "resume_regression": evidence_statuses["resume_regression"],
+        "browser_e2e": evidence_statuses["browser_e2e"],
+        "context_stress": evidence_statuses["context_stress"],
+        "failure_injection_and_recovery": evidence_statuses["failure_injection_and_recovery"],
+        "concurrency": evidence_statuses["concurrency"],
+        "soak_24h": evidence_statuses["soak_24h"],
+        "generalization_corpus": evidence_statuses["generalization_corpus"],
+        "production_hardening": evidence_statuses["production_hardening"],
+        "independent_reviews": evidence_statuses["independent_reviews"],
     }
     status_projection = {
-        "agentic_mechanism_effectiveness": "BLOCKED",
+        "agentic_mechanism_effectiveness": evidence_statuses["model_action_productivity_real_provider"],
         "comhost_c1_c4": gates["real_comhost_l2"],
-        "analysis_depth_gate": "BLOCKED",
-        "report_depth_gate": "BLOCKED",
+        "analysis_depth_gate": evidence_statuses["analysis_depth_gate"],
+        "report_depth_gate": evidence_statuses["report_depth_gate"],
         "browser_e2e": gates["browser_e2e"],
         "generalization": gates["generalization_corpus"],
         "recovery": gates["failure_injection_and_recovery"],
@@ -493,7 +648,34 @@ def build_gate(
                 ],
             )
         )
-    if task_view_path.exists():
+    manifest_paths = {str(item.get("path")) for item in artifact_manifest}
+    for key, (evidence_path, _label) in evidence_specs.items():
+        if evidence_path is None or not evidence_path.exists():
+            continue
+        display_path = str(evidence_path.resolve())
+        try:
+            display_path = evidence_path.resolve().relative_to(ROOT).as_posix()
+        except ValueError:
+            pass
+        if display_path in manifest_paths:
+            continue
+        payload = evidence_payloads.get(key, {})
+        artifact_manifest.append(
+            _artifact_metadata(
+                evidence_path,
+                generated_at=generated_at,
+                commit=commit,
+                tree=tree,
+                config_fingerprint=config_fingerprint,
+                sample_sha256=sample_sha256,
+                case_id=case_id,
+                task_id=task_id,
+                evaluator_only=bool(payload.get("evaluator_only", False)),
+                missing_fields=["session_id", "event_cursor_range"],
+            )
+        )
+        manifest_paths.add(display_path)
+    if use_task_view:
         artifact_manifest.insert(
             2,
             _artifact_metadata(
@@ -581,11 +763,65 @@ def main() -> int:
     parser.add_argument("--pytest-summary", type=Path)
     parser.add_argument("--ruff-result", type=Path)
     parser.add_argument("--compileall-result", type=Path)
+    parser.add_argument("--seeded-gate", type=Path)
+    parser.add_argument("--model-effectiveness", type=Path)
+    parser.add_argument("--analysis-depth", type=Path)
+    parser.add_argument("--report-depth", type=Path)
+    parser.add_argument("--browser-e2e", type=Path)
+    parser.add_argument("--context-stress", type=Path)
+    parser.add_argument("--recovery", type=Path)
+    parser.add_argument("--concurrency", type=Path)
+    parser.add_argument("--soak", type=Path)
+    parser.add_argument("--comhost-runs", type=Path)
+    parser.add_argument("--generalization", type=Path)
+    parser.add_argument("--production-hardening", type=Path)
+    parser.add_argument("--independent-reviews", type=Path)
+    parser.add_argument("--resume-regression", type=Path)
     args = parser.parse_args()
+    # The command-line form is the release operator's entry point.  Bind each
+    # optional acceptance input to its canonical artifact location so a normal
+    # invocation evaluates available evidence instead of silently treating all
+    # waves as unprovided.  Callers of ``build_gate`` may still pass ``None``
+    # in isolated unit tests.
+    default_paths = {
+        "seeded_gate": FINAL_ROUND / "comhost-c1-c4-fresh-20260902.json",
+        "model_effectiveness": FINAL_ROUND / "model-effectiveness-real-20260902.json",
+        "analysis_depth": FINAL_ROUND / "report-depth-comhost-20260902-r2.json",
+        "report_depth": FINAL_ROUND / "report-depth-comhost-20260902-r2.json",
+        "browser_e2e": FINAL_ROUND / "browser-e2e-20260902.json",
+        "context_stress": ROOT / "release-artifacts" / "context-window-stress.json",
+        "recovery": ROOT / "release-artifacts" / "round11.2" / "restart-recovery.json",
+        "concurrency": ROOT / "release-artifacts" / "round11.2" / "concurrency.json",
+        "soak": ROOT / "release-artifacts" / "round11.2" / "soak-24h.json",
+        "comhost_runs": FINAL_ROUND / "comhost-third-run.json",
+        "generalization": ROOT / "release-artifacts" / "round11.2" / "heldout-results.json",
+        "production_hardening": ROOT / "release-artifacts" / "round11.2" / "production-hardening.json",
+        "independent_reviews": ROOT / "release-artifacts" / "round11.2" / "independent-reviews.json",
+        "resume_regression": FINAL_ROUND / "resume-static-baseline-20260904.json",
+    }
+
+    def selected(name: str) -> Path | None:
+        value = getattr(args, name)
+        return value if value is not None else default_paths[name]
+
     payload = build_gate(
         pytest_summary_path=args.pytest_summary,
         ruff_path=args.ruff_result,
         compileall_path=args.compileall_result,
+        seeded_gate_path=selected("seeded_gate"),
+        model_effectiveness_path=selected("model_effectiveness"),
+        analysis_depth_path=selected("analysis_depth"),
+        report_depth_path=selected("report_depth"),
+        browser_e2e_path=selected("browser_e2e"),
+        context_stress_path=selected("context_stress"),
+        recovery_path=selected("recovery"),
+        concurrency_path=selected("concurrency"),
+        soak_path=selected("soak"),
+        comhost_runs_path=selected("comhost_runs"),
+        generalization_path=selected("generalization"),
+        production_hardening_path=selected("production_hardening"),
+        independent_reviews_path=selected("independent_reviews"),
+        resume_regression_path=selected("resume_regression"),
     )
     validate_gate_schema(payload)
     args.output.parent.mkdir(parents=True, exist_ok=True)

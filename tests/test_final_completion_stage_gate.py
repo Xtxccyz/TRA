@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from scripts.final_completion_stage_gate import FORMAL_GATE_FIELDS, build_gate, validate_gate_schema
+from scripts.final_completion_stage_gate import FORMAL_GATE_FIELDS, _git, build_gate, validate_gate_schema
 
 
 def _write(path, value) -> None:
@@ -276,3 +276,65 @@ def test_final_gate_fails_closed_when_ruff_or_compileall_tree_is_stale(tmp_path)
     assert any("Ruff evidence identity does not match" in item for item in gate["blockers"])
     assert any("compileall evidence identity does not match" in item for item in gate["blockers"])
     assert gate["blocker_count"] == len(gate["blockers"])
+
+
+def test_final_gate_consumes_bound_wave_evidence(tmp_path) -> None:
+    baseline = tmp_path / "baseline.json"
+    semantic = tmp_path / "semantic.json"
+    sbom = tmp_path / "sbom.json"
+    cve = tmp_path / "cve.json"
+    seeded = tmp_path / "seeded.json"
+    for path, value in (
+        (baseline, {"results": [{}]}),
+        (semantic, {"summary": {}, "mechanisms": []}),
+        (sbom, {"status": "PASS"}),
+        (cve, {"status": "BLOCKED"}),
+    ):
+        _write(path, value)
+    _write(
+        seeded,
+        {
+            "status": "PASS",
+            "evidence_level": "L1",
+            "git_commit": _git("rev-parse", "HEAD"),
+            "git_tree": _git("rev-parse", "HEAD^{tree}"),
+        },
+    )
+
+    gate = build_gate(
+        baseline_path=baseline,
+        semantic_path=semantic,
+        sbom_path=sbom,
+        cve_path=cve,
+        seeded_gate_path=seeded,
+    )
+
+    assert gate["gates"]["seeded_c1_c4_l1"] == "PASS"
+    assert any(item["path"].endswith("seeded.json") for item in gate["artifact_manifest"])
+
+
+def test_final_gate_rejects_unbound_wave_evidence(tmp_path) -> None:
+    baseline = tmp_path / "baseline.json"
+    semantic = tmp_path / "semantic.json"
+    sbom = tmp_path / "sbom.json"
+    cve = tmp_path / "cve.json"
+    seeded = tmp_path / "seeded.json"
+    for path, value in (
+        (baseline, {"results": [{}]}),
+        (semantic, {"summary": {}, "mechanisms": []}),
+        (sbom, {"status": "PASS"}),
+        (cve, {"status": "BLOCKED"}),
+        (seeded, {"status": "PASS"}),
+    ):
+        _write(path, value)
+
+    gate = build_gate(
+        baseline_path=baseline,
+        semantic_path=semantic,
+        sbom_path=sbom,
+        cve_path=cve,
+        seeded_gate_path=seeded,
+    )
+
+    assert gate["gates"]["seeded_c1_c4_l1"] == "BLOCKED"
+    assert any("Seeded C1-C4 evidence is missing git_commit" in item for item in gate["blockers"])
