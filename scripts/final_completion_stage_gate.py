@@ -172,11 +172,13 @@ def build_gate(
     pytest_summary: str | None = None,
     pytest_summary_path: Path | None = None,
     baseline_manifest_path: Path = FINAL_ROUND / "baseline-manifest.json",
+    format_debt_path: Path = FINAL_ROUND / "ruff-format-debt-check-20260904.json",
 ) -> dict[str, Any]:
     generated_at = datetime.now(UTC).isoformat()
     baseline = _load(baseline_path)
     semantic = _load(semantic_path)
     cve = _load(cve_path)
+    format_debt = _load(format_debt_path) if format_debt_path.exists() else {}
     task_view = _load(task_view_path) if task_view_path.exists() else {}
 
     result = (baseline.get("results") or [{}])[0]
@@ -239,6 +241,8 @@ def build_gate(
             "Baseline manifest identity does not match the current HEAD/tree; "
             "a current release baseline is required."
         )
+    if format_debt.get("status") != "PASS":
+        blockers.append("Ruff format-debt gate is missing or not PASS.")
 
     if pytest_summary_path is not None:
         summary = _load(pytest_summary_path)
@@ -329,7 +333,22 @@ def build_gate(
             evaluator_only=False,
             missing_fields=["sample_sha256", "case_id", "task_id", "session_id", "event_cursor_range"],
         ),
+        _artifact_metadata(
+            format_debt_path,
+            generated_at=generated_at,
+            commit=commit,
+            tree=tree,
+            config_fingerprint=config_fingerprint,
+            sample_sha256=None,
+            case_id=None,
+            task_id=None,
+            evaluator_only=False,
+            missing_fields=["sample_sha256", "case_id", "task_id", "session_id", "event_cursor_range"],
+        )
+        if format_debt_path.exists()
+        else None,
     ]
+    artifact_manifest = [item for item in artifact_manifest if item is not None]
     if task_view_path.exists():
         artifact_manifest.insert(
             2,
@@ -405,6 +424,7 @@ def build_gate(
             "compileall": "PASS",
             "sbom": "PASS (Docker Scout CycloneDX, 211 packages)",
             "cve_scan": cve.get("status", "BLOCKED"),
+            "ruff_format_debt": format_debt.get("status", "BLOCKED"),
         },
         "artifact_manifest": artifact_manifest,
         "blockers": blockers,
