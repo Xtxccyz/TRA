@@ -567,4 +567,20 @@ def test_three_run_and_resume_baseline_are_not_implicitly_certified() -> None:
 
     status, assessment = _project_acceptance_status("resume_regression", "PASS", {"status": "PASS"})
     assert status == "BLOCKED"
-    assert assessment == {"status": "BLOCKED", "failures": ["resume_regression_assertions"]}
+    assert assessment is not None
+    assert assessment["failures"] == ["regression_metrics"]
+
+
+def test_resume_regression_requires_positive_and_negative_controls() -> None:
+    payload = {
+        "regression": {
+            "required_mechanisms": {"xor": "SUPPORTED", "ppid": True},
+            "negative_gold": True,
+            "overclaim_count": 0,
+        }
+    }
+
+    status, assessment = _project_acceptance_status("resume_regression", "PASS", payload)
+
+    assert status == "PASS"
+    assert assessment == {"status": "PASS", "failures": []}

@@ -440,6 +440,47 @@ def _seeded_assessment(payload: dict[str, Any]) -> dict[str, Any]:
     return {"status": "PASS" if not failures else "BLOCKED", "checks": checks, "failures": failures}
 
 
+def _resume_regression_assessment(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate positive mechanisms and the required negative Gold control."""
+    regression = payload.get("regression") or payload.get("metrics")
+    if not isinstance(regression, dict):
+        return {"status": "BLOCKED", "failures": ["regression_metrics"]}
+    failures: list[str] = []
+    mechanisms = regression.get("required_mechanisms") or regression.get("positive_mechanisms") or regression.get("mechanism_results")
+    if not mechanisms:
+        failures.append("required_mechanisms")
+    elif isinstance(mechanisms, dict):
+        for name, result in mechanisms.items():
+            if _bool_metric(result) is not True and str(result).upper() not in {"PASS", "SUPPORTED", "VERIFIED"}:
+                failures.append(f"mechanism:{name}")
+    elif isinstance(mechanisms, list):
+        for index, result in enumerate(mechanisms):
+            if isinstance(result, dict):
+                status = result.get("status") or result.get("result")
+            else:
+                status = result
+            if _bool_metric(status) is not True and str(status).upper() not in {"PASS", "SUPPORTED", "VERIFIED"}:
+                failures.append(f"mechanism:{index + 1}")
+    negative = _first_value(
+        regression,
+        "negative_gold",
+        "negative_control",
+        "required_negative_gold",
+        "negative_control_passed",
+    )
+    negative_pass = _bool_metric(negative)
+    if negative_pass is not True:
+        failures.append("negative_gold")
+    overclaims = _first_value(regression, "overclaim_count", "unsupported_claims", "forbidden_overclaims")
+    if isinstance(overclaims, list):
+        overclaim_count = len(overclaims)
+    else:
+        overclaim_count = _number(overclaims)
+    if overclaim_count is None or overclaim_count != 0:
+        failures.append("overclaims")
+    return {"status": "PASS" if not failures else "BLOCKED", "failures": failures}
+
+
 def _project_acceptance_status(key: str, status: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
     """Normalize source statuses and enforce metric-bearing Wave B/C gates."""
     normalized = status.upper()
@@ -467,15 +508,8 @@ def _project_acceptance_status(key: str, status: str, payload: dict[str, Any]) -
         if not isinstance(results, list) or len(results) < 3:
             return "BLOCKED", {"status": "BLOCKED", "failures": ["three_runs"]}
     if key == "resume_regression":
-        # A baseline PASS is not a regression proof. Require explicit
-        # regression metrics or a named mechanism assertion.
-        regression = payload.get("regression") or payload.get("metrics")
-        if not isinstance(regression, dict) or not (
-            regression.get("required_mechanisms")
-            or regression.get("mechanism_results")
-            or regression.get("positive_mechanisms")
-        ):
-            return "BLOCKED", {"status": "BLOCKED", "failures": ["resume_regression_assertions"]}
+        assessment = _resume_regression_assessment(payload)
+        return assessment["status"], assessment
     return "PASS", None
 
 
