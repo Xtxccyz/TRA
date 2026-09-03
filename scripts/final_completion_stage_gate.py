@@ -264,6 +264,16 @@ def _metric(payload: dict[str, Any], *keys: str) -> object:
     return _MISSING
 
 
+def _section_metric(payload: dict[str, Any], section: str, *keys: str) -> object:
+    """Read a metric from a named nested section without broad key leakage."""
+    for source in _metric_sources(payload):
+        nested = _mapping(source.get(section))
+        value = _first_value(nested, *keys)
+        if value is not _MISSING:
+            return value
+    return _MISSING
+
+
 def _wave_b_assessment(payload: dict[str, Any]) -> dict[str, Any]:
     """Evaluate the explicit static-semantic acceptance thresholds.
 
@@ -306,8 +316,14 @@ def _wave_b_assessment(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
     decoder_raw = _metric(payload, "decoder_replay", "decoder_replay_verified", "deterministic_decoder_replay")
+    if decoder_raw is _MISSING or isinstance(decoder_raw, dict):
+        decoder_raw = _section_metric(payload, "decoder", "replay", "verified", "status")
     xor_raw = _metric(payload, "xor_negative_control", "xor_negative_control_pass", "xor_decoder_positives")
+    if xor_raw is _MISSING or isinstance(xor_raw, dict):
+        xor_raw = _section_metric(payload, "xor_negative_control", "pass", "passed", "status", "decoder_positives")
     pe_raw = _metric(payload, "pe_role_distinction", "pe_roles_distinct", "pe_classification_roles_distinct")
+    if pe_raw is _MISSING or isinstance(pe_raw, dict):
+        pe_raw = _section_metric(payload, "pe_role_distinction", "distinct", "verified", "status")
     decoder = _bool_metric(decoder_raw)
     xor = _bool_metric(xor_raw)
     if isinstance(xor_raw, (int, float)) and not isinstance(xor_raw, bool):
