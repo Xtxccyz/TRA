@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from typing import Any, Mapping
+import re
 
 
 _COMPONENTS = (
@@ -61,6 +62,30 @@ def _text(value: object) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True, default=str).casefold()
 
 
+def _token_is_asserted(text: str, token: str) -> bool:
+    """Match an evaluator token only when the evidence does not negate it.
+
+    Static reports frequently preserve a useful limitation alongside a lead,
+    for example ``decoded output not observed``.  Treating ``output`` as
+    positive support would turn an explicit unknown into a false closure.
+    """
+    token = token.casefold()
+    if token not in text:
+        return False
+    escaped = re.escape(token)
+    negated_before = re.search(
+        rf"(?:not|never|no|without|unverified|unknown|missing|absent)"
+        rf"(?:\W+\w+){{0,3}}\W+{escaped}\b",
+        text,
+    )
+    negated_after = re.search(
+        rf"\b{escaped}\b(?:\W+\w+){{0,3}}\W+"
+        rf"(?:not|never|unverified|unknown|missing|absent)\b",
+        text,
+    )
+    return not (negated_before or negated_after)
+
+
 def _evidence_matches(evidence: list[Mapping[str, Any]], tokens: tuple[str, ...]) -> list[Mapping[str, Any]]:
     if not tokens:
         return []
@@ -69,13 +94,19 @@ def _evidence_matches(evidence: list[Mapping[str, Any]], tokens: tuple[str, ...]
     # (e.g. OpenProcess, an attribute constant, and CreateProcessW). Return
     # the union only when every required token is covered; this preserves
     # provenance without requiring extractors to coalesce unrelated facts.
-    matching = [
-        row
-        for row in evidence
-        if any(token in _text({"value": row.get("value"), "anchor": row.get("anchor")}) for token in required)
-    ]
+    matching = []
+    for row in evidence:
+        row_text = _text({"value": row.get("value"), "anchor": row.get("anchor")})
+        if any(_token_is_asserted(row_text, token) for token in required):
+            matching.append(row)
     if all(
-        any(token in _text({"value": row.get("value"), "anchor": row.get("anchor")}) for row in matching)
+        any(
+            _token_is_asserted(
+                _text({"value": row.get("value"), "anchor": row.get("anchor")}),
+                token,
+            )
+            for row in matching
+        )
         for token in required
     ):
         return matching
@@ -90,7 +121,13 @@ def _evidence_mentions(evidence: list[Mapping[str, Any]], tokens: tuple[str, ...
     return [
         row
         for row in evidence
-        if any(token in _text({"value": row.get("value"), "anchor": row.get("anchor")}) for token in candidates)
+        if any(
+            _token_is_asserted(
+                _text({"value": row.get("value"), "anchor": row.get("anchor")}),
+                token,
+            )
+            for token in candidates
+        )
     ]
 
 

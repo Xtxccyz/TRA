@@ -1,0 +1,85 @@
+{
+  "manifest_version": "final-round-baseline-v1",
+  "status": "RECORDED",
+  "freeze_mode": "content-hash-only",
+  "generated_at": "2026-09-04T01:20:00+08:00",
+  "repository": {
+    "root": "D:/threat report agent",
+    "git_metadata_available": true,
+    "backend_commit": "9967dd97e56fb8afb8863d9d272bf49dd4ac7640",
+    "dsh_commit": null,
+    "backend_tree": "61b698596662f96ed57e1ef0e1cca2822b594892",
+    "note": "Git commit/tree, source hashes and image digests are recorded; DSH provenance remains unavailable."
+  },
+  "source_hashes_sha256": {
+    "pyproject.toml": "B9DF223D4A6F85E47FE1181FF91E4ADDA911A7CA7D28559002AC519373B09177",
+    "docker-compose.yml": "DF9EF92CCAD96AEB20EF2D4B5FC3649882C8BEB1637A60A3481E827D0FBD6DA5",
+    ".env.example": "AEFD9EA7C7EB3BA9740FA61C560348F68950A2F864FAFA17FC3BF39B7F3A848A",
+    "src/threat_report_agent/prompts/manifest.json": "D9D329994310E434E0B954DB1449DDC17D088DAC140909B93AE8E8A8964608B7",
+    "src/threat_report_agent/knowledge/attack-snapshot.yaml": "8C5ABC417DCBF9DA4F62FC70F8ED0EA1FB4C0C772B3058501E44CE842B683810",
+    "benchmarks/reference/known-functions.yaml": "E3811CFC6399640351543084238CE7E4187EB246F807FC3798A71F16305AD676",
+    "src/threat_report_agent/investigation.py": "75FD4EEFAA27B4D2ABD1820BC662CBA1BF911D810CCD72ED940F40E4FAB70B81",
+    "src/threat_report_agent/mechanism_completeness.py": "0580EEEE53DDCE12238EB522318C6AEDA9818C84605B0F684C185DD665D7539C",
+    "src/threat_report_agent/analysis_trace.py": "01FE82B4A9CF4B8654FAAFFE5FAECBC484B5BEA99A61A0886796BE9020E3801D",
+    "src/threat_report_agent/main.py": "0AA7DA7704C61B535B1A59490C030CAF1C246D32EED1964A7B8D8FD928EE0E64",
+    "benchmarks/semantic_differential.py": "D3D4E6F1D65A0B3D9C3CD171FAEA15504ABDECB1C938F44FED7DDF14DE73FA55",
+    "scripts/final_completion_stage_gate.py": "8AB009AF932DA9C90D1F9DC2D2292D8190654C501167B398EB20CCE5D5C1A991",
+    "scripts/round11_2_certify.py": "95EE26EB7CD26A831B5D6E042D9521B11D693881EAADBD1E31CA44A8C68C50CC",
+    "tests/test_round11_2_certify.py": "7D91A5247D71AC280E2264FBFB0CBF7A58334F1703E3E2B8E09C4D3FFF15EB9D",
+    "tests/test_comhost_benchmark.py": "FC3AD9E05AD13F48ACA718AF00A639CCAB249684A570E89A5932B38A81F8D5C3",
+    "tests/test_final_completion_stage_gate.py": "18E73E55ACFB0B42CF4B280FA4F7DDD3FCBB6C120C7260912D1EA5B3E3758F4D"
+  },
+  "dsh": {
+    "path": "threat-dsh-workbench",
+    "git_metadata_available": false,
+    "upstream_core_guard": "PASS",
+    "threat_plugin_revision": "content-hash-only",
+    "runtime_checks": ["npm test", "npm run test:runtime", "npm run typecheck", "npm run security", "npm run legacy-guard", "npm run core-guard"]
+  },
+  "prompt_versions": {
+    "triage-agent": "1.0.0",
+    "static-analysis-agent": "1.0.0",
+    "analysis-planner-agent": "1.0.0",
+    "manifest_sha256": "D9D329994310E434E0B954DB1449DDC17D088DAC140909B93AE8E8A8964608B7"
+  },
+  "model_provider": {
+    "provider": "custom",
+    "model": "ali/qwen3.7-max",
+    "base_url_host": "router.shengsuanyun.com",
+    "api_key_configured": true,
+    "api_key_recorded": false
+  },
+  "analysis_components": {
+    "retrieval": "question-centric evidence retrieval",
+    "context_builder": "question-centric",
+    "playbook_registry": "MechanismPlaybookRegistry.default_playbooks",
+    "verifier": "independent deterministic verifier and Claim Gate",
+    "attack_snapshot": "enterprise-attack-15.1",
+    "database_schema_source": "src/threat_report_agent/models.py"
+  },
+  "docker_images": {
+    "threat-report-agent-api": "sha256:ecb0adabefac6473f86bd6c0a247a7267e33a97098a1726de385864b454cf673",
+    "threat-report-agent-ghidra-worker": "sha256:e4ccd23c7910f135fe3ed9094f0adca679576c7cc6639ab0db73099f2dcf594d",
+    "temporalio/auto-setup:1.27.2": "sha256:b44cbfeb43dbeae42db113b44fb8414c3452f05643b3d6b1592f955277d73526",
+    "pgvector/pgvector:pg16": "sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b",
+    "minio:RELEASE.2025-04-22T22-12-26Z": "sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e"
+  },
+  "evaluator": {
+    "metric_contract": "release-artifacts/round11.2/metric-contract.json",
+    "metric_contract_sha256": "not-recomputed-in-this-manifest",
+    "corpus_status": "PROVISIONAL_OPERATOR_LABELS",
+    "provisional_corpus_manifest": "release-artifacts/round11.2/corpus-manifest.json",
+    "gold_status": "BLOCKED"
+  },
+  "safety_boundary": {
+    "sample_execution": false,
+    "sample_network": false,
+    "dynamic_emulation": false,
+    "arbitrary_shell_from_analysis_agent": false
+  },
+  "limitations": [
+    "No Git commit or tag is available for a commit-level rollback.",
+    "The evaluator-labelled 20-malware/10-benign corpus and evaluator-owned Gold are not present.",
+    "This baseline records the current RC; it is not a Production Ready sign-off."
+  ]
+}

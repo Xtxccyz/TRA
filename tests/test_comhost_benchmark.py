@@ -87,3 +87,33 @@ def test_evaluator_keeps_all_excluded_matches_as_retrieval_failure() -> None:
     component = result["mechanisms"][0]["components"][6]
     assert component["status"] == "UNKNOWN"
     assert component["reason"] == "retrieval_failure"
+
+
+def test_semantic_differential_does_not_promote_explicitly_unobserved_output() -> None:
+    """A limitation such as ``decoded output not observed`` stays UNKNOWN."""
+    task_view = {
+        "id": "negative-decoder-fixture",
+        "evidence": [
+            {
+                "id": "candidate",
+                "kind": "mechanism_decode_window",
+                "value": "decoded output not observed; verification unverified",
+                "anchor": {"function_entry": "0x1000"},
+            }
+        ],
+        "investigation": {"actions": [{"id": "a1"}]},
+        "claims": [{"id": "c1"}],
+        "limitations": [],
+    }
+    gold = {
+        "version": "negative",
+        "mechanisms": [
+            {"id": "decoder", "components": {"output": ["decoded", "output"]}}
+        ],
+    }
+
+    result = build_semantic_differential(task_view, gold)
+    mechanism = result["mechanisms"][0]
+    assert mechanism["status"] == "UNKNOWN"
+    output = next(item for item in mechanism["components"] if item["component"] == "output")
+    assert output["status"] == "UNKNOWN"

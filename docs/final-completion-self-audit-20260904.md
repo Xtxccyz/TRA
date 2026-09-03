@@ -1,7 +1,8 @@
 # Final Completion Stage Self-Audit
 
-Date: 2026-09-04  
-Release candidate commit: `1cb5ccf`  
+Date: 2026-09-04
+Release candidate source commit: `1cb5ccf`
+Evidence artifact commit: `9967dd9`
 Gate artifact: `release-artifacts/final-round/final-completion-stage-gate-20260904.json`
 
 ## Scope and boundary
@@ -15,7 +16,7 @@ after the runtime completed, by the offline evaluator.
 
 | Area | Result | Evidence |
 | --- | --- | --- |
-| Unit/integration regression | PASS | `python -m pytest -q`: 455 passed, 2 skipped |
+| Unit/integration regression | PASS | `python -m pytest -q`: 457 passed, 2 skipped |
 | Static checks | PASS | `ruff check src tests`; `python -m compileall -q src tests` |
 | API liveness/readiness | PASS | `/healthz=200`; `/readyz=200`, database=`ok` |
 | Trace privacy and fallback diagnostics | PASS | `tests/test_analysis_trace.py`: 8 passed; model call projection is whitelist-only |
