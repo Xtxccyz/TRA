@@ -581,6 +581,25 @@ def build_gate(
     issue_register_path: Path | None = None,
 ) -> dict[str, Any]:
     generated_at = datetime.now(UTC).isoformat()
+    # The library entry point should have the same release evidence defaults
+    # as the CLI.  Temporary/unit baselines intentionally keep all optional
+    # paths unset so tests can exercise missing-evidence behavior.
+    if baseline_path == DEFAULT_BASELINE_PATH:
+        seeded_gate_path = seeded_gate_path or FINAL_ROUND / "comhost-c1-c4-fresh-20260902.json"
+        model_effectiveness_path = model_effectiveness_path or FINAL_ROUND / "model-effectiveness-real-20260902.json"
+        analysis_depth_path = analysis_depth_path or FINAL_ROUND / "report-depth-comhost-20260902-r2.json"
+        report_depth_path = report_depth_path or FINAL_ROUND / "report-depth-comhost-20260902-r2.json"
+        browser_e2e_path = browser_e2e_path or FINAL_ROUND / "browser-e2e-20260902.json"
+        context_stress_path = context_stress_path or ROOT / "release-artifacts" / "context-window-stress.json"
+        recovery_path = recovery_path or ROOT / "release-artifacts" / "round11.2" / "restart-recovery.json"
+        concurrency_path = concurrency_path or ROOT / "release-artifacts" / "round11.2" / "concurrency.json"
+        soak_path = soak_path or ROOT / "release-artifacts" / "round11.2" / "soak-24h.json"
+        comhost_runs_path = comhost_runs_path or FINAL_ROUND / "comhost-third-run.json"
+        generalization_path = generalization_path or ROOT / "release-artifacts" / "round11.2" / "heldout-results.json"
+        production_hardening_path = production_hardening_path or ROOT / "release-artifacts" / "round11.2" / "production-hardening.json"
+        independent_reviews_path = independent_reviews_path or ROOT / "release-artifacts" / "round11.2" / "independent-reviews.json"
+        resume_regression_path = resume_regression_path or FINAL_ROUND / "resume-static-baseline-20260904.json"
+        issue_register_path = issue_register_path or DEFAULT_ISSUE_REGISTER_PATH
     baseline = _load(baseline_path)
     semantic = _load(semantic_path)
     sbom = _load(sbom_path)
