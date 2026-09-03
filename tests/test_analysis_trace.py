@@ -4,6 +4,10 @@ from fastapi.testclient import TestClient
 
 from threat_report_agent.analysis_trace import build_analysis_trace
 from threat_report_agent.main import create_app
+from threat_report_agent.models import ModelCall
+from threat_report_agent.service import AnalysisService
+from threat_report_agent.database import Database
+from threat_report_agent.content_store import LocalContentStore
 
 
 def test_analysis_trace_is_evidence_linked_and_redacted(test_settings) -> None:
@@ -72,6 +76,54 @@ def test_analysis_trace_keeps_model_status_without_payload() -> None:
     assert agent_steps
     assert any(step["event_type"] == "agent.run.started" for step in agent_steps)
     assert all("messages" not in step["details"] for step in agent_steps)
+
+
+def test_service_analysis_trace_preserves_model_fallback_diagnostics(test_settings) -> None:
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    service.database.create_schema()
+    case = service.create_case("trace fallback diagnostics")
+    result = service.analyze_submission(
+        case_id=case.id,
+        filename="trace.py",
+        content=b"print('trace')",
+    )
+    with service.database.session_factory.begin() as session:
+        session.add(
+            ModelCall(
+                task_id=result.task_id,
+                module="planning",
+                provider="primary",
+                model="test-model",
+                prompt_id="planning",
+                prompt_version="1",
+                prompt_sha256="a" * 64,
+                attempt=1,
+                status="FAILED",
+                request_sha256="b" * 64,
+                parameters={
+                    "agent_run_id": "run-1",
+                    "context_evidence_count": 4,
+                    "context_bytes": 512,
+                    "fallback_reason": "primary_failed",
+                    "http_status": 402,
+                    "endpoint_path": "/chat/completions",
+                    "error_detail": "insufficient_balance",
+                },
+                error_type="HTTPStatusError",
+            )
+        )
+
+    trace = service.analysis_trace(result.task_id)
+    row = next(item for item in trace["model_calls"] if item["model"] == "test-model")
+    assert row["attempt"] == 1
+    assert row["http_status"] == 402
+    assert row["endpoint_path"] == "/chat/completions"
+    assert row["fallback_reason"] == "primary_failed"
+    assert row["error_detail"] == "insufficient_balance"
 
 
 def test_analysis_trace_exposes_methodology_decisions_without_raw_profile_payload() -> None:

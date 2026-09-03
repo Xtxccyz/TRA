@@ -242,6 +242,58 @@ def _compact_action(row: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _compact_model_call(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose auditable model-attempt diagnostics without payload material.
+
+    Model requests and responses are restricted payloads. The trace only
+    needs enough metadata to explain routing, retries and fallback decisions;
+    keep this projection explicit so a new gateway parameter cannot leak into
+    the user-facing trace by accident.
+    """
+    result: dict[str, Any] = {}
+    for key in (
+        "id",
+        "turn_id",
+        "phase",
+        "provider",
+        "model",
+        "attempt",
+        "status",
+        "error_type",
+        "agent_run_id",
+        "fallback_used",
+        "fallback_reason",
+        "http_status",
+        "endpoint_path",
+        "error_detail",
+        "prompt_sha256",
+        "request_sha256",
+        "response_sha256",
+        "context_evidence_count",
+        "context_bytes",
+        "latency_ms",
+    ):
+        value = row.get(key)
+        if value is not None:
+            result[key] = value
+
+    parameters = row.get("parameters")
+    if isinstance(parameters, Mapping):
+        for key in (
+            "agent_run_id",
+            "fallback_used",
+            "fallback_reason",
+            "http_status",
+            "endpoint_path",
+            "error_detail",
+            "context_evidence_count",
+            "context_bytes",
+        ):
+            if key not in result and parameters.get(key) is not None:
+                result[key] = parameters[key]
+    return result
+
+
 def build_mechanism_effectiveness_traces(
     *,
     strategy_snapshot: Mapping[str, Any] | None,
@@ -801,6 +853,7 @@ def build_analysis_trace(
             events=events,
         )
     )
+    model_call_rows = [_compact_model_call(row) for row in model_calls if isinstance(row, Mapping)]
 
     return {
         "task_id": task_id,
@@ -820,6 +873,7 @@ def build_analysis_trace(
         "links": links,
         "limitations": list(dict.fromkeys(str(item) for item in limitations if item)),
         "integrity": dict(integrity or {}),
+        "model_calls": model_call_rows,
         "analysis_turns": turn_rows,
         "analysis_turn_results": result_rows,
         "evidence_funnel": {

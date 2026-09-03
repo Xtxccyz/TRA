@@ -68,3 +68,11 @@ def test_health_exposes_capability_flags_without_secrets(test_settings: Settings
         },
     }
     assert "test-key" not in response.text
+
+
+def test_readiness_probes_database_without_exposing_secrets(test_settings: Settings) -> None:
+    response = TestClient(create_app(test_settings)).get("/readyz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "checks": {"database": "ok"}}
+    assert "test-key" not in response.text

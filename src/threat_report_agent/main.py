@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, SecretStr
+from sqlalchemy import text
 
 from threat_report_agent.config import Settings
 from threat_report_agent.auth import require_permission, AuthAdapter
@@ -478,6 +479,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "ghidra_home_configured": bool(runtime_settings.ghidra_home),
             },
         }
+
+    @app.get("/readyz", tags=["system"])
+    def readyz() -> Response:
+        """Report whether the API can serve analysis requests.
+
+        Liveness is intentionally separate from readiness: a running process
+        with an unavailable database must not receive uploads.  The probe is
+        bounded to a single local ``SELECT 1`` and never touches sample data.
+        """
+        checks: dict[str, str] = {}
+        try:
+            with analysis_service.database.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+        except Exception as exc:  # pragma: no cover - exercised with injected DB failures
+            checks["database"] = type(exc).__name__
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "checks": checks},
+            )
+
+        return JSONResponse(status_code=200, content={"status": "ready", "checks": checks})
 
     @app.get("/metrics", tags=["system"])
     def metrics() -> Response:
