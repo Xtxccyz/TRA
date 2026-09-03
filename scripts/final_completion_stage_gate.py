@@ -139,10 +139,11 @@ def _artifact_metadata(
     evaluator_only: bool,
     missing_fields: list[str] | None = None,
 ) -> dict[str, Any]:
+    resolved_path = path.resolve()
     try:
-        display_path = path.relative_to(ROOT).as_posix()
+        display_path = resolved_path.relative_to(ROOT).as_posix()
     except ValueError:
-        display_path = str(path.resolve())
+        display_path = str(resolved_path)
     return {
         "path": display_path,
         "artifact_sha256": _sha256(path),
@@ -168,6 +169,8 @@ def build_gate(
     semantic_path: Path = FINAL_ROUND / "comhost-semantic-differential-postdeploy-20260904.json",
     sbom_path: Path = FINAL_ROUND / "threat-report-agent-api-sbom-20260904.json",
     cve_path: Path = FINAL_ROUND / "threat-report-agent-api-cve-scan-20260904.json",
+    ruff_path: Path | None = None,
+    compileall_path: Path | None = None,
     task_view_path: Path = ROOT / ".scratch" / "final-completion-live-20260904" / "comhost-task-view-d114e2d4.json",
     pytest_summary: str | None = None,
     pytest_summary_path: Path | None = None,
@@ -177,7 +180,14 @@ def build_gate(
     generated_at = datetime.now(UTC).isoformat()
     baseline = _load(baseline_path)
     semantic = _load(semantic_path)
+    sbom = _load(sbom_path)
     cve = _load(cve_path)
+    ruff = _load(ruff_path) if ruff_path is not None and ruff_path.exists() else {}
+    compileall = (
+        _load(compileall_path)
+        if compileall_path is not None and compileall_path.exists()
+        else {}
+    )
     format_debt = _load(format_debt_path) if format_debt_path.exists() else {}
     task_view = _load(task_view_path) if task_view_path.exists() else {}
 
@@ -200,6 +210,9 @@ def build_gate(
         and baseline_tree == tree
     )
     image_digest = _image_digest()
+    source_worktree_clean = _git_succeeds(
+        "diff", "--quiet", "--", "benchmarks", "docs", "scripts", "src", "tests"
+    )
     config_fingerprint = hashlib.sha256(
         json.dumps(
             {
@@ -243,6 +256,28 @@ def build_gate(
         )
     if format_debt.get("status") != "PASS":
         blockers.append("Ruff format-debt gate is missing or not PASS.")
+
+    sbom_status = str(
+        sbom.get("status")
+        or (
+            "PASS"
+            if sbom.get("bomFormat") == "CycloneDX"
+            and isinstance(sbom.get("components"), list)
+            else "NOT_PROVEN"
+        )
+    )
+    ruff_status = str(ruff.get("status") or "NOT_PROVEN")
+    compileall_status = str(compileall.get("status") or "NOT_PROVEN")
+    if sbom_status != "PASS":
+        blockers.append("SBOM evidence is missing or not PASS.")
+    if ruff_status != "PASS":
+        blockers.append("Ruff lint evidence is missing or not PASS.")
+    if compileall_status != "PASS":
+        blockers.append("compileall evidence is missing or not PASS.")
+    if not source_worktree_clean:
+        blockers.append(
+            "Source implementation worktree is dirty; release evidence must be bound to a clean commit."
+        )
 
     if pytest_summary_path is not None:
         summary = _load(pytest_summary_path)
@@ -349,6 +384,28 @@ def build_gate(
         else None,
     ]
     artifact_manifest = [item for item in artifact_manifest if item is not None]
+    for verification_path in (ruff_path, compileall_path):
+        if verification_path is not None and verification_path.exists():
+            artifact_manifest.append(
+                _artifact_metadata(
+                    verification_path,
+                    generated_at=generated_at,
+                    commit=commit,
+                    tree=tree,
+                    config_fingerprint=config_fingerprint,
+                    sample_sha256=None,
+                    case_id=None,
+                    task_id=None,
+                    evaluator_only=False,
+                    missing_fields=[
+                        "sample_sha256",
+                        "case_id",
+                        "task_id",
+                        "session_id",
+                        "event_cursor_range",
+                    ],
+                )
+            )
     if task_view_path.exists():
         artifact_manifest.insert(
             2,
@@ -395,9 +452,7 @@ def build_gate(
             # The gate itself is an evidence artifact and may be rewritten
             # after the source commit.  Check the implementation paths so its
             # own pending diff does not make a clean source tree look dirty.
-            "source_worktree_clean": _git_succeeds(
-                "diff", "--quiet", "--", "benchmarks", "docs", "scripts", "src", "tests"
-            ),
+            "source_worktree_clean": source_worktree_clean,
         },
         "execution_boundary": {
             "sample_execution": False,
@@ -420,9 +475,9 @@ def build_gate(
         "gates": gates,
         "verification": {
             "pytest": pytest_summary or "NOT_SUPPLIED (run pytest separately)",
-            "ruff": "PASS",
-            "compileall": "PASS",
-            "sbom": "PASS (Docker Scout CycloneDX, 211 packages)",
+            "ruff": ruff_status,
+            "compileall": compileall_status,
+            "sbom": sbom_status,
             "cve_scan": cve.get("status", "BLOCKED"),
             "ruff_format_debt": format_debt.get("status", "BLOCKED"),
         },
@@ -437,8 +492,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--pytest-summary", type=Path)
+    parser.add_argument("--ruff-result", type=Path)
+    parser.add_argument("--compileall-result", type=Path)
     args = parser.parse_args()
-    payload = build_gate(pytest_summary_path=args.pytest_summary)
+    payload = build_gate(
+        pytest_summary_path=args.pytest_summary,
+        ruff_path=args.ruff_result,
+        compileall_path=args.compileall_result,
+    )
     validate_gate_schema(payload)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

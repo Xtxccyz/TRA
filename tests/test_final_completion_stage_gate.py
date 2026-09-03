@@ -91,6 +91,30 @@ def test_final_gate_has_plan_schema_projection_and_preserves_blockers(tmp_path) 
     assert gate["blocker_count"] == len(gate["blockers"])
 
 
+def test_final_gate_recognizes_valid_cyclonedx_sbom_without_status(tmp_path) -> None:
+    baseline = tmp_path / "baseline.json"
+    semantic = tmp_path / "semantic.json"
+    sbom = tmp_path / "sbom.json"
+    cve = tmp_path / "cve.json"
+    for path, value in (
+        (baseline, {"results": [{}]}),
+        (semantic, {"summary": {}, "mechanisms": []}),
+        (sbom, {"bomFormat": "CycloneDX", "components": []}),
+        (cve, {"status": "BLOCKED"}),
+    ):
+        _write(path, value)
+
+    gate = build_gate(
+        baseline_path=baseline,
+        semantic_path=semantic,
+        sbom_path=sbom,
+        cve_path=cve,
+    )
+
+    assert gate["verification"]["sbom"] == "PASS"
+    assert not any("SBOM evidence" in item for item in gate["blockers"])
+
+
 def test_final_gate_uses_current_pytest_summary_and_rejects_stale_identity(tmp_path) -> None:
     baseline = tmp_path / "baseline.json"
     semantic = tmp_path / "semantic.json"
@@ -154,3 +178,32 @@ def test_final_gate_uses_frozen_baseline_manifest_when_run_artifact_has_no_ident
 
     assert gate["release_identity"]["baseline_manifest"].endswith("manifest.json")
     assert gate["release_identity"]["baseline_identity_match"] is False
+
+
+def test_final_gate_fails_closed_when_verification_evidence_is_missing(tmp_path) -> None:
+    baseline = tmp_path / "baseline.json"
+    semantic = tmp_path / "semantic.json"
+    sbom = tmp_path / "sbom.json"
+    cve = tmp_path / "cve.json"
+    for path, value in (
+        (baseline, {"results": [{}]}),
+        (semantic, {"summary": {}, "mechanisms": []}),
+        (sbom, {"status": "BLOCKED"}),
+        (cve, {"status": "BLOCKED"}),
+    ):
+        _write(path, value)
+
+    gate = build_gate(
+        baseline_path=baseline,
+        semantic_path=semantic,
+        sbom_path=sbom,
+        cve_path=cve,
+    )
+
+    assert gate["verification"]["sbom"] == "BLOCKED"
+    assert gate["verification"]["ruff"] == "NOT_PROVEN"
+    assert gate["verification"]["compileall"] == "NOT_PROVEN"
+    assert any("SBOM evidence" in item for item in gate["blockers"])
+    assert any("Ruff lint evidence" in item for item in gate["blockers"])
+    assert any("compileall evidence" in item for item in gate["blockers"])
+    assert gate["blocker_count"] == len(gate["blockers"])
