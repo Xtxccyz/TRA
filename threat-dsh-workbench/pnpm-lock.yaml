@@ -1,0 +1,162 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: false
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  examples/threat-plugin-template:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/threat-plugin-sdk
+
+  packages/threat-api-client:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-brand: {}
+
+  packages/threat-bundle:
+    dependencies:
+      '@threat-dsh/api-client':
+        specifier: workspace:*
+        version: link:../threat-api-client
+      '@threat-dsh/brand':
+        specifier: workspace:*
+        version: link:../threat-brand
+      '@threat-dsh/context-provider':
+        specifier: workspace:*
+        version: link:../threat-context-provider
+      '@threat-dsh/context-store':
+        specifier: workspace:*
+        version: link:../threat-context-store
+      '@threat-dsh/jobs':
+        specifier: workspace:*
+        version: link:../threat-jobs
+      '@threat-dsh/model-gateway':
+        specifier: workspace:*
+        version: link:../threat-model-gateway
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+      '@threat-dsh/policy':
+        specifier: workspace:*
+        version: link:../threat-policy
+      '@threat-dsh/session-events':
+        specifier: workspace:*
+        version: link:../threat-session-events
+      '@threat-dsh/tool-provider':
+        specifier: workspace:*
+        version: link:../threat-tool-provider
+      '@threat-dsh/ui-evidence':
+        specifier: workspace:*
+        version: link:../threat-ui-evidence
+      '@threat-dsh/ui-investigation':
+        specifier: workspace:*
+        version: link:../threat-ui-investigation
+      '@threat-dsh/ui-mechanisms':
+        specifier: workspace:*
+        version: link:../threat-ui-mechanisms
+      '@threat-dsh/ui-overview':
+        specifier: workspace:*
+        version: link:../threat-ui-overview
+      '@threat-dsh/ui-report':
+        specifier: workspace:*
+        version: link:../threat-ui-report
+      '@threat-dsh/ui-sample-timeline':
+        specifier: workspace:*
+        version: link:../threat-ui-sample-timeline
+
+  packages/threat-context-provider:
+    dependencies:
+      '@threat-dsh/api-client':
+        specifier: workspace:*
+        version: link:../threat-api-client
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-context-store: {}
+
+  packages/threat-jobs:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-model-gateway:
+    dependencies:
+      '@threat-dsh/api-client':
+        specifier: workspace:*
+        version: link:../threat-api-client
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-plugin-sdk: {}
+
+  packages/threat-policy:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-session-events:
+    dependencies:
+      '@threat-dsh/api-client':
+        specifier: workspace:*
+        version: link:../threat-api-client
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-tool-provider:
+    dependencies:
+      '@threat-dsh/api-client':
+        specifier: workspace:*
+        version: link:../threat-api-client
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-ui-evidence:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-ui-investigation:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-ui-mechanisms:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-ui-overview:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-ui-report:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk
+
+  packages/threat-ui-sample-timeline:
+    dependencies:
+      '@threat-dsh/plugin-sdk':
+        specifier: workspace:*
+        version: link:../threat-plugin-sdk

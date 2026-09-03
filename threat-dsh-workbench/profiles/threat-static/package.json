@@ -1,0 +1,20 @@
+{
+  "name": "threat-static",
+  "private": true,
+  "dependencies": {
+    "@threat-dsh/bundle-workbench": "file:../../packages/threat-bundle",
+    "@threat-dsh/context-store": "file:../../packages/threat-context-store",
+    "@threat-dsh/api-client": "file:../../packages/threat-api-client",
+    "@threat-dsh/plugin-sdk": "file:../../packages/threat-plugin-sdk",
+    "@threat-dsh/tool-provider": "file:../../packages/threat-tool-provider",
+    "@threat-dsh/session-events": "file:../../packages/threat-session-events",
+    "@threat-dsh/policy": "file:../../packages/threat-policy",
+    "@threat-dsh/jobs": "file:../../packages/threat-jobs",
+    "@threat-dsh/ui-mechanisms": "file:../../packages/threat-ui-mechanisms",
+    "@threat-dsh/ui-sample-timeline": "file:../../packages/threat-ui-sample-timeline",
+    "@threat-dsh/ui-evidence": "file:../../packages/threat-ui-evidence",
+    "@threat-dsh/ui-report": "file:../../packages/threat-ui-report",
+    "@threat-dsh/brand": "file:../../packages/threat-brand"
+  },
+  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@threat-dsh/bundle-workbench"] } }
+}

@@ -1,0 +1,9 @@
+# PostgreSQL保存权威对象，检索组件只提供派生视图
+
+一期使用PostgreSQL加JSONB保存Case、Analysis Task、Artifact、ToolRun、Evidence、Claim、Relation、审批和报告元数据；稳定身份、状态、来源和依赖使用明确关系列，JSONB承载工具或模块中变化较快的结构化扩展。原始样本、嵌入对象、反编译结果、日志和其他大对象保存在MinIO或内部S3兼容对象存储，并由数据库保存内容哈希及存储引用。
+
+pgvector作为PostgreSQL内的辅助索引召回ATT&CK说明、相似函数、加载模式和经过允许的历史案例，相似度不承担事实、家族或归因判断。第一期不引入Neo4j或OpenSearch；只有实测跨样本查询和规模证明关系数据库成为瓶颈时，才另行决定是否建立可从权威对象重建的只读查询投影，不预设事件溯源或同步技术。
+
+## Consequences
+
+报告与调查图始终从权威对象及其版本生成，搜索结果只能作为候选线索进入Claim/Evidence流程。对象存储实现可替换，但Content Blob身份和存储索引契约保持稳定；未来增加图或搜索投影不能成为新的未审计真值源。

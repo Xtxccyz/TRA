@@ -1,0 +1,7 @@
+# Relation是带证据和状态的领域对象
+
+调查图中的Relation不是临时数据库边或报告连线，而是连接Artifact及其他分析对象的有向、版本化领域对象。每条Relation使用受控类型并记录来源、目标、Evidence引用、证据性质和candidate、verified、disputed或rejected状态；contains、extracted_from等结构关系可由确定性工具直接观察，decrypts_to、loads、executes、injects和contacts等行为关系必须由证据支持的Claim建立。
+
+## Consequences
+
+组件图、对象树、加载链和攻击链统一从Relation重建，报告Agent不得自行补边。关系类型词表可以版本化扩展；关系被否定时保留拒绝理由而不物理删除，上游证据变化时沿依赖关系重新计算状态。

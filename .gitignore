@@ -1,0 +1,16 @@
+.env
+.venv/
+.data/
+.tools/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.scratch/
+.tmp/
+tmp/
+node_modules/
+threat-dsh-workbench/node_modules/

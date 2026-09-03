@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "prompts": [
+    {
+      "id": "triage-agent",
+      "version": "1.0.0",
+      "file": "triage-system-v1.md"
+    },
+    {
+      "id": "static-analysis-agent",
+      "version": "1.0.0",
+      "file": "static-analysis-system-v1.md"
+    },
+    {
+      "id": "analysis-planner-agent",
+      "version": "1.0.0",
+      "file": "planning-system-v1.md"
+    }
+  ]
+}

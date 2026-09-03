@@ -1,0 +1,109 @@
+{
+  "version": "1.0.0",
+  "tools": [
+    {
+      "name": "python-zipfile-safe-reader",
+      "allowed_modules": ["intake"],
+      "max_cpu_seconds": 120,
+      "max_memory_mb": 1024,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "builtin-static-analyzer",
+      "allowed_modules": ["static_triage", "decryption", "loader", "c2_network", "anti_analysis"],
+      "max_cpu_seconds": 300,
+      "max_memory_mb": 2048,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "pe-parser",
+      "allowed_modules": ["static_triage", "loader"],
+      "max_cpu_seconds": 300,
+      "max_memory_mb": 2048,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "script-parser",
+      "allowed_modules": ["static_triage", "decryption", "loader", "c2_network", "anti_analysis"],
+      "max_cpu_seconds": 180,
+      "max_memory_mb": 1024,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "document-carrier-parser",
+      "allowed_modules": ["static_triage", "decryption", "loader", "c2_network", "anti_analysis"],
+      "max_cpu_seconds": 300,
+      "max_memory_mb": 2048,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "ghidra-headless",
+      "allowed_modules": ["static_triage", "decryption", "loader", "c2_network", "anti_analysis"],
+      "max_cpu_seconds": 900,
+      "max_memory_mb": 8192,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "signal-extractor",
+      "allowed_modules": ["static_triage", "decryption", "loader", "c2_network", "anti_analysis", "attribution"],
+      "max_cpu_seconds": 180,
+      "max_memory_mb": 1024,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "knowledge-fact-matcher",
+      "allowed_modules": ["attribution"],
+      "max_cpu_seconds": 120,
+      "max_memory_mb": 1024,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "rva-xref-query",
+      "allowed_modules": ["static_triage", "loader", "c2_network", "anti_analysis"],
+      "max_cpu_seconds": 300,
+      "max_memory_mb": 2048,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "crypto-pattern-scanner",
+      "allowed_modules": ["decryption"],
+      "max_cpu_seconds": 300,
+      "max_memory_mb": 2048,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "c2-protocol-scanner",
+      "allowed_modules": ["c2_network"],
+      "max_cpu_seconds": 300,
+      "max_memory_mb": 2048,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "build-metadata-scanner",
+      "allowed_modules": ["static_triage"],
+      "max_cpu_seconds": 180,
+      "max_memory_mb": 1024,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
+      "name": "codename-scanner",
+      "allowed_modules": ["attribution"],
+      "max_cpu_seconds": 180,
+      "max_memory_mb": 1024,
+      "sample_execution": false,
+      "network_access": false
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "threat-report-agent"
+version = "0.1.0"
+description = "Evidence-backed static malware analysis and report generation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "boto3>=1.35,<2",
+  "capstone>=5,<6",
+  "cryptography>=43,<47",
+  "fastapi>=0.115,<1",
+  "httpx>=0.27,<1",
+  "langgraph>=1.0,<2",
+  "olefile>=0.47,<1",
+  "opentelemetry-api>=1.27,<2",
+  "opentelemetry-sdk>=1.27,<2",
+  "prometheus-client>=0.21,<1",
+  "psycopg[binary]>=3.2,<4",
+  "pypdf>=5,<7",
+  "PyYAML>=6,<7",
+  "python-multipart>=0.0.12,<1",
+  "python-docx>=1.1,<2",
+  "reportlab>=4.2,<5",
+  "sqlalchemy>=2.0,<3",
+  "temporalio>=1.12,<2",
+  "uvicorn[standard]>=0.30,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27,<1",
+  "pytest>=8,<9",
+  "ruff>=0.8,<1",
+]
+
+fuzzy-hash = [
+  "ppdeep>=20200505",
+]
+
+[project.scripts]
+threat-report-agent = "threat_report_agent.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+markers = [
+  "integration: tests that require an external service such as PostgreSQL",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+threat_report_agent = [
+  "static/*",
+  "policies/*.json",
+  "prompts/*.json",
+  "prompts/*.md",
+  "ghidra_scripts/*.java",
+  "knowledge/attack-snapshot.yaml",
+]

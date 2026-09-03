@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!pyproject.toml
+!README.md
+!src/
+!src/**
+!tool-worker/
+!tool-worker/Dockerfile
+!tool-worker/entrypoint.sh

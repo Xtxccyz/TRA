@@ -1,0 +1,44 @@
+version: "enterprise-attack-15.1"
+entries:
+  - technique_id: "T1027"
+    name: "Obfuscated Files or Information"
+    description: "Adversaries may obfuscate their code or information to make analysis more difficult."
+    modules: ["decryption"]
+    actions: ["may_decode_or_decrypt"]
+    evidence_kinds: ["crypto_indicator", "encoded_blob", "high_entropy_section"]
+  - technique_id: "T1140"
+    name: "Deobfuscate/Decode Files or Information"
+    description: "Adversaries may deobfuscate or decode files or information to make them usable."
+    modules: ["decryption"]
+    actions: ["may_decode_or_decrypt"]
+    evidence_kinds: ["mechanism_decompression", "mechanism_decode", "mechanism_integrity_check"]
+  - technique_id: "T1129"
+    name: "Shared Modules"
+    description: "Adversaries may execute malicious payloads through loading shared modules."
+    modules: ["loader"]
+    actions: ["may_load_or_prepare_memory", "may_load_secondary_component"]
+    evidence_kinds: ["loader_indicator", "mechanism_dynamic_resolution", "mechanism_memory_permission", "mechanism_resource_extraction"]
+  - technique_id: "T1055"
+    name: "Process Injection"
+    description: "Adversaries may inject code into processes to evade defenses or elevate privileges."
+    modules: ["loader"]
+    actions: ["may_load_or_inject"]
+    evidence_kinds: ["loader_indicator"]
+  - technique_id: "T1071"
+    name: "Application Layer Protocol"
+    description: "Adversaries may communicate using application layer protocols."
+    modules: ["c2_network"]
+    actions: ["references_network_endpoint"]
+    evidence_kinds: ["network_indicator", "script_indicator", "document_url"]
+  - technique_id: "T1497"
+    name: "Virtualization/Sandbox Evasion"
+    description: "Adversaries may employ virtualization and sandbox evasion techniques."
+    modules: ["anti_analysis"]
+    actions: ["may_detect_analysis"]
+    evidence_kinds: ["anti_analysis_indicator", "mechanism_environment_check", "mechanism_service_query"]
+  - technique_id: "T1007"
+    name: "System Service Discovery"
+    description: "Adversaries may attempt to get information about registered services."
+    modules: ["anti_analysis"]
+    actions: ["may_detect_analysis"]
+    evidence_kinds: ["mechanism_service_query"]

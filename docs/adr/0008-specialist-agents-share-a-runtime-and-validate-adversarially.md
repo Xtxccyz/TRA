@@ -1,0 +1,7 @@
+# 专长Agent共享运行时并支持对抗式验证
+
+分析模块表现为拥有独立职责、Prompt、工具权限和输入输出契约的逻辑专长Agent，但物理上复用无状态Agent Runtime；每次调用按Task、Artifact、Module和Attempt隔离上下文，Agent之间只通过Artifact、Evidence、Claim、Relation和Action Proposal协作。最终系统使用对抗式验证提高准确率：先形成相互隔离的独立分析，再让验证Agent针对重要或冲突Claim主动寻找反证，而不是让Agent相互影响后进行多数投票。
+
+## Consequences
+
+首期必须落地Validation Hook、Claim状态、证据来源与独立性标记、人工冲突审核和可重放任务，但不要求交付自动对抗裁决。后续可增加IDA等独立工具来源、不同模型或验证Prompt以及专用验证Agent，无需改变运行时部署和证据契约。

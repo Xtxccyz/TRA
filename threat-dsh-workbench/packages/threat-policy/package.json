@@ -1,0 +1,1 @@
+{"name":"@threat-dsh/policy","version":"1.0.0","private":true,"type":"module","main":"src/index.ts","exports":{".":"./src/index.ts"},"dependencies":{"@threat-dsh/plugin-sdk":"workspace:*"}}

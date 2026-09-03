@@ -1,0 +1,221 @@
+name: threat-report-agent
+
+x-static-worker: &static-worker
+  image: threat-report-agent-api
+  depends_on:
+    postgres:
+      condition: service_healthy
+    temporal:
+      condition: service_started
+    minio:
+      condition: service_healthy
+  read_only: true
+  tmpfs:
+    - /tmp:size=1G,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  pids_limit: 128
+  mem_limit: 1g
+  cpus: 1.0
+  networks:
+    - control-plane
+
+x-static-worker-environment: &static-worker-environment
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-threat_agent}:${POSTGRES_PASSWORD:-change-this-before-deployment}@postgres:5432/${POSTGRES_DB:-threat_agent}
+  GATE_SECRET_KEY: ${GATE_SECRET_KEY:-change-this-before-deployment}
+  TEMPORAL_ADDRESS: temporal:7233
+  HOME: /tmp
+  TMPDIR: /tmp
+
+services:
+  api:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-threat_agent}:${POSTGRES_PASSWORD:-change-this-before-deployment}@postgres:5432/${POSTGRES_DB:-threat_agent}
+      GATE_SECRET_KEY: ${GATE_SECRET_KEY:-change-this-before-deployment}
+      CONTENT_STORE_PATH: /var/lib/threat-agent/content
+      CONTENT_STORE_BACKEND: s3
+      OBJECT_STORE_ENDPOINT: http://minio:9000
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-analysis-content}
+      OBJECT_STORE_ACCESS_KEY: ${MINIO_ROOT_USER:-threat_agent}
+      OBJECT_STORE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-this-before-deployment}
+      AUDIT_SEAL_BUCKET: ${AUDIT_SEAL_BUCKET:-analysis-audit-seals}
+      AUDIT_OBJECT_LOCK_MODE: ${AUDIT_OBJECT_LOCK_MODE:-COMPLIANCE}
+      AUDIT_OBJECT_LOCK_DAYS: ${AUDIT_OBJECT_LOCK_DAYS:-3650}
+      TEMPORAL_ADDRESS: temporal:7233
+      TOOL_EXECUTION_MODE: ${TOOL_EXECUTION_MODE:-temporal}
+      CONTROL_TASK_QUEUE: ${CONTROL_TASK_QUEUE:-static-control}
+      INTAKE_TASK_QUEUE: ${INTAKE_TASK_QUEUE:-static-intake}
+      PARSER_TASK_QUEUE: ${PARSER_TASK_QUEUE:-static-parser}
+      SCRIPT_TASK_QUEUE: ${SCRIPT_TASK_QUEUE:-static-script}
+      DOCUMENT_TASK_QUEUE: ${DOCUMENT_TASK_QUEUE:-static-document}
+      GHIDRA_TASK_QUEUE: ${GHIDRA_TASK_QUEUE:-static-ghidra}
+      WORKBENCH_WORKSPACE_ROOT: ${WORKBENCH_WORKSPACE_ROOT:-/workspace}
+    ports:
+      - "8000:8000"
+    volumes:
+      - content-data:/var/lib/threat-agent/content
+      - ${WORKBENCH_WORKSPACE_HOST_ROOT:-./workspace}:/workspace:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - edge
+      - control-plane
+
+  postgres:
+    image: ${CONTAINER_REGISTRY_PREFIX:-docker.m.daocloud.io}/pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-threat_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-threat_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-before-deployment}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - control-plane
+
+  minio:
+    image: ${CONTAINER_REGISTRY_PREFIX:-docker.m.daocloud.io}/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-threat_agent}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-before-deployment}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - control-plane
+
+  temporal:
+    image: ${CONTAINER_REGISTRY_PREFIX:-docker.m.daocloud.io}/temporalio/auto-setup:1.27.2
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-threat_agent}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-change-this-before-deployment}
+      POSTGRES_SEEDS: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "7233:7233"
+    networks:
+      - control-plane
+
+  control-worker:
+    <<: *static-worker
+    command:
+      [
+        "threat-report-agent",
+        "worker",
+        "--role",
+        "control",
+        "--task-queue",
+        "static-control",
+      ]
+    environment:
+      <<: *static-worker-environment
+      TOOL_TASK_QUEUE: static-control
+      CONTROL_TASK_QUEUE: static-control
+      CONTENT_STORE_BACKEND: s3
+      OBJECT_STORE_ENDPOINT: http://minio:9000
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-analysis-content}
+      OBJECT_STORE_ACCESS_KEY: ${MINIO_ROOT_USER:-threat_agent}
+      OBJECT_STORE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-this-before-deployment}
+      AUDIT_SEAL_BUCKET: ${AUDIT_SEAL_BUCKET:-analysis-audit-seals}
+      AUDIT_OBJECT_LOCK_MODE: ${AUDIT_OBJECT_LOCK_MODE:-COMPLIANCE}
+      AUDIT_OBJECT_LOCK_DAYS: ${AUDIT_OBJECT_LOCK_DAYS:-3650}
+
+  intake-worker:
+    <<: *static-worker
+    command: ["threat-report-agent", "worker", "--role", "tool", "--task-queue", "static-intake"]
+    environment:
+      <<: *static-worker-environment
+      TOOL_TASK_QUEUE: static-intake
+      TOOL_ALLOWED_TOOLS: python-zipfile-safe-reader
+
+  parser-worker:
+    <<: *static-worker
+    command: ["threat-report-agent", "worker", "--role", "tool", "--task-queue", "static-parser"]
+    environment:
+      <<: *static-worker-environment
+      TOOL_TASK_QUEUE: static-parser
+      TOOL_ALLOWED_TOOLS: builtin-static-analyzer,pe-parser
+
+  script-worker:
+    <<: *static-worker
+    command: ["threat-report-agent", "worker", "--role", "tool", "--task-queue", "static-script"]
+    environment:
+      <<: *static-worker-environment
+      TOOL_TASK_QUEUE: static-script
+      TOOL_ALLOWED_TOOLS: script-parser
+
+  document-worker:
+    <<: *static-worker
+    command: ["threat-report-agent", "worker", "--role", "tool", "--task-queue", "static-document"]
+    environment:
+      <<: *static-worker-environment
+      TOOL_TASK_QUEUE: static-document
+      TOOL_ALLOWED_TOOLS: document-carrier-parser
+
+  ghidra-worker:
+    image: threat-report-agent-ghidra-worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-threat_agent}:${POSTGRES_PASSWORD:-change-this-before-deployment}@postgres:5432/${POSTGRES_DB:-threat_agent}
+      GATE_SECRET_KEY: ${GATE_SECRET_KEY:-change-this-before-deployment}
+      TEMPORAL_ADDRESS: temporal:7233
+      TOOL_TASK_QUEUE: ${GHIDRA_TASK_QUEUE:-static-ghidra}
+      TOOL_ALLOWED_TOOLS: ghidra-headless
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /work:size=2G,mode=0700,uid=10001,gid=10001
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 4g
+    cpus: 2.0
+    networks:
+      - control-plane
+
+volumes:
+  content-data:
+  minio-data:
+  postgres-data:
+
+networks:
+  edge:
+  control-plane:
+    internal: true

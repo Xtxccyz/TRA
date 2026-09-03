@@ -1,0 +1,5 @@
+packages:
+  - packages/*
+  - examples/threat-plugin-template
+
+autoInstallPeers: false

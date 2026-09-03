@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Threat Report Agent</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <strong>Threat Report Agent</strong>
+        <span class="phase">第一阶段 · 静态分析</span>
+      </div>
+      <div class="system-state"><span class="state-dot"></span><span id="systemState">检查中</span></div>
+    </header>
+
+    <main>
+      <datalist id="providerFamilies">
+        <option value="gpt"></option>
+        <option value="claude"></option>
+        <option value="qwen"></option>
+        <option value="kimi"></option>
+        <option value="glm"></option>
+        <option value="deepseek"></option>
+      </datalist>
+      <section class="submission-band">
+        <div class="submission-grid">
+          <form id="analysisForm" class="analysis-form">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">NEW ANALYSIS</p>
+                <h1>提交样本包</h1>
+              </div>
+              <span class="policy-badge">STATIC ONLY</span>
+            </div>
+
+            <label>
+              案件名称
+              <input id="caseTitle" name="caseTitle" required maxlength="240" value="静态逆向分析" />
+            </label>
+
+            <label>
+              样本文件或 ZIP
+              <input id="sampleFile" name="sample" type="file" multiple required />
+            </label>
+
+            <label>
+              背景上下文
+              <textarea id="backgroundContext" name="background_context" rows="4"></textarea>
+            </label>
+
+            <fieldset>
+              <legend>报告模块</legend>
+              <div id="moduleSelector" class="module-selector"></div>
+            </fieldset>
+
+            <div class="form-actions">
+              <button id="submitButton" type="submit">开始分析</button>
+              <span id="submitState" role="status"></span>
+            </div>
+          </form>
+
+          <aside class="input-manifest" aria-labelledby="manifestTitle">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">INPUT MANIFEST</p>
+                <h2 id="manifestTitle">输入清单</h2>
+              </div>
+            </div>
+            <dl>
+              <div><dt>任务请求</dt><dd id="manifestRequest">待冻结</dd></div>
+              <div><dt>样本包</dt><dd id="manifestSample">待选择</dd></div>
+              <div><dt>背景上下文</dt><dd id="manifestBackground">独立通道</dd></div>
+              <div><dt>知识快照</dt><dd>phase1-static-rules-v1</dd></div>
+              <div><dt>分析引擎</dt><dd id="modelStatus">检查中</dd></div>
+              <div class="isolated"><dt>评测基准报告</dt><dd>已隔离</dd></div>
+            </dl>
+            <div class="boundary-list">
+              <span>不执行样本</span>
+              <span>不访问样本端点</span>
+              <span>展示选择不改变分析范围</span>
+            </div>
+
+            <details class="model-config-panel">
+              <summary>模型配置</summary>
+              <p class="config-help">API Key 只发送到服务端并加密保存，不会显示、回填或写入分析报告。</p>
+              <form id="modelConfigForm">
+                <label class="toggle-label"><input id="modelEnabled" type="checkbox" /> 启用模型增强分析</label>
+                <label>上下文上限（字节）<input id="modelContextBytes" type="number" min="1024" max="50000000" step="1024" /></label>
+                <label>Request timeout (seconds)<input id="modelTimeout" type="number" min="5" max="600" step="1" /></label>
+                <label>Max output tokens<input id="modelMaxTokens" type="number" min="256" max="32768" step="256" /></label>
+                <fieldset class="model-route">
+                  <legend>主模型</legend>
+                  <label class="toggle-label"><input id="primaryRouteEnabled" type="checkbox" /> Enable primary route</label>
+                  <label>提供商<input id="primaryProvider" list="providerFamilies" required maxlength="80" /></label>
+                  <label>API 地址<input id="primaryBaseUrl" type="url" required maxlength="512" /></label>
+                  <label>模型名称<input id="primaryModel" required maxlength="160" /></label>
+                  <label>接口协议
+                    <select id="primaryApiStyle"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select>
+                  </label>
+                  <label class="toggle-label"><input id="primaryStream" type="checkbox" /> SSE streaming response</label>
+                  <label class="toggle-label"><input id="primaryJsonMode" type="checkbox" /> JSON response mode</label>
+                  <label class="toggle-label"><input id="primaryDisableReasoning" type="checkbox" /> Disable provider reasoning for structured output</label>
+                  <label>Temperature<input id="primaryTemperature" type="number" min="0" max="2" step="0.1" /></label>
+                  <label>Top-p<input id="primaryTopP" type="number" min="0.01" max="1" step="0.01" /></label>
+                  <label>API Key（留空表示不修改）<input id="primaryApiKey" type="password" autocomplete="new-password" /></label>
+                  <label class="toggle-label"><input id="clearPrimaryApiKey" type="checkbox" /> 清除已保存的主模型 Key</label>
+                </fieldset>
+                <fieldset class="model-route">
+                  <legend>备用模型</legend>
+                  <label class="toggle-label"><input id="fallbackRouteEnabled" type="checkbox" /> Enable fallback route</label>
+                  <label>提供商<input id="fallbackProvider" list="providerFamilies" maxlength="80" /></label>
+                  <label>API 地址<input id="fallbackBaseUrl" type="url" maxlength="512" /></label>
+                  <label>模型名称<input id="fallbackModel" maxlength="160" /></label>
+                  <label>接口协议
+                    <select id="fallbackApiStyle"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select>
+                  </label>
+                  <label class="toggle-label"><input id="fallbackStream" type="checkbox" /> SSE streaming response</label>
+                  <label class="toggle-label"><input id="fallbackJsonMode" type="checkbox" /> JSON response mode</label>
+                  <label class="toggle-label"><input id="fallbackDisableReasoning" type="checkbox" /> Disable provider reasoning for structured output</label>
+                  <label>Temperature<input id="fallbackTemperature" type="number" min="0" max="2" step="0.1" /></label>
+                  <label>Top-p<input id="fallbackTopP" type="number" min="0.01" max="1" step="0.01" /></label>
+                  <label>API Key（留空表示不修改）<input id="fallbackApiKey" type="password" autocomplete="new-password" /></label>
+                  <label class="toggle-label"><input id="clearFallbackApiKey" type="checkbox" /> 清除已保存的备用模型 Key</label>
+                </fieldset>
+                <div class="form-actions">
+                  <button id="saveModelConfigButton" type="submit">保存模型配置</button>
+                  <span id="modelConfigState" role="status"></span>
+                </div>
+              </form>
+            </details>
+          </aside>
+        </div>
+      </section>
+
+      <section id="resultSection" class="result-band" hidden>
+        <div class="result-header">
+          <div>
+            <p class="eyebrow">ANALYSIS TASK</p>
+            <h2 id="resultTitle">分析结果</h2>
+          </div>
+          <div class="status-pair">
+            <span class="status-label">Task Status</span><span id="lifecycleStatus" class="status"></span>
+            <span class="status-label">Task Outcome</span><span id="outcomeStatus" class="status"></span>
+            <span class="status-label">Analysis Class</span><span id="analysisClassStatus" class="status"></span>
+          </div>
+        </div>
+
+        <nav class="tabs" aria-label="结果视图">
+          <button type="button" class="tab active" data-panel="overviewPanel">概览</button>
+          <button type="button" class="tab" data-panel="evidencePanel">证据</button>
+          <button type="button" class="tab" data-panel="tracePanel">Analysis trace</button>
+          <button type="button" class="tab" data-panel="reportPanel">报告</button>
+        </nav>
+
+        <div id="overviewPanel" class="tab-panel">
+          <div class="metric-strip">
+            <div><span>Artifact</span><strong id="artifactCount">0</strong></div>
+            <div><span>ToolRun</span><strong id="toolRunCount">0</strong></div>
+            <div><span>Evidence</span><strong id="evidenceCount">0</strong></div>
+            <div><span>Claim</span><strong id="claimCount">0</strong></div>
+          </div>
+          <h3>样本与组件</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>路径</th><th>类型</th><th>义务</th><th>SHA-256</th></tr></thead>
+              <tbody id="artifactRows"></tbody>
+            </table>
+          </div>
+          <h3>结论</h3>
+          <div id="claimRows" class="claim-list"></div>
+          <div id="limitationBlock" class="limitation-block" hidden>
+            <h3>分析限制</h3>
+            <ul id="limitationRows"></ul>
+          </div>
+        </div>
+
+        <div id="evidencePanel" class="tab-panel" hidden>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>模块</th><th>类型</th><th>锚点</th><th></th></tr></thead>
+              <tbody id="evidenceRows"></tbody>
+            </table>
+          </div>
+          <pre id="evidenceDetail" class="evidence-detail">选择一条证据</pre>
+        </div>
+
+        <div id="tracePanel" class="tab-panel" hidden>
+          <div class="trace-disclosure">
+            <strong>可审计的分析过程</strong>
+            <p id="traceDisclosure">加载中。这里展示阶段、工具、证据、校验、结论和限制，不展示模型私有逐字思维链。</p>
+          </div>
+          <div class="trace-summary" id="traceSummary"></div>
+          <section class="planning-summary" aria-labelledby="planningSummaryTitle">
+            <h3 id="planningSummaryTitle">Dynamic scheduler</h3>
+            <div id="planningSummaryState">No model plan recorded.</div>
+            <div id="planningActions" class="planning-actions"></div>
+            <div id="planningRejected" class="planning-rejected"></div>
+          </section>
+          <div id="traceSteps" class="trace-steps"></div>
+          <h3>证据链关系</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>来源</th><th>关系</th><th>目标</th></tr></thead>
+              <tbody id="traceLinkRows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="reportPanel" class="tab-panel" hidden>
+          <div class="report-toolbar">
+            <button id="recomposeButton" type="button">按当前模块重组</button>
+            <button id="saveEditButton" type="button">保存编辑版本</button>
+            <a id="downloadMd" class="download-link" href="#">↓ MD</a>
+            <a id="downloadDocx" class="download-link" href="#">↓ DOCX</a>
+            <a id="downloadPdf" class="download-link" href="#">↓ PDF</a>
+            <a id="downloadJson" class="download-link" href="#">↓ JSON</a>
+          </div>
+          <textarea id="reportEditor" class="report-editor" spellcheck="false"></textarea>
+        </div>
+      </section>
+    </main>
+
+    <div id="gateModal" class="modal-backdrop" hidden>
+      <section class="gate-dialog" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">INPUT GATE</p>
+            <h2 id="gateTitle">需要输入压缩包密码</h2>
+          </div>
+          <span class="policy-badge">SAFE INTAKE</span>
+        </div>
+        <p id="gateReason" class="gate-reason"></p>
+        <p id="gateArchive" class="gate-archive"></p>
+        <form id="gateForm">
+          <label>
+            解压密码
+            <input id="gatePassword" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="form-actions gate-actions">
+            <button id="gateApproveButton" type="submit">输入密码并继续</button>
+            <button id="gateRejectButton" class="secondary-button" type="button">拒绝并取消任务</button>
+          </div>
+          <p id="gateState" class="gate-state" role="status"></p>
+        </form>
+      </section>
+    </div>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

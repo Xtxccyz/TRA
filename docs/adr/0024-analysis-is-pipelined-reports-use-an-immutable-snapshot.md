@@ -1,0 +1,9 @@
+# 分析并行流水化，报告使用不可变快照
+
+根据需求文档的分层Agent并行、V0.2的动态任务图以及V0.5的结构化事实重构要求，不同Artifact的确定性提取和互不依赖的分析模块并行流水执行，新产物满足依赖后立即进入下游；父子加载链和单个Claim的对抗验证保持有序。ToolRun、Evidence、Claim和Relation完成后立即持久化并可作为阶段性结果展示，但不提前冒充最终报告。
+
+Analysis Task进入FINALIZING后停止接受未登记的新分支，等待或按策略终止已登记任务，随后冻结一个只包含稳定对象版本引用的Analysis Snapshot。所有报告模块从同一Snapshot生成；调整模块选择或呈现方式可以产生新的Report Revision，任务终态后出现的新输入或新Evidence则必须创建新的Analysis Task。
+
+## Consequences
+
+调度器按加载链关键路径、高价值行为和依赖关系排序，并分别限制工具队列、模型供应商和资源池并发。界面可以增量展示明确标记为candidate或disputed的发现，但正式DRAFT报告不会混用不同时间点的状态，迟到结果也不能静默改写既有报告。

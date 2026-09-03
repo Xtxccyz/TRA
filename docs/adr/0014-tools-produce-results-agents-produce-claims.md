@@ -1,0 +1,7 @@
+# 工具产生结果，Agent只产生Claim
+
+ToolRun保存不可变的工具执行元数据和原始输出；Evidence是从ToolRun或Background Source中固化、带精确锚点且可复核的事实；Agent只能提出引用一个或多个Evidence的Claim，并分别记录支持证据与反对证据。Agent生成的解释性文字不得直接进入Evidence层。
+
+## Consequences
+
+工具失败、原始输出变化或证据锚点无法复核时，相关Evidence失效并沿追溯链降低依赖Claim、Relation和报告状态。同一Evidence可以支持或反驳多个Claim；未来IDA、Unicorn和沙箱仍沿用相同模型，只增加新的ToolRun来源与Evidence Nature。

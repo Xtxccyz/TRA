@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "ignoreDeprecations": "6.0",
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "@threat-dsh/plugin-sdk": ["packages/threat-plugin-sdk/src/index.ts"],
+      "@threat-dsh/api-client": ["packages/threat-api-client/src/index.ts"],
+      "@threat-dsh/context-provider": ["packages/threat-context-provider/src/index.ts"],
+      "@threat-dsh/model-gateway": ["packages/threat-model-gateway/src/index.ts"],
+      "@threat-dsh/session-events": ["packages/threat-session-events/src/index.ts"],
+      "@threat-dsh/tool-provider": ["packages/threat-tool-provider/src/index.ts"],
+      "@threat-dsh/policy": ["packages/threat-policy/src/index.ts"],
+      "@threat-dsh/jobs": ["packages/threat-jobs/src/index.ts"],
+      "@threat-dsh/ui-overview": ["packages/threat-ui-overview/src/index.ts"],
+      "@threat-dsh/ui-investigation": ["packages/threat-ui-investigation/src/index.ts"],
+      "@threat-dsh/ui-mechanisms": ["packages/threat-ui-mechanisms/src/index.ts"],
+      "@threat-dsh/ui-sample-timeline": ["packages/threat-ui-sample-timeline/src/index.ts"],
+      "@threat-dsh/ui-evidence": ["packages/threat-ui-evidence/src/index.ts"],
+      "@threat-dsh/ui-report": ["packages/threat-ui-report/src/index.ts"]
+      ,"@threat-dsh/brand": ["packages/threat-brand/src/index.ts"]
+    }
+  },
+  "include": ["packages/**/*.ts", "examples/**/*.ts", "types/**/*.d.ts"]
+}

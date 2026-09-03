@@ -1,0 +1,8 @@
+# Deployment-owned values only. Dangerous DSH capabilities are not inserted.
+- id: agent-presets
+  config:
+    default: threat-static
+    # DSH profile boot always supplies its shipped root. Keep the product
+    # preset in the isolated DSH_HOME user root so it is discoverable without
+    # modifying the upstream checkout.
+    includeUserRoot: true

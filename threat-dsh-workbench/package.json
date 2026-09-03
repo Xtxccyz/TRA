@@ -1,0 +1,16 @@
+{
+  "name": "threat-dsh-workbench",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:runtime": "node scripts/run-runtime-tests.mjs",
+    "manifest": "node scripts/validate-manifests.mjs",
+    "security": "node scripts/validate-profile.mjs",
+    "legacy-guard": "node scripts/legacy-webui-guard.mjs",
+    "core-guard": "node scripts/dsh-core-diff-guard.mjs",
+    "smoke:dsh": "node scripts/smoke-dsh.mjs"
+  }
+}

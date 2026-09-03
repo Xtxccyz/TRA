@@ -1,0 +1,7 @@
+# 工作流生命周期与分析完整度分开管理
+
+Analysis Task使用独立的Task Lifecycle表达PENDING、RUNNING、WAITING_GATE、PAUSED、FINALIZING、SUCCEEDED、FAILED和CANCELLED；单次ToolRun另行记录QUEUED、RUNNING、SUCCEEDED、FAILED、TIMED_OUT或CANCELLED。只有Task正常收尾时才计算COMPLETE、PARTIAL、BLOCKED或UNSUPPORTED这一Analysis Outcome，流程成功不代表分析完整。
+
+## Consequences
+
+等待人工Gate不会误报为BLOCKED，工具超时可以重试而不提前降低Case状态，服务中断恢复不会改变已有结论。用户选择保留现有结果并正常收尾可以得到SUCCEEDED加PARTIAL；强制取消或不可恢复的系统故障分别保留CANCELLED或FAILED，不伪造分析结果。Claim状态和报告DRAFT/APPROVED/PUBLISHED状态继续独立管理。

@@ -1,0 +1,27 @@
+{
+  "name": "@threat-dsh/bundle-workbench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts", "./cordis.patch.yml": "./cordis.patch.yml" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "dependencies": {
+    "@threat-dsh/plugin-sdk": "workspace:*",
+    "@threat-dsh/api-client": "workspace:*",
+    "@threat-dsh/context-provider": "workspace:*",
+    "@threat-dsh/context-store": "workspace:*",
+    "@threat-dsh/model-gateway": "workspace:*",
+    "@threat-dsh/session-events": "workspace:*",
+    "@threat-dsh/tool-provider": "workspace:*",
+    "@threat-dsh/policy": "workspace:*",
+    "@threat-dsh/jobs": "workspace:*",
+    "@threat-dsh/ui-overview": "workspace:*",
+    "@threat-dsh/ui-investigation": "workspace:*",
+    "@threat-dsh/ui-mechanisms": "workspace:*",
+    "@threat-dsh/ui-sample-timeline": "workspace:*",
+    "@threat-dsh/ui-evidence": "workspace:*",
+    "@threat-dsh/ui-report": "workspace:*",
+    "@threat-dsh/brand": "workspace:*"
+  }
+}

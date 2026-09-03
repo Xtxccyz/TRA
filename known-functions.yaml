@@ -1,0 +1,69 @@
+version: 1
+algorithm: charikar-simhash-64
+feature: mnemonic-4gram
+hash: md5-prefix-64-le
+entries:
+  - name: NSA-DS-PRNG-ENTROPY
+    simhash: "0xb4a0f96a33be9c9c"
+    ssdeep: "12:kkHmWxybDhyDtYN10PV0x2wAPOCq6tcUVwj4fjb85BT9y4XQr:kkHBmDhypYNSPV0ceCqcPYBT9yLr"
+    file: PC_Level3_dll
+    func: "0x18000c130"
+    size: 713
+    mnemonics: 165
+    desc: Entropy-pool PRNG seed collection and SHA-1 mixing
+  - name: NSA-DS-RSA-MODEXP
+    simhash: "0xe568de4bf63edf47"
+    ssdeep: "12:rnZJ6XucLrgNXIBT95W/TmjZQqxHni3UxxppjBx1Ko1:rnZFcLrCIBT95W/q1/Y3Ejk2"
+    file: PC_Level3_dll
+    func: "0x18000bdf0"
+    size: 509
+    mnemonics: 126
+    desc: Square-and-multiply 2048-bit RSA modular exponentiation
+  - name: NSA-DS-RSA-CORE
+    simhash: "0x04a8ab82321fcfa6"
+    ssdeep: "6:rfnsgRslEtHpt4+Ln4/C6/pp93elmqlYxUuyCF1jt3pIjk:rfNjjxn4/Z/ppFMutF10jk"
+    file: PC_Level3_dll
+    func: "0x18000ac28"
+    size: 332
+    mnemonics: 77
+    desc: RSA core initialization, modular exponentiation, and export
+  - name: NSA-DS-RSA-PKCS-DEC
+    simhash: "0xa75527ecf2adce05"
+    ssdeep: "6:BklWqhHDS36w9uEmuZixolQaeHhXnOrTKqka9YY8slX6takxmn:ipDSVWmSfaeHhXOLkVklX6tgn"
+    file: PC_Level3_dll
+    func: "0x18000ad7c"
+    size: 300
+    mnemonics: 73
+    desc: RSA PKCS1 v1.5 decryption and padding verification
+  - name: NSA-DS-RSA-PKCS-ENC
+    simhash: "0x65a4cf6ebf36fe85"
+    ssdeep: "6:Hp8wOlPrw/SwQ+X0rXu3f6c7mXlBtiqrjxGa4wgupoPFpClEV76jrl5OtUwDmIZ:4lM/tQ+X0rQfHyjtBrjUrwiTJ6Hl4DZ"
+    file: PC_Level3_dll
+    func: "0x18000ae90"
+    size: 370
+    mnemonics: 96
+    desc: RSA PKCS1 v1.5 encryption and nonzero random padding
+  - name: NSA-DS-PRNG-GENKEY
+    simhash: "0xc0a06c0a62ffd94d"
+    ssdeep: "3:2Hguxlt0Xqb/iBKa//avlmFtyN:YjtUqWd//ap"
+    file: PC_Level3_dll
+    func: "0x18000b008"
+    size: 78
+    mnemonics: 23
+    desc: AES session key generation
+  - name: NSA-DS-AES-DECRYPT
+    simhash: "0x44e0cbb281dca986"
+    ssdeep: "3:MmJ38j+Egyc9W/l4hIsV2sGNASmz+mn:MmS+Nyc9W/qhI0aqz+m"
+    file: PC_Level3_dll
+    func: "0x18000ebbc"
+    size: 150
+    mnemonics: 27
+    desc: AES-128 decryption for C2 traffic
+  - name: NSA-DS-C2-RECV
+    simhash: "0x0778c9fa1f2cc683"
+    ssdeep: "12:rP62Jh8Vl0P5T1teG4tzlJlvXu4CuMCp1dlCVDki1:rPF6VmP5Gg4CuMS1dl+kE"
+    file: PC_Level3_dll
+    func: "0x180005d80"
+    size: 650
+    mnemonics: 55
+    desc: C2 receive path with conditional AES decryption

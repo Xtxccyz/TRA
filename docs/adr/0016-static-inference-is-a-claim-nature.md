@@ -1,0 +1,7 @@
+# Static Inferred属于Claim而非原始Evidence
+
+内部数据模型将STATIC_OBSERVED、BACKGROUND_REPORTED和后续DYNAMIC_OBSERVED作为Evidence Nature，将Agent基于静态Evidence形成的STATIC_INFERRED作为Claim Nature。Claim与Evidence的链接另行记录SUPPORTS或REFUTES及独立来源，避免把模型推断伪装成工具直接观察。
+
+## Consequences
+
+对外报告仍可按设计文档展示Static Observed、Static Inferred、Background Reported和Dynamic Observed四类标签，但序列化契约保留内部层次。枚举与映射需要版本化，后续基准评测要求调整分类时不得覆盖历史对象。

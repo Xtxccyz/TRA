@@ -1,0 +1,13 @@
+# This override is deliberately opt-in.  The runtime compose topology must be
+# able to start from a previously verified Ghidra image after a workstation
+# restart, without needing a transient host-side archive server.
+services:
+  ghidra-worker:
+    build:
+      context: .
+      dockerfile: tool-worker/Dockerfile
+      args:
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-}
+        GHIDRA_VERSION: ${GHIDRA_VERSION:-}
+        GHIDRA_ZIP_URL: ${GHIDRA_ZIP_URL:-}
+        GHIDRA_SHA256: ${GHIDRA_SHA256:-}

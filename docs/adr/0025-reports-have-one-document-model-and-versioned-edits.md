@@ -1,0 +1,7 @@
+# 报告使用统一Document Model并保留编辑版本
+
+每份报告由一个Analysis Snapshot、报告画像和模块选择生成统一Report Document；JSON Analysis Package保存机器分析结果，Markdown作为系统内主要可编辑文本，HTML、DOCX和PDF均由同一Document渲染，禁止让模型为不同格式分别生成内容。Agent生成的原始DRAFT不可覆盖，用户编辑创建新的不可变Report Revision并记录作者、时间、来源版本和差异。
+
+## Consequences
+
+报告中的Claim和Evidence引用在Markdown、HTML、DOCX及PDF中使用稳定标识或脚注保持追溯。用户新增或实质修改的事实性文字标记为MANUAL_EDIT，不能反向成为Claim或Evidence，必须由Gate 5审核明确Revision后才能APPROVED。一期提供简单Markdown编辑与预览及DOCX下载，复杂DOCX回传和修订合并留作后续扩展。

@@ -1,0 +1,34 @@
+# Threat bundle layer. DSH base/web own the product shell; these rows add only
+# out-of-tree Threat providers. The profile's own patch supplies deployment URL.
+- insert:
+    - id: threat-tool-provider
+      name: '@threat-dsh/tool-provider'
+      config:
+        backendUrl: !!js process.env.THREAT_BACKEND_URL ?? 'http://127.0.0.1:8000'
+        token: !!js process.env.THREAT_BACKEND_TOKEN ?? ''
+    - id: threat-session-events
+      name: '@threat-dsh/session-events'
+    - id: threat-context-provider
+      name: '@threat-dsh/context-provider'
+    - id: threat-context-store
+      name: '@threat-dsh/context-store'
+    - id: threat-model-gateway
+      name: '@threat-dsh/model-gateway'
+    - id: threat-policy
+      name: '@threat-dsh/policy'
+    - id: threat-jobs
+      name: '@threat-dsh/jobs'
+    - id: threat-ui-overview
+      name: '@threat-dsh/ui-overview'
+    - id: threat-ui-investigation
+      name: '@threat-dsh/ui-investigation'
+    - id: threat-ui-mechanisms
+      name: '@threat-dsh/ui-mechanisms'
+    - id: threat-ui-sample-timeline
+      name: '@threat-dsh/ui-sample-timeline'
+    - id: threat-ui-evidence
+      name: '@threat-dsh/ui-evidence'
+    - id: threat-ui-report
+      name: '@threat-dsh/ui-report'
+    - id: threat-brand
+      name: '@threat-dsh/brand'

@@ -1,0 +1,7 @@
+# API优先的可迁移核心与最小一期界面
+
+系统采用Versioned FastAPI驱动的Headless核心，业务控制面保持模块化单体，LangGraph编排器和Temporal Tool Worker按进程及安全边界独立部署。Web UI是可替换客户端；一期以分析性能和架构可行性为主，只实现足以演示样本提交、四通道确认、任务状态与人工Gate、报告查看及关键证据跳转的最小界面，不建设完整运营工作台或反汇编编辑器。
+
+## Consequences
+
+一期使用Docker Compose和OCI镜像形成可运行交付，配置、密钥、模型、PostgreSQL、S3兼容对象存储和Temporal连接全部外置。API提供OpenAPI、幂等异步任务、进度事件与分析包导入导出；后续其他平台可以直接集成API、替换或嵌入前端，并将同一镜像迁移到Kubernetes或内网编排环境。展示层优化不得改变业务契约，也不得省略已确认的输入隔离和证据追溯验收。

@@ -1,0 +1,9 @@
+# 内容寻址存储保留Artifact来源链
+
+原始字节以SHA-256标识的不可变Content Blob只读存储并去重，Artifact则表示该内容在特定Analysis Task、路径或父载体中的一次出现。相同内容出现在不同目录、压缩包或加载链位置时创建不同Artifact并引用同一Blob，不把来源、名称和角色合并掉。
+
+## Consequences
+
+确定性ToolRun可以按内容哈希、工具版本、配置和环境版本缓存复用；Artifact Role、Coverage Obligation、组件关系和上下文相关Claim仍按Task重新评估。报告展示每次实际出现及其父子关系，同时链接到共享的内容分析结果，为后续跨Case相似性和知识复用保留稳定基础。
+
+Case证据销毁以该Case中的Artifact、ToolRun和Manifest引用为范围，而不是以共享Content Blob为范围。处置后本Case不能再通过其历史引用读取正文；只有当所有Case均不存在未处置引用时，才允许物理回收Blob字节。回收资格必须由权威引用关系实时计算，不能依赖可漂移的缓存计数。

@@ -1,0 +1,7 @@
+# Artifact角色与分析义务相互独立
+
+每个Artifact同时具有描述其在样本集合或攻击链中作用的Role，以及描述当前Analysis Task必须分析到何种程度的Coverage Obligation。Role可包括载体、加载器、载荷、配置、诱饵、依赖和未知；Obligation分为REQUIRED、SUPPORTING和EXCLUDED，角色本身不能自动决定义务。
+
+## Consequences
+
+用户指定目标和参与核心组件、配置或攻击链的Artifact默认为REQUIRED，只有全部REQUIRED对象达到目标颗粒度时Case才可标记COMPLETE。SUPPORTING对象保留辅助证据但不强制达到D3；EXCLUDED对象必须记录理由、决定者和审计事件，未知对象不得被Agent静默排除。角色或义务修订时，依赖的状态与报告必须重新评估。

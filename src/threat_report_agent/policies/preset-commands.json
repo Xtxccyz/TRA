@@ -1,0 +1,154 @@
+{
+  "schema_version": "1.1",
+  "presets": [
+    {
+      "id": "single-sample-static-deep",
+      "version": "1.0.0",
+      "task_type": "SINGLE_SAMPLE_STATIC_DEEP",
+      "object_scope": ["exe", "dll", "script"],
+      "expected_outputs": [
+        "file_structure",
+        "key_functions",
+        "capabilities",
+        "mechanisms",
+        "ioc",
+        "evidence",
+        "attack_candidates"
+      ],
+      "default_breadth": "B0",
+      "default_depth": "D3",
+      "resource_limits": {
+        "max_files": 1,
+        "max_total_bytes": 536870912,
+        "max_archive_depth": 0,
+        "max_cpu_seconds_per_tool": 900,
+        "max_memory_mb_per_tool": 8192
+      },
+      "completion_conditions": [
+        "submitted_artifact_is_identified",
+        "required_static_tools_reach_terminal_state",
+        "all_static_analysis_modules_are_evaluated",
+        "claims_are_linked_to_evidence_or_marked_unsupported",
+        "limitations_are_recorded"
+      ],
+      "analysis_modules": [
+        "intake",
+        "static_triage",
+        "decryption",
+        "loader",
+        "c2_network",
+        "anti_analysis",
+        "attribution"
+      ],
+      "tool_names": [
+        "builtin-static-analyzer",
+        "pe-parser",
+        "script-parser",
+        "ghidra-headless"
+      ]
+    },
+    {
+      "id": "first-phase-full-static",
+      "version": "1.1.0",
+      "task_type": "FILE_SET_AND_CARRIER",
+      "object_scope": ["archive", "pdf", "office", "script", "binary_set"],
+      "expected_outputs": [
+        "artifact_inventory",
+        "file_structure",
+        "key_functions",
+        "capabilities",
+        "mechanisms",
+        "ioc",
+        "evidence",
+        "attack_candidates",
+        "contains_relations",
+        "drops_relations",
+        "loads_relations",
+        "decrypts_relations",
+        "executes_relations",
+        "injects_relations"
+      ],
+      "default_breadth": "B1",
+      "default_depth": "D2",
+      "resource_limits": {
+        "max_files": 1000,
+        "max_total_bytes": 536870912,
+        "max_archive_depth": 3,
+        "max_cpu_seconds_per_tool": 900,
+        "max_memory_mb_per_tool": 8192
+      },
+      "completion_conditions": [
+        "all_discovered_artifacts_have_an_obligation",
+        "required_artifacts_reach_terminal_analysis_state",
+        "all_static_analysis_modules_are_evaluated",
+        "artifact_relations_are_evidence_backed",
+        "claims_are_linked_to_evidence_or_marked_unsupported",
+        "limitations_are_recorded"
+      ],
+      "analysis_modules": [
+        "intake",
+        "static_triage",
+        "decryption",
+        "loader",
+        "c2_network",
+        "anti_analysis",
+        "attribution"
+      ],
+      "tool_names": [
+        "python-zipfile-safe-reader",
+        "builtin-static-analyzer",
+        "pe-parser",
+        "script-parser",
+        "document-carrier-parser",
+        "ghidra-headless"
+      ]
+    },
+    {
+      "id": "incident-report-static",
+      "version": "1.0.0",
+      "task_type": "INCIDENT_REPORT_GENERATION",
+      "object_scope": [
+        "structured_analysis_results",
+        "artifact_relations",
+        "background_context",
+        "ioc"
+      ],
+      "expected_outputs": [
+        "incident_overview",
+        "entry_vector",
+        "component_chain",
+        "capabilities",
+        "ioc",
+        "attack_candidates",
+        "limitations",
+        "recommendations"
+      ],
+      "default_breadth": "B2",
+      "default_depth": "D2",
+      "resource_limits": {
+        "max_files": 1000,
+        "max_total_bytes": 536870912,
+        "max_archive_depth": 3,
+        "max_cpu_seconds_per_tool": 900,
+        "max_memory_mb_per_tool": 8192
+      },
+      "completion_conditions": [
+        "analysis_snapshot_is_frozen",
+        "all_static_analysis_modules_are_represented",
+        "report_claims_are_traceable_to_snapshot_evidence",
+        "limitations_are_recorded",
+        "editable_report_revision_is_created"
+      ],
+      "analysis_modules": [
+        "intake",
+        "static_triage",
+        "decryption",
+        "loader",
+        "c2_network",
+        "anti_analysis",
+        "attribution"
+      ],
+      "tool_names": []
+    }
+  ]
+}
