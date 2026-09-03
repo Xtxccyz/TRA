@@ -404,8 +404,13 @@ def deep_analysis_metrics(
 
     def is_model_action(row: Mapping[str, object]) -> bool:
         origin = str(row.get("origin", "")).casefold()
+        # An explicit origin is authoritative.  Planner metadata can be
+        # copied onto a deterministic fallback during replay, but that must
+        # never grant model-contribution credit.
+        if origin:
+            return origin == "model"
         scheduler = str(row.get("scheduler", "")).casefold()
-        return origin == "model" or scheduler == "model_plan" or bool(row.get("planner_turn_id"))
+        return scheduler == "model_plan" or bool(row.get("planner_turn_id"))
 
     model_actions = [row for row in action_rows if is_model_action(row)]
     accepted_model_actions = [

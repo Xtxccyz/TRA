@@ -114,6 +114,25 @@ def test_model_action_productivity_excludes_deterministic_fallback_actions() -> 
     assert result["model_action_productivity_rate"] == 0.5
 
 
+def test_explicit_fallback_origin_overrides_planner_metadata() -> None:
+    """Fallback actions must not earn model credit from copied planner fields."""
+    result = deep_analysis_metrics(
+        document={"modules": [{"rows": []}]},
+        investigation_actions=[
+            {
+                "origin": "deterministic_fallback",
+                "scheduler": "model_plan",
+                "planner_turn_id": "turn-copied-from-model",
+                "status": "SUCCEEDED",
+                "new_evidence_ids": ["e-fallback"],
+            }
+        ],
+    )
+    assert result["accepted_model_actions"] == 0
+    assert result["useful_model_actions"] == 0
+    assert result["model_action_productivity_rate"] == 0.0
+
+
 def test_no_new_evidence_autopsy_is_complete_and_uses_a_bounded_cause() -> None:
     duplicate = no_new_evidence_autopsy(
         {
