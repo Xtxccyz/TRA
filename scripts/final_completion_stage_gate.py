@@ -1057,6 +1057,18 @@ def build_gate(
                 missing_fields=["session_id", "event_cursor_range"],
             ),
         )
+    partial_metadata = [
+        str(item.get("path"))
+        for item in artifact_manifest
+        if item.get("metadata_status") != "COMPLETE"
+    ]
+    if partial_metadata:
+        blockers.append(
+            "Release artifact metadata is incomplete (missing session/event cursors or sample binding): "
+            + ", ".join(partial_metadata[:8])
+            + (" ..." if len(partial_metadata) > 8 else ".")
+        )
+    blockers = list(dict.fromkeys(blockers))
     try:
         semantic_artifact_path = semantic_path.relative_to(ROOT).as_posix()
     except ValueError:
