@@ -2,7 +2,7 @@
 
 Date: 2026-09-04
 Release candidate tree commit: `eb4e2c5`
-Source implementation commit: `5fcd09f`
+Source implementation commits: `5fcd09f`, `cd75269`
 Final gate artifact commit: `f335c68`
 Gate artifact: `release-artifacts/final-round/final-completion-stage-gate-20260904.json`
 
