@@ -217,6 +217,8 @@ def _bool_metric(value: object) -> bool | None:
             return True
         if normalized in {"false", "fail", "failed", "no", "blocked", "unknown"}:
             return False
+        if normalized in {"1", "0"}:
+            return normalized == "1"
     return None
 
 
