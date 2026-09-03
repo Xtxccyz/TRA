@@ -479,6 +479,29 @@ def test_wave_b_accepts_scoped_nested_replay_controls() -> None:
     assert assessment is not None
 
 
+def test_wave_b_does_not_use_unrelated_top_level_graph_counts() -> None:
+    payload = {
+        "metrics": {
+            "high_value_seed_closure_rate": 95,
+            "candidate_noise_ratio": 10,
+            "mechanism_completeness": 90,
+            "api_argument_coverage": 85,
+            "unresolved_candidates": 1,
+            "nodes": 4,
+            "edges": 3,
+            "decoder_replay": True,
+            "xor_negative_control": True,
+            "pe_role_distinction": True,
+        }
+    }
+
+    status, assessment = _project_acceptance_status("analysis_depth_gate", "PASS", payload)
+
+    assert status == "BLOCKED"
+    assert assessment is not None
+    assert "behavior_flow" in assessment["failures"]
+
+
 def test_report_depth_requires_score_and_five_how_complete_findings() -> None:
     finding = {
         "input": "buffer",

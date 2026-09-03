@@ -303,8 +303,12 @@ def _wave_b_assessment(payload: dict[str, Any]) -> dict[str, Any]:
         "status": "PASS" if unresolved is not None and unresolved <= 8 else "BLOCKED",
     }
 
-    nodes_raw = _metric(payload, "behavior_flow_nodes", "semantic_flow_nodes", "flow_nodes", "nodes")
-    edges_raw = _metric(payload, "behavior_flow_edges", "semantic_flow_edges", "flow_edges", "edges")
+    nodes_raw = _metric(payload, "behavior_flow_nodes", "semantic_flow_nodes", "flow_nodes")
+    if nodes_raw is _MISSING:
+        nodes_raw = _section_metric(payload, "behavior_flow", "nodes", "node_count")
+    edges_raw = _metric(payload, "behavior_flow_edges", "semantic_flow_edges", "flow_edges")
+    if edges_raw is _MISSING:
+        edges_raw = _section_metric(payload, "behavior_flow", "edges", "edge_count")
     nodes = _number(nodes_raw)
     edges = _number(edges_raw)
     checks["behavior_flow"] = {
