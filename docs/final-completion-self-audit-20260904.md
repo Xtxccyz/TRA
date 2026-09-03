@@ -42,6 +42,16 @@ after the runtime completed, by the offline evaluator.
   soak, held-out corpus, SBOM/CVE, backup/RBAC, secret rotation, trusted remote provenance and
   independent approvals are not proven in the current environment.
 
+## Corrections in this audit
+
+- The evaluator now rejects negated evidence such as `decoded output not observed` as positive
+  support; a regression test keeps that component `UNKNOWN`.
+- The final gate uses the normalized plan schema and an artifact manifest containing hashes,
+  release identity, configuration fingerprint, sample/Case/Task identifiers and explicit missing
+  session/cursor metadata.
+- The baseline manifest now records the available Git/image identity and the actual
+  `benchmarks/reference/known-functions.yaml` path.
+
 ## Decision
 
 The only defensible status is:
