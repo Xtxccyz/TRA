@@ -6,6 +6,7 @@ import pytest
 
 from scripts.final_completion_stage_gate import (
     FORMAL_GATE_FIELDS,
+    _artifact_metadata,
     _bool_metric,
     _git,
     _load_task_view_metadata,
@@ -437,6 +438,39 @@ def test_report_depth_requires_score_and_five_how_complete_findings() -> None:
     assert status == "PASS"
     assert assessment is not None
     assert assessment["finding_results"][-1]["status"] == "PASS"
+
+
+def test_artifact_metadata_uses_provenance_fields_when_present(tmp_path) -> None:
+    artifact = tmp_path / "evidence.json"
+    _write(
+        artifact,
+        {
+            "generated_at": "2026-09-04T01:00:00+00:00",
+            "session_id": "session-1",
+            "event_cursor_range": {"start": 10, "end": 20},
+            "sample_sha256": "a" * 64,
+            "case_id": "case-1",
+            "task_id": "task-1",
+        },
+    )
+
+    metadata = _artifact_metadata(
+        artifact,
+        generated_at="2026-09-04T02:00:00+00:00",
+        commit="commit",
+        tree="tree",
+        config_fingerprint="config",
+        sample_sha256=None,
+        case_id=None,
+        task_id=None,
+        evaluator_only=False,
+        missing_fields=["sample_sha256", "case_id", "task_id", "session_id", "event_cursor_range"],
+    )
+
+    assert metadata["metadata_status"] == "COMPLETE"
+    assert metadata["missing_fields"] == []
+    assert metadata["ingested_at"] == "2026-09-04T02:00:00+00:00"
+    assert metadata["generated_at"] == "2026-09-04T01:00:00+00:00"
 
 
 def test_report_depth_accepts_structured_how_aliases() -> None:

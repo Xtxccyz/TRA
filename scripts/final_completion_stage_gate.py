@@ -177,6 +177,25 @@ def _source_timestamp(path: Path) -> str | None:
         return None
 
 
+def _artifact_metadata_values(path: Path) -> dict[str, Any]:
+    """Read optional provenance fields from a bounded-size JSON artifact."""
+    try:
+        if path.stat().st_size > 8 * 1024 * 1024:
+            return {}
+        payload = _load(path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    values: dict[str, Any] = {}
+    sources = [payload, _mapping(payload.get("metadata")), _mapping(payload.get("provenance"))]
+    for field in ("session_id", "event_cursor_range", "sample_sha256", "case_id", "task_id"):
+        for source in sources:
+            value = source.get(field)
+            if value not in (None, "", []):
+                values[field] = value
+                break
+    return values
+
+
 def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -528,6 +547,16 @@ def _artifact_metadata(
     except ValueError:
         display_path = str(resolved_path)
     source_generated_at = _source_timestamp(path)
+    metadata_values = _artifact_metadata_values(path)
+    resolved_missing = list(missing_fields or [])
+    for field in tuple(resolved_missing):
+        if field in metadata_values:
+            resolved_missing.remove(field)
+    session_id = metadata_values.get("session_id")
+    event_cursor_range = metadata_values.get("event_cursor_range")
+    bound_sample_sha256 = sample_sha256 or metadata_values.get("sample_sha256")
+    bound_case_id = case_id or metadata_values.get("case_id")
+    bound_task_id = task_id or metadata_values.get("task_id")
     return {
         "path": display_path,
         "artifact_sha256": _sha256(path),
@@ -539,14 +568,14 @@ def _artifact_metadata(
         "source_generated_at": source_generated_at,
         "ingested_at": generated_at,
         "configuration_fingerprint": config_fingerprint,
-        "sample_sha256": sample_sha256,
-        "case_id": case_id,
-        "task_id": task_id,
-        "session_id": None,
-        "event_cursor_range": None,
+        "sample_sha256": bound_sample_sha256,
+        "case_id": bound_case_id,
+        "task_id": bound_task_id,
+        "session_id": session_id,
+        "event_cursor_range": event_cursor_range,
         "redaction_status": "evaluator-only" if evaluator_only else "redacted",
-        "metadata_status": "COMPLETE" if not missing_fields else "PARTIAL",
-        "missing_fields": missing_fields or [],
+        "metadata_status": "COMPLETE" if not resolved_missing else "PARTIAL",
+        "missing_fields": resolved_missing,
         "evaluator_only": evaluator_only,
     }
 
