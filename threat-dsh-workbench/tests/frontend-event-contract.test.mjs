@@ -35,3 +35,10 @@ test('API client evidence helper is session-bound', async () => {
   assert.ok(method.includes('/workbench/sessions/${encodeURIComponent(sessionId)}/evidence/query'))
   assert.doesNotMatch(method, /task_id/)
 })
+
+test('Evidence query contract helper is session-bound', async () => {
+  const source = await readFile(resolve(root, 'packages/threat-ui-evidence/src/index.ts'), 'utf8')
+  const helper = source.slice(source.indexOf('evidenceExplorerQuery'), source.indexOf('export interface EvidenceFunnelRow'))
+  assert.match(helper, /session_id/)
+  assert.doesNotMatch(helper, /task_id/)
+})

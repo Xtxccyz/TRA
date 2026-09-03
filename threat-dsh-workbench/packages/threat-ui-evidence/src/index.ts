@@ -1,7 +1,7 @@
 import type { ThreatPluginManifest } from '@threat-dsh/plugin-sdk'
 export const manifest: ThreatPluginManifest = { id: 'threat-ui-evidence', version: '1.0.0', plugin_api: 1, capabilities: ['view'], required_backend_api: '>=1,<2', required_event_schema: 1, security_profile: ['threat-static'] }
 export function apply(): void {}
-export function evidenceExplorerQuery(taskId: string, filters: Record<string, string | number | undefined> = {}): { task_id: string; filters: Record<string, string | number | undefined>; bounded: true } { return { task_id: taskId, filters, bounded: true } }
+export function evidenceExplorerQuery(sessionId: string, filters: Record<string, string | number | undefined> = {}): { session_id: string; filters: Record<string, string | number | undefined>; bounded: true } { return { session_id: sessionId, filters, bounded: true } }
 
 export interface EvidenceFunnelRow { readonly evidence_id: string; readonly available: boolean; readonly eligible: boolean; readonly candidate: boolean; readonly selected: boolean; readonly delivered: boolean; readonly referenced: boolean; readonly accepted: boolean; readonly exclusion_reason?: string }
 
