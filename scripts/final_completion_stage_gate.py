@@ -395,11 +395,61 @@ def _report_depth_assessment(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _seeded_assessment(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate the Wave A3 seeded C1-C4 evidence contract."""
+    checks: dict[str, dict[str, Any]] = {}
+
+    def required_bool(name: str, keys: tuple[str, ...]) -> None:
+        raw = _metric(payload, *keys)
+        value = _bool_metric(raw)
+        checks[name] = {
+            "value": value,
+            "raw": None if raw is _MISSING else raw,
+            "status": "PASS" if value is True else "BLOCKED",
+        }
+
+    question_raw = _metric(payload, "question_quality", "question_quality_passed", "questions_validated")
+    question_pass = False
+    if isinstance(question_raw, list):
+        question_pass = len(question_raw) >= 4 and all(_bool_metric(item) is not False for item in question_raw[:4])
+    else:
+        question_number = _number(question_raw)
+        question_pass = bool(question_number is not None and question_number >= 4) or _bool_metric(question_raw) is True
+    checks["question_quality"] = {"value": question_pass, "status": "PASS" if question_pass else "BLOCKED"}
+    required_bool("competing_hypotheses", ("competing_hypotheses_applicable", "applicable_competing_hypotheses", "competing_hypotheses"))
+    required_bool("useful_action", ("useful_action", "useful_model_action", "action_useful"))
+    required_bool("new_evidence", ("new_evidence", "new_evidence_observed", "evidence_delta"))
+    rate_raw = _metric(payload, "mechanism_completeness", "critical_mechanism_completeness")
+    rate = _rate_percent(rate_raw)
+    checks["mechanism_completeness"] = {
+        "value": rate,
+        "raw": None if rate_raw is _MISSING else rate_raw,
+        "minimum": 80,
+        "status": "PASS" if rate is not None and rate >= 80 else "BLOCKED",
+    }
+    required_bool("verifier_pass", ("verifier_pass", "verifier", "verification_passed"))
+    unsupported_raw = _metric(payload, "unsupported_critical", "unsupported_critical_count", "critical_unsupported")
+    unsupported = _number(unsupported_raw)
+    checks["unsupported_critical"] = {
+        "value": unsupported,
+        "raw": None if unsupported_raw is _MISSING else unsupported_raw,
+        "maximum": 0,
+        "status": "PASS" if unsupported is not None and unsupported == 0 else "BLOCKED",
+    }
+    failures = [name for name, result in checks.items() if result.get("status") != "PASS"]
+    return {"status": "PASS" if not failures else "BLOCKED", "checks": checks, "failures": failures}
+
+
 def _project_acceptance_status(key: str, status: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
     """Normalize source statuses and enforce metric-bearing Wave B/C gates."""
     normalized = status.upper()
     if normalized in {"NOT_PROVEN", "MISSING"}:
         return "NOT_PROVEN", None
+    if key == "seeded_c1_c4_l1":
+        assessment = _seeded_assessment(payload)
+        if normalized not in {"PASS", "APPROVED"}:
+            return "BLOCKED", assessment
+        return assessment["status"], assessment
     if key == "analysis_depth_gate":
         assessment = _wave_b_assessment(payload)
         if normalized not in {"PASS", "APPROVED"}:

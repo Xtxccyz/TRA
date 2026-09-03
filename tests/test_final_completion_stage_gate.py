@@ -313,6 +313,15 @@ def test_final_gate_consumes_bound_wave_evidence(tmp_path) -> None:
             "evidence_level": "L1",
             "git_commit": _git("rev-parse", "HEAD"),
             "git_tree": _git("rev-parse", "HEAD^{tree}"),
+            "metrics": {
+                "question_quality": 4,
+                "competing_hypotheses_applicable": True,
+                "useful_action": True,
+                "new_evidence": True,
+                "mechanism_completeness": 0.90,
+                "verifier_pass": True,
+                "unsupported_critical": 0,
+            },
         },
     )
 
@@ -394,6 +403,19 @@ def test_wave_b_requires_all_static_thresholds_and_negative_controls() -> None:
     assert status == "PASS"
     assert assessment is not None
     assert assessment["failures"] == []
+
+
+def test_seeded_pass_requires_wave_a_evidence_contract() -> None:
+    status, assessment = _project_acceptance_status(
+        "seeded_c1_c4_l1",
+        "PASS",
+        {"status": "PASS"},
+    )
+
+    assert status == "BLOCKED"
+    assert assessment is not None
+    assert "question_quality" in assessment["failures"]
+    assert "verifier_pass" in assessment["failures"]
 
 
 def test_wave_b_missing_argument_coverage_cannot_pass() -> None:
