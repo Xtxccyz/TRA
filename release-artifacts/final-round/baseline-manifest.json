@@ -6,9 +6,9 @@
   "repository": {
     "root": "D:/threat report agent",
     "git_metadata_available": true,
-    "backend_commit": "5fcd09f91278c2ba3528b82d04707728a4289bd6",
+    "backend_commit": "cd752694390219a6ce47caa9ceab19735bf486e6",
     "dsh_commit": null,
-    "backend_tree": "0d6c10640638714bf5f8df82b7333e90c65f9a75",
+    "backend_tree": "b52537ed437650b0deb08f18b7bc6bf6db91f415",
     "note": "Git commit/tree, source hashes and image digests are recorded; DSH provenance remains unavailable."
   },
   "source_hashes_sha256": {
@@ -23,7 +23,7 @@
     "src/threat_report_agent/analysis_trace.py": "01FE82B4A9CF4B8654FAAFFE5FAECBC484B5BEA99A61A0886796BE9020E3801D",
     "src/threat_report_agent/main.py": "0AA7DA7704C61B535B1A59490C030CAF1C246D32EED1964A7B8D8FD928EE0E64",
     "benchmarks/semantic_differential.py": "D3D4E6F1D65A0B3D9C3CD171FAEA15504ABDECB1C938F44FED7DDF14DE73FA55",
-    "scripts/final_completion_stage_gate.py": "8AB009AF932DA9C90D1F9DC2D2292D8190654C501167B398EB20CCE5D5C1A991",
+    "scripts/final_completion_stage_gate.py": "9246656E030B11AD9D1F406BB860D8990CD15AB8E458B337EEF320EA768C4193",
     "scripts/round11_2_certify.py": "95EE26EB7CD26A831B5D6E042D9521B11D693881EAADBD1E31CA44A8C68C50CC",
     "tests/test_round11_2_certify.py": "7D91A5247D71AC280E2264FBFB0CBF7A58334F1703E3E2B8E09C4D3FFF15EB9D",
     "tests/test_comhost_benchmark.py": "FC3AD9E05AD13F48ACA718AF00A639CCAB249684A570E89A5932B38A81F8D5C3",
