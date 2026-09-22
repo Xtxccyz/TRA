@@ -1727,7 +1727,7 @@ def test_ppid_how_does_not_treat_process32_import_listing_as_enumeration() -> No
 
 
 def test_record_ghidra_evidence_emits_symbols_before_persist_how_claims() -> None:
-    from threat_report_agent.persist_how import PersistHow
+    from threat_report_agent.investigation.persist_how import PersistHow
 
     helper = inspect.getsource(PersistHow.ranked_symbol_emissions)
     stage = inspect.getsource(PersistHow.emit_ranked_symbols_then_stage)
@@ -2039,7 +2039,7 @@ def test_persist_how_claim_specs_mint_process_dynamic_api_and_decode() -> None:
     )
     record_source = inspect.getsource(AnalysisService._record_ghidra_evidence)
     assert "_emit_ranked_symbols_then_stage" in record_source
-    from threat_report_agent.persist_how import PersistHow
+    from threat_report_agent.investigation.persist_how import PersistHow
 
     stage_source = inspect.getsource(PersistHow._stage_persist_how_claims)
     assert "persist_time_investigated_mechanism" in stage_source

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from threat_report_agent.persist_how import (
+from threat_report_agent.investigation.persist_how import (
     persist_how_claim_specs,
     persist_partial_how_ready,
     stage_persist_how_claims,
@@ -102,7 +102,7 @@ def test_persist_partial_how_ready_rejects_openprocess_only_ppid() -> None:
 def test_emit_ranked_symbols_then_stage_sees_process32_before_claim_specs() -> None:
     from types import SimpleNamespace
 
-    from threat_report_agent.persist_how import PersistHow
+    from threat_report_agent.investigation.persist_how import PersistHow
 
     order: list[str] = []
     emitted: list[object] = []

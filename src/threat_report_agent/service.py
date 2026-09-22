@@ -159,7 +159,7 @@ from threat_report_agent.investigation.investigation_protocol import (
     fill_protocol,
     tool_authoring_required_ticket,
 )
-from threat_report_agent.persist_how import PersistHow
+from threat_report_agent.investigation.persist_how import PersistHow
 from threat_report_agent.analysis_task_orchestration import (
     HOW_SEED_CATEGORIES,
     LOOP_PATH_BUDGET_DEFER,

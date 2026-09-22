@@ -13,7 +13,7 @@ consumer and the request claim to be backed by an argument-level binding.
 
 from __future__ import annotations
 
-from threat_report_agent.persist_how import PersistHow
+from threat_report_agent.investigation.persist_how import PersistHow
 
 _URL = "http://203.0.113.10/ComHost.exe"
 
