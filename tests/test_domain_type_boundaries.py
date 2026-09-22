@@ -33,8 +33,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "threat_report_agent"
 
-#: Modules that must stay free of persistence / transport / SDK dependencies.
-PURE_MODULES = ("contracts.py", "runtime_contracts.py")
+#: Modules that must stay free of persistence / transport / SDK dependencies. `projection_protocols.py` is here
+#: because that module's own docstring says this file enforces it - MEASURED false claim at review time: it was
+#: enforced only by `tests/test_projection_protocols.py`, and this list did not name it.
+PURE_MODULES = ("contracts.py", "runtime_contracts.py", "projection_protocols.py")
 
 #: P1.1's ban list, matched as substrings of an imported dotted path or of the raw source.
 BANNED = (
@@ -61,6 +63,13 @@ PROJECTIONS = {
 
 
 def imported_paths(path: Path) -> list[str]:
+    """Every imported module name, INCLUDING relative forms and the alias names of `from X import Y`.
+
+    MEASURED FALSE-GREEN this replaces: the first version appended `node.module` only when truthy, so
+    `from . import models` - the exact spelling a module inside the package would use to re-couple itself to the
+    ORM layer - produced no entry at all. Alias names are recorded too, so `from . import sqlalchemy_shim` is
+    visible rather than only its module.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
     found: list[str] = []
     for node in ast.walk(tree):
@@ -68,6 +77,10 @@ def imported_paths(path: Path) -> list[str]:
             found.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             found.append(node.module)
+            found.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            found.extend(alias.name for alias in node.names)
+            found.append("." * node.level)
     return found
 
 
