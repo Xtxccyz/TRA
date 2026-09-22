@@ -11,10 +11,15 @@ Design constraints, each from a measured failure in this repo:
   protecting anything today, and it cannot be relied on to catch a module that locates resources some other way:
   `prompts.py:25` uses `resources.files("threat_report_agent")` with no literal `__file__`, passes the guard,
   and survives a move only because it is anchored to the package root rather than the module.
-* **Never move a module the deployment gate lists** (`check-deployed-code-hashes.py` names 14 modules). The gate
-  resolves them by path inside the container, so a moved file would silently stop being compared - the "shim
-  satisfies the gate" hazard. This script refuses those too; a later step updates the gate in the same commit.
-  VERIFIED ACTIVE: it refuses exactly 4 (literal_table, emulation_plan, controlled_emulation, vb6_runtime_shim).
+* **Never move a module the deployment gate lists.** HISTORY AND CURRENT TRUTH: the original version of this
+  script read a GITIGNORED copy (`.scratch/check-deployed-code-hashes.py`) that named a FIXED list of 14 modules,
+  and a moved file would silently stop being compared - the "shim satisfies the gate" hazard. An adversarial audit
+  of the report move found that this made the script CRASH in a fresh clone (`FileNotFoundError`) and that the
+  stale copy it read still listed `analyst_report.py`, i.e. the guard was driven by a gate that no longer exists.
+  The tracked gate now ENUMERATES every file under `src/threat_report_agent` from disk, so a moved file is
+  compared at its new path automatically and the hazard is gone; consequently `gate_modules()` finds ZERO pinned
+  names and this refusal class is INERT. That is stated rather than implied: the script reports the count it
+  refused on, so nobody can read "0 refused" as "checked and safe".
 * **Never create a package whose stem is the name of a module in this project.** A package directory SHADOWS a
   same-named module, so `from threat_report_agent.X import f` resolves to the package and loses everything the
   module exported. MEASURED: the first version shipped `investigation.py -> investigation` and
@@ -39,7 +44,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PKG = ROOT / "src" / "threat_report_agent"
-GATE = ROOT / ".scratch" / "check-deployed-code-hashes.py"
+#: The TRACKED gate. MEASURED bug this fixes: it used to point at `.scratch/check-deployed-code-hashes.py`, which
+#: is gitignored, so a fresh clone got `FileNotFoundError` instead of a decision.
+GATE = ROOT / "scripts" / "check-deployed-code-hashes.py"
 
 #: module -> sub-package. Only modules in NEITHER refusal class below are moved.
 MOVE_MAP: dict[str, str] = {
@@ -92,6 +99,13 @@ _sys.modules[__name__] = _real
 
 
 def gate_modules() -> set[str]:
+    """Modules the deployment gate names EXPLICITLY. MEASURED: the tracked gate enumerates from disk, so this
+    returns an EMPTY set - the refusal class below is therefore inert, and `main` prints the count so the emptiness
+    is visible rather than mistaken for a clean bill of health."""
+    if not GATE.is_file():
+        raise RuntimeError(
+            f"BLOCKED: the deployment gate is missing at {GATE}, so the refusal rule cannot be evaluated"
+        )
     text = GATE.read_text(encoding="utf-8")
     return set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*\.py)"', text))
 
@@ -106,8 +120,17 @@ def main() -> int:
     parser.add_argument("--package", default="", help="move only this sub-package (one package per run)")
     args = parser.parse_args()
 
-    gated = gate_modules()
-    print(f"gate lists {len(gated)} module(s): {', '.join(sorted(gated))}\n")
+    try:
+        gated = gate_modules()
+    except RuntimeError as exc:
+        print(str(exc))
+        return 2
+    print(f"gate lists {len(gated)} module(s): {', '.join(sorted(gated)) or '(none)'}")
+    if not gated:
+        print(
+            "  NOTE: the tracked gate enumerates src/ from disk, so it pins no module names and this refusal class "
+            "protects nothing. The script does NOT claim a module is gate-safe on this basis.\n"
+        )
 
     # TWO guards added after this script's first run destroyed the suite and three tracked files.
     #

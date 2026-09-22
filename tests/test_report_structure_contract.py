@@ -10,8 +10,14 @@ and consults `registry.resolve_or_unknown`. Python binds the LAST definition, so
 first body was unreachable - deleting it is behaviour-preserving BY CONSTRUCTION.
 
 P2-R steps 2-5 (plan 7.1): move the SAME implementation into `report/analyst_report.py` and leave a
-`sys.modules` shim at the old path. The moved file is byte-identical (sha256 checked by the move script), so the
-two paths are two names for one module object - not a re-export and not a second implementation.
+`sys.modules` shim at the old path. Byte-identity is a MEASURED property of the two revisions and is reproducible
+with git rather than by trusting a script that is not in the repository:
+
+    git show 5be786f:src/threat_report_agent/analyst_report.py            | sha256sum
+    git show efc3ab7:src/threat_report_agent/report/analyst_report.py     | sha256sum
+
+Both are `2049a0fa0120c2d9...` (305,478 blob bytes, 6,372 lines; ADR/plan comments that cite
+`analyst_report.py:NNNN` still resolve, because the line numbers did not move).
 
 WHAT THE STEP-1 MEASUREMENT ALSO FOUND, RECORDED AND NOT FIXED: two call sites pass a MAPPING to the scalar
 function. Measured, a mapping resolves to `""` while `row.get("catalog_id")` resolves correctly. So
@@ -40,6 +46,25 @@ PACKAGE = Path(__file__).resolve().parents[1] / "src" / "threat_report_agent"
 IMPLEMENTATION = PACKAGE / "report" / "analyst_report.py"
 #: The old path, which is now a shim.
 SHIM = PACKAGE / "analyst_report.py"
+
+
+#: The modules P2-R moved into `report/`, whose old paths are now shims. Kept in step with
+#: `scripts/check-structure-diff.py`'s LEGACY_PATHS, which is the detector the old-path test delegates to.
+REPORT_MOVED_PATHS = ("analyst_report", "report_verification", "gold_output_bar")
+
+
+def load_gate_module():
+    """`scripts/check-structure-diff.py` cannot be imported by name (dashes), so load it by path."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "check_structure_diff_for_report_tests",
+        Path(__file__).resolve().parents[1] / "scripts" / "check-structure-diff.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def _implementation_tree() -> ast.Module:
@@ -171,22 +196,80 @@ def test_the_old_path_is_a_shim_and_not_a_second_implementation() -> None:
 def test_no_production_module_imports_the_old_path() -> None:
     """Plan 7.1 step 5: production callers move to the new path FIRST.
 
-    Only `service.py` imported this module (measured by the step-1 inventory), and both of its import sites now use
-    `threat_report_agent.report.analyst_report`. The shim exists for the old path's own compatibility, not to keep
-    a production caller on it.
+    MEASURED BLIND SPOT this replaces (adversarial audit of the move): the first version tested three SUBSTRINGS
+    (`from threat_report_agent.analyst_report import`, `from threat_report_agent import analyst_report`,
+    `import_module("...`), and an audit injected three other spellings - `import
+    threat_report_agent.analyst_report`, `from . import analyst_report`, `from .analyst_report import X` - into a
+    copy and the test still reported 10 passed. The plainest spelling a developer writes was one of the three it
+    could not see.
+
+    It now DELEGATES to the structural gate's own `legacy_path_imports()`, so there is one detector rather than two
+    (the gate's version is the one that was hardened to cover relative, alias and `importlib` forms), and the
+    can-fail proof below shows every spelling is actually seen.
+    """
+    gate = load_gate_module()
+    offenders = [item for item in gate.legacy_path_imports() if item["old"] in REPORT_MOVED_PATHS]
+    assert not offenders, (
+        f"production modules import a moved report module by its old path: {offenders}; the new path is "
+        f"threat_report_agent.report.<module>"
+    )
+
+
+def test_the_old_path_detector_sees_every_import_spelling(tmp_path) -> None:
+    """Can-fail proof for the delegation above, on a temp package that uses all six spellings at once."""
+    import importlib
+
+    gate = load_gate_module()
+    fake = tmp_path / "threat_report_agent"
+    fake.mkdir()
+    (fake / "__init__.py").write_text("", encoding="utf-8")
+    (fake / "status.py").write_text(
+        "import threat_report_agent.analyst_report\n"
+        "import threat_report_agent.report_verification\n"
+        "from threat_report_agent import gold_output_bar\n"
+        "from . import analyst_report as _relative_alias\n"
+        "from .report_verification import verify_report_correctness\n"
+        "import importlib\n"
+        "importlib.import_module('threat_report_agent.gold_output_bar')\n",
+        encoding="utf-8",
+    )
+    real = PACKAGE
+    gate.set_source(str(fake))
+    try:
+        found = {(item["old"], item["importer"]) for item in gate.legacy_path_imports()}
+    finally:
+        gate.set_source(str(real))
+        importlib.invalidate_caches()
+    missing = {name for name in REPORT_MOVED_PATHS if not any(old == name for old, _ in found)}
+    assert not missing, (
+        f"the detector missed the old path for {sorted(missing)}; measured findings were {sorted(found)}. Every "
+        "import spelling must be seen, including plain `import pkg.mod` and relative forms."
+    )
+
+
+def test_no_second_copy_of_the_composer_exists_under_report() -> None:
+    """The third-path evasion: a copy at `report/<anything>.py` is invisible to identity assertions.
+
+    MEASURED by the audit: `report/analyst_report_copy.py` produced 8 passed, i.e. the contract tests alone could
+    not see it (the gate's duplicate rule could). This closes it in the tracked suite too.
     """
     offenders: list[str] = []
-    for path in sorted(PACKAGE.rglob("*.py")):
-        if "__pycache__" in path.parts or path == SHIM:
+    for path in sorted((PACKAGE / "report").rglob("*.py")):
+        if path.name == "analyst_report.py":
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if (
-            "from threat_report_agent.analyst_report import" in text
-            or "from threat_report_agent import analyst_report" in text
-            or 'import_module("threat_report_agent.analyst_report' in text
-        ):
-            offenders.append(path.relative_to(PACKAGE).as_posix())
-    assert not offenders, f"production modules still import the moved module by its old path: {offenders}"
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        names = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        for symbol in ("compose_official_markdown", "compose_gate_violations", "render_official_markdown"):
+            if symbol in names:
+                offenders.append(f"{path.relative_to(PACKAGE).as_posix()}:{symbol}")
+    assert not offenders, (
+        f"a second definition of the official composition surface exists outside report/analyst_report.py: "
+        f"{offenders}. Plan 3.2 allows ONE canonical implementation."
+    )
 
 
 # ------------------------------------------------------------------------------------------------------------

@@ -219,7 +219,50 @@ def probe() -> dict[str, object]:
         "only_in_policy_or_placeholder_set": sorted(_POLICY_OR_PLACEHOLDER_STATUSES - PLACEHOLDER_STATUSES),
         "only_in_placeholder_set": sorted(PLACEHOLDER_STATUSES - _POLICY_OR_PLACEHOLDER_STATUSES),
     }
+
+    # 8. IDENTITY of every module that has already MOVED: the old path must be a shim onto the new module, not a
+    #    second copy of it.
+    #
+    # MEASURED why this reading exists (adversarial audit of the report move): the probe imported only the OLD
+    # path, so it would have read green even if the old path still held its own copy of the implementation - the
+    # "one implementation, moved not copied" claim lived only in a contract test. The readings below are
+    # order-independent on purpose: `find_spec()` on a shimmed path changes name and origin depending on which
+    # path was imported first (measured), so freezing it would be a reading that drifts for reasons unrelated to
+    # structure. What is frozen instead is `same_object`, `same_file`, and the origin the OLD path reports.
+    observed["8_moved_module_identity"] = moved_module_identity()
     return observed
+
+
+#: (old path, new path, a symbol whose object identity must match). One row per completed move in the plan.
+MOVED_MODULES: tuple[tuple[str, str, str], ...] = (
+    ("threat_report_agent.dataflow", "threat_report_agent.facts.dataflow", "decoded_output_consumer"),
+    ("threat_report_agent.decode_primitives", "threat_report_agent.facts.decode_primitives",
+     "decode_primitive_sequence"),
+    ("threat_report_agent.analyst_report", "threat_report_agent.report.analyst_report",
+     "compose_official_markdown"),
+    ("threat_report_agent.report_verification", "threat_report_agent.report.report_verification",
+     "verify_report_correctness"),
+    ("threat_report_agent.gold_output_bar", "threat_report_agent.report.gold_output_bar", "GOLD_OUTPUT_BAR"),
+)
+
+
+def moved_module_identity() -> dict[str, object]:
+    """For each completed move: are the two paths one module object with one file behind them?"""
+    import importlib
+
+    readings: dict[str, object] = {}
+    for old_name, new_name, symbol in MOVED_MODULES:
+        old = importlib.import_module(old_name)
+        new = importlib.import_module(new_name)
+        new_file = str(getattr(new, "__file__", ""))
+        old_file = str(getattr(old, "__file__", ""))
+        readings[new_name] = {
+            "same_object": old is new,
+            "same_file": old_file == new_file and bool(new_file),
+            "old_path_reports_the_new_file": old_file.endswith(new_file.split("threat_report_agent")[-1]),
+            "symbol_is_the_same_object": getattr(old, symbol, None) is getattr(new, symbol, None),
+        }
+    return readings
 
 
 def to_jsonable(value: object) -> object:
