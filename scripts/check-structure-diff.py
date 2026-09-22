@@ -104,8 +104,12 @@ def legacy_paths() -> dict[str, str]:
     """The rename map, from `docs/import-policy.json` when it is readable and from the constant otherwise.
 
     A root shim keeps an old path importable; the point of the rule is that the list of files still using it is
-    explicit rather than discovered by grep during P4. Every entry has ZERO registered importers, because production
-    moved to the new path first (plan 7.1 step 5) - so a future old-path use fails immediately.
+    explicit rather than discovered by grep during P4.
+
+    ENTRIES MARKED `public_path_unchanged` ARE SKIPPED, for a measured reason: for a MODULE -> PACKAGE move the old
+    dotted path IS the new public path (`threat_report_agent.investigation` is now the package), so a production
+    importer of it is CORRECT and there is nothing to migrate. The import graph still uses those entries for rename
+    normalisation; only this rule ignores them.
     """
     if POLICY_PATH.is_file():
         try:
@@ -115,7 +119,10 @@ def legacy_paths() -> dict[str, str]:
         entries = {
             str(item["old"]): str(item["new"])
             for item in policy.get("moved_paths", [])
-            if isinstance(item, dict) and item.get("old") and item.get("new")
+            if isinstance(item, dict)
+            and item.get("old")
+            and item.get("new")
+            and not item.get("public_path_unchanged")
         }
         if entries:
             return entries

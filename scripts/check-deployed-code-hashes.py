@@ -80,7 +80,7 @@ DEFAULT_SERVICES = (
 #: packages the plan created (`report/` was added only after an audit noticed, `static/` would have needed another
 #: edit). It is now ENUMERATED from disk exactly like the manifest: every module under the plan's new packages is
 #: smoked, so a new module needs no edit here. See `smoke_modules()`.
-SMOKE_PACKAGES: tuple[str, ...] = ("facts", "report", "static", "emulation", "intake")
+SMOKE_PACKAGES: tuple[str, ...] = ("facts", "report", "static", "emulation", "intake", "investigation")
 
 #: Always smoked, whether or not the package has modules yet.
 SMOKE_ALWAYS: tuple[str, ...] = ("threat_report_agent.facts",)
