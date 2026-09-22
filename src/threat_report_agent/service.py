@@ -18854,6 +18854,15 @@ class AnalysisService:
                     },
                 )
             results: list[dict[str, object]] = []
+            # Why the emulator's output could not be read, when it could not be. MEASURED (adversarial defect
+            # audit): the `except` below swallowed the failure and left `results = []`, which is
+            # INDISTINGUISHABLE from "the emulator genuinely found no window". The empty list then drove a
+            # fabricated row asserting `NO_GRANTED_WINDOW` and blaming the sample's static recovery
+            # ("...isolated emulation was still attempted"), while the truth was that the emulation HAD run and
+            # its output was unreadable - reachable whenever the content store is unavailable (minio reported
+            # `InsufficientWriteQuorum` during this session). Absence was converted into a claim about the
+            # sample.
+            output_read_error: str | None = None
             if response.output_storage_key:
                 try:
                     payload = json.loads(self.content_store.read(response.output_storage_key))
@@ -18861,7 +18870,8 @@ class AnalysisService:
                         raw_results = payload.get("results")
                         if isinstance(raw_results, list):
                             results = [item for item in raw_results if isinstance(item, dict)]
-                except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                    output_read_error = f"{type(exc).__name__}: {exc}"[:200]
                     results = []
             status = response.status
             error = response.error
@@ -18875,6 +18885,11 @@ class AnalysisService:
             "demo",
             "development",
         }:
+            # Defined on this path too: the fallback-row builder below is SHARED by both branches and reads it.
+            # MEASURED: omitting it raised NameError at the shared `output={...}` and turned the 6 baseline
+            # failures into 8 (two in test_controlled_emulation.py) - caught by the baseline comparison, not by
+            # the tests that exercise this path.
+            output_read_error: str | None = None
             runner = default_simulation_runner(
                 policy,
                 # Was hardcoded `True`, safe only because of the `elif` above (~line 18833) which already
@@ -18961,6 +18976,7 @@ class AnalysisService:
             status=status,
             error=error,
             results=results,
+            output_read_error=output_read_error,
             parameters=parameters,
             execution_metadata=execution_metadata,
             started_at=started_at,
@@ -18976,6 +18992,7 @@ class AnalysisService:
         status: str,
         error: str | None,
         results: list[dict[str, object]],
+        output_read_error: str | None = None,
         parameters: dict[str, object],
         execution_metadata: dict[str, object],
         started_at: datetime,
@@ -19004,21 +19021,20 @@ class AnalysisService:
                     "executor": execution_metadata.get("executor"),
                     "isolation_boundary": "granted_bytes_no_host_loader",
                 },
-                output={"result_count": len(results), "error": error},
+                output={
+                    "result_count": len(results),
+                    "error": error,
+                    # Persisted so the DB distinguishes "the emulator produced nothing" from "we could not read
+                    # what it produced"; without it both look like `result_count: 0`.
+                    "output_read_error": output_read_error,
+                },
                 started_at=started_at,
                 finished_at=utcnow(),
             )
-            for payload in results or [
-                {
-                    "status": "NO_GRANTED_WINDOW",
-                    "simulator": "unicorn",
-                    "stop_reason": "NO_GRANTED_WINDOW",
-                    "limitations": [
-                        "static recovery did not yield a bounded start-routine window; isolated emulation was still attempted"
-                    ],
-                    "anchor": {"type": "controlled_emulation"},
-                }
-            ]:
+            # The fallback row must say what actually happened. A run whose OUTPUT could not be read did not fail
+            # because of the sample's static recovery, and must not be published as though it had: the emulation
+            # ran, and the honest record is that its result is unavailable.
+            for payload in results or [self._emulation_fallback_payload(output_read_error)]:
                 anchor = dict(payload.get("anchor") or {"type": "controlled_emulation"})
                 stored = {
                     key: value
@@ -23731,6 +23747,42 @@ class AnalysisService:
         except Exception:
             # The audit write must never be the reason a report fails to publish.
             pass
+
+    @staticmethod
+    def _emulation_fallback_payload(output_read_error: str | None) -> dict[str, object]:
+        """The row recorded when the emulator returned no usable results - with the REAL cause.
+
+        MEASURED defect this replaces (adversarial defect audit): whatever emptied `results` - including an
+        unreadable content-store object - produced the same row asserting `NO_GRANTED_WINDOW` and blaming the
+        sample's static recovery ("static recovery did not yield a bounded start-routine window; isolated
+        emulation was still attempted"). When the read failed that sentence is FALSE: the emulation ran and its
+        output was unreadable, which is a statement about the pipeline, not about the sample. Reachable whenever
+        the content store is down (minio reported `InsufficientWriteQuorum` during this session).
+
+        Kept as a pure function of the one input that distinguishes the two cases, so the distinction is
+        testable at all - the inline version could only be exercised by driving the whole worker path.
+        """
+        if output_read_error:
+            return {
+                "status": "EMULATION_OUTPUT_UNREADABLE",
+                "simulator": "unicorn",
+                "stop_reason": "EMULATION_OUTPUT_UNREADABLE",
+                "limitations": [
+                    f"isolated emulation output could not be read ({output_read_error}); the emulation ran but "
+                    "its result is unavailable, so this is not evidence about the sample"
+                ],
+                "anchor": {"type": "controlled_emulation"},
+            }
+        return {
+            "status": "NO_GRANTED_WINDOW",
+            "simulator": "unicorn",
+            "stop_reason": "NO_GRANTED_WINDOW",
+            "limitations": [
+                "static recovery did not yield a bounded start-routine window; isolated emulation was still "
+                "attempted"
+            ],
+            "anchor": {"type": "controlled_emulation"},
+        }
 
     @staticmethod
     def _merge_operational_limitations(document: dict[str, object], task: object) -> None:
