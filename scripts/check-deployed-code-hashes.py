@@ -182,6 +182,15 @@ def main() -> int:
     missing: list[str] = []
     for service in services:
         if f"threat-report-agent-{service}-1" not in detail:
+            # A service that is NOT RUNNING must never be silently skipped.
+            #
+            # MEASURED BUG: `docker ps` lists only RUNNING containers, and `continue` here meant no file was
+            # compared for that service while the summary still printed "ALL DEPLOYED MODULES MATCH src/".
+            # ghidra-worker was `Exited (1)` and the gate reported a full match - absence read as a clean
+            # result, inside the instrument built to catch exactly that. The `problems` list did catch it, but
+            # `problems` is only consulted in --self-check mode, so the normal path ignored it.
+            mismatched.append(f"{service}: NOT RUNNING - no file could be compared")
+            print(f"  {service:18} NOT RUNNING - not compared")
             continue
         actual, note = container_hashes(service, files)
         if actual is None:
