@@ -113,11 +113,47 @@
     "ActionType": [
       "COMPARE_FUNCTION = 'COMPARE_FUNCTION';CONTROLLED_EMULATE = 'CONTROLLED_EMULATE';DECODE_CANDIDATE = 'DECODE_CANDIDATE';EVALUATE_CONSTANT = 'EVALUATE_CONSTANT';GET_CALLEES = 'GET_CALLEES';GET_CALLERS = 'GET_CALLERS';GET_CFG_SLICE = 'GET_CFG_SLICE';GET_DATA_REFERENCES = 'GET_DATA_REFERENCES';GET_DECOMPILE = 'GET_DECOMPILE';GET_FUNCTION = 'GET_FUNCTION';GET_PCODE_SLICE = 'GET_PCODE_SLICE';GET_STRINGS_REFERENCED = 'GET_STRINGS_REFERENCED';GET_XREFS_FROM = 'GET_XREFS_FROM';GET_XREFS_TO = 'GET_XREFS_TO';READ_BYTES = 'READ_BYTES';TRACE_API_ARGUMENT = 'TRACE_API_ARGUMENT';TRACE_GLOBAL_USAGE = 'TRACE_GLOBAL_USAGE';TRACE_RETURN_VALUE = 'TRACE_RETURN_VALUE'"
     ],
+    "AnalysisOutcome": [
+      "BLOCKED = 'BLOCKED';COMPLETE = 'COMPLETE';PARTIAL = 'PARTIAL';UNSUPPORTED = 'UNSUPPORTED'"
+    ],
+    "AnalysisResultClass": [
+      "BOUNDED_STATIC_ANALYSIS = 'BOUNDED_STATIC_ANALYSIS';FAILED_ANALYSIS = 'FAILED_ANALYSIS';FULL_STATIC_ANALYSIS = 'FULL_STATIC_ANALYSIS';UNSUPPORTED_ARTIFACT = 'UNSUPPORTED_ARTIFACT'"
+    ],
+    "ApiSemantic": [
+      "COMMAND_EXECUTION = 'COMMAND_EXECUTION';CRYPTO_DECODE = 'CRYPTO_DECODE';DYNAMIC_LOADING = 'DYNAMIC_LOADING';ENVIRONMENT_QUERY = 'ENVIRONMENT_QUERY';FILE_IO = 'FILE_IO';GENERIC_RUNTIME = 'GENERIC_RUNTIME';MEMORY_ALLOCATION = 'MEMORY_ALLOCATION';MEMORY_PROTECTION = 'MEMORY_PROTECTION';NETWORK_TRANSPORT = 'NETWORK_TRANSPORT';PROCESS_CREATION = 'PROCESS_CREATION';REGISTRY_WRITE = 'REGISTRY_WRITE';SCHEDULED_TASK = 'SCHEDULED_TASK';SERVICE_CONTROL = 'SERVICE_CONTROL';THREAD_SYNC = 'THREAD_SYNC';TIMING_QUERY = 'TIMING_QUERY'"
+    ],
     "CERTIFIED_PROFILES": [
       "frozenset({'controlled-worker-v1', 'static-first-controlled-emulation'})"
     ],
+    "CaseStatus": [
+      "ARCHIVED = 'ARCHIVED';OPEN = 'OPEN'"
+    ],
+    "ClaimNature": [
+      "STATIC_INFERRED = 'STATIC_INFERRED'"
+    ],
     "ClaimStatus": [
       "CANDIDATE = 'CANDIDATE';DISPUTED = 'DISPUTED';REJECTED = 'REJECTED';VERIFIED = 'VERIFIED'"
+    ],
+    "ContextRole": [
+      "CORE_SUPPORT = 'CORE_SUPPORT';CORROBORATING = 'CORROBORATING';EXPANSION = 'EXPANSION';NAVIGATION = 'NAVIGATION'"
+    ],
+    "EvidenceNature": [
+      "BACKGROUND_REPORTED = 'BACKGROUND_REPORTED';DYNAMIC_OBSERVED = 'DYNAMIC_OBSERVED';EMULATION_OBSERVED = 'EMULATION_OBSERVED';STATIC_DERIVED = 'STATIC_DERIVED';STATIC_INFERRED = 'STATIC_INFERRED';STATIC_OBSERVED = 'STATIC_OBSERVED'"
+    ],
+    "EvidenceStage": [
+      "ACCEPTED_AS_SUPPORT = 'ACCEPTED_AS_SUPPORT';CANDIDATE = 'CANDIDATE';DELIVERED = 'DELIVERED';ELIGIBLE = 'ELIGIBLE';NORMALIZED = 'NORMALIZED';PERSISTED = 'PERSISTED';PRODUCED = 'PRODUCED';REFERENCED_BY_MODEL = 'REFERENCED_BY_MODEL';SELECTED = 'SELECTED'"
+    ],
+    "FailureInterpretation": [
+      "NO_NEW_EVIDENCE = 'NO_NEW_EVIDENCE';STATIC_BOUNDARY = 'STATIC_BOUNDARY';UNKNOWN = 'UNKNOWN'"
+    ],
+    "FailureRootCause": [
+      "ACTION_FAILURE = 'ACTION_FAILURE';ARTIFACT_FAILURE = 'ARTIFACT_FAILURE';BOUNDARY_CLASSIFICATION_FAILURE = 'BOUNDARY_CLASSIFICATION_FAILURE';CLAIM_GATE_FAILURE = 'CLAIM_GATE_FAILURE';CONTEXT_QUALITY_FAILURE = 'CONTEXT_QUALITY_FAILURE';DELIVERY_FAILURE = 'DELIVERY_FAILURE';MECHANISM_SYNTHESIS_FAILURE = 'MECHANISM_SYNTHESIS_FAILURE';PRODUCT_FAILURE = 'PRODUCT_FAILURE';QUESTION_FAILURE = 'QUESTION_FAILURE';REPORT_FAILURE = 'REPORT_FAILURE';RETRIEVAL_FAILURE = 'RETRIEVAL_FAILURE';SEED_DISCOVERY_FAILURE = 'SEED_DISCOVERY_FAILURE';TOOL_RESULT_FAILURE = 'TOOL_RESULT_FAILURE';VERIFIER_FAILURE = 'VERIFIER_FAILURE'"
+    ],
+    "HOW_SEED_CATEGORIES": [
+      "frozenset({'dynamic_api', 'loader', 'decode', 'network', 'execution', 'process', 'ppid', 'thread'})"
+    ],
+    "INDEXED_EVIDENCE_KINDS": [
+      "frozenset({'function', 'function_context', 'function_call', 'function_instruction_window', 'function_data_correlation', 'function_mechanism', 'function_ioc', 'function_interface', 'function_simhash', 'data_reference', 'xref', 'string', 'string_semantics', 'import_symbol', 'export_symbol', 'api_argument_trace', 'decode_candidate', 'decode_result', 'cross_function_chain', 'investigation_mechanism_link', 'static_mechanism_link', 'pcode_slice', 'value_flow', 'resolved_api', 'mechanism_decode_window', 'abstract_execution_trace', 'decompile_slice', 'code_api_call', 'cfg_block', 'constant', 'encoded_blob', 'decoded_artifact', 'mechanism_dynamic_api_link', 'mechanism_http_transport_link', 'mechanism_shell_output_link', 'mechanism_etw_patch_link', 'indirect_function_pointer_link'})"
     ],
     "InvestigationThreadState": [
       "BLOCKED = 'BLOCKED';CLAIM_READY = 'CLAIM_READY';CLOSED = 'CLOSED';CONTEXT_READY = 'CONTEXT_READY';CONTRADICTED = 'CONTRADICTED';DISCOVERED = 'DISCOVERED';HYPOTHESIZING = 'HYPOTHESIZING';INVESTIGATING = 'INVESTIGATING';MECHANISM_READY = 'MECHANISM_READY';PRIORITIZED = 'PRIORITIZED';REJECTED = 'REJECTED';UNKNOWN = 'UNKNOWN';VERIFYING = 'VERIFYING'"
@@ -128,14 +164,41 @@
     "LEDGER_TERMINAL": [
       "frozenset({LEDGER_CLOSED, LEDGER_UNKNOWN, LEDGER_UNSUPPORTED})"
     ],
+    "NO_NEW_EVIDENCE_CATEGORIES": [
+      "frozenset({'LOW_INFORMATION_ACTION', 'TOOL_EXTRACTION_GAP', 'EVIDENCE_ALREADY_PRESENT', 'SELECTOR_ERROR', 'TARGET_ERROR', 'DEDUP_SUPPRESSED', 'STATIC_BOUNDARY'})"
+    ],
+    "PERSIST_KEEP_ACTION_TYPES": [
+      "frozenset({ActionType.CONTROLLED_EMULATE.value, ActionType.TRACE_API_ARGUMENT.value, ActionType.GET_DECOMPILE.value, ActionType.READ_BYTES.value, ActionType.DECODE_CANDIDATE.value, ActionType.EVALUATE_CONSTANT.value})"
+    ],
     "PLACEHOLDER_STATUSES": [
       "frozenset({'', 'DEFERRED_TO_WORKER', 'WORKER_REQUIRED', 'SUPERSEDED_BY_WORKER', 'NOT_EXECUTED'})"
+    ],
+    "ReportStatus": [
+      "APPROVED = 'APPROVED';DRAFT = 'DRAFT';PUBLISHED = 'PUBLISHED'"
+    ],
+    "SPECIALIST_STATIC_TOOLS": [
+      "frozenset({'signal-extractor', 'knowledge-fact-matcher', 'rva-xref-query', 'crypto-pattern-scanner', 'c2-protocol-scanner', 'build-metadata-scanner', 'codename-scanner'})"
+    ],
+    "STATIC_TOOL_ALLOWLIST": [
+      "frozenset({'python-zipfile-safe-reader', 'builtin-static-analyzer', 'pe-parser', 'script-parser', 'document-carrier-parser', 'ghidra-headless', 'controlled-emulator'})"
+    ],
+    "SUPPORTED_MODEL_FAMILIES": [
+      "frozenset({'gpt', 'claude', 'qwen', 'kimi', 'glm'})"
+    ],
+    "SUPPORTING_SKIP_CATEGORIES": [
+      "frozenset({'persistence', 'evasion', 'pe_parser', 'injection', 'entrypoint'})"
+    ],
+    "SupportLevel": [
+      "NOT_VALIDATED = 'not_validated';PARTIAL = 'partial';SUPPORTED = 'supported';UNSUPPORTED = 'unsupported'"
     ],
     "TERMINAL_STATES": [
       "frozenset({'COMPLETED', 'FAILED', 'CANCELLED'})"
     ],
     "TaskLifecycle": [
       "CANCELLED = 'CANCELLED';FAILED = 'FAILED';FINALIZING = 'FINALIZING';PAUSED = 'PAUSED';PENDING = 'PENDING';RUNNING = 'RUNNING';SUCCEEDED = 'SUCCEEDED';WAITING_GATE = 'WAITING_GATE'"
+    ],
+    "ToolRunStatus": [
+      "CANCELLED = 'CANCELLED';FAILED = 'FAILED';QUEUED = 'QUEUED';RUNNING = 'RUNNING';SUCCEEDED = 'SUCCEEDED';TIMED_OUT = 'TIMED_OUT'"
     ],
     "_BEHAVIOR_SEVERITY_VALUES": [
       "frozenset({'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'})"
@@ -152,13 +215,170 @@
     "_NON_WORKER_STOP_REASONS": [
       "frozenset({'NO_GRANTED_WINDOW', 'DISABLED_BY_POLICY', 'DEFERRED_TO_WORKER', 'WORKER_REQUIRED', 'ROOTFS_REQUIRED', 'NOT_PE', 'NOT_LINUX_ELF', 'ARCHITECTURE_UNSUPPORTED', 'INPUT_REQUIRED', 'INPUT_HASH_MISMATCH'})"
     ],
+    "_PLAN_BLOCKED_STATUSES": [
+      "frozenset({'BLOCKED', 'FAILED', 'STATIC_BOUNDARY', 'NOT_APPLICABLE', 'N/A', 'NA'})"
+    ],
+    "_PLAN_COMPLETED_STATUSES": [
+      "frozenset({'COMPLETED', 'COMPLETE', 'CLOSED', 'DONE', 'VERIFIED', 'SUPPORTED', 'CONFIRMED'})"
+    ],
     "_POLICY_OR_PLACEHOLDER_STATUSES": [
       "frozenset({'DISABLED_BY_POLICY', 'DEFERRED_TO_WORKER', 'WORKER_REQUIRED', 'NO_GRANTED_WINDOW', 'UNSUPPORTED', 'UNAVAILABLE', 'SUPERSEDED_BY_WORKER', 'INPUT_REQUIRED'})"
+    ],
+    "_REQUIRED_CHILD_TYPES": [
+      "frozenset({'pe', 'script', 'pdf', 'ooxml', 'ole', 'zip', '7z'})"
+    ],
+    "_UNRESOLVED_STATUSES": [
+      "frozenset({'unknown', 'not_identified', 'not identified', 'unresolved', 'unobserved', 'not observed', 'not available', 'missing', 'unsupported', 'not proven', 'not_proven', 'refuted', 'rejected', 'failed', 'failure', 'error', 'candidate', 'partial', 'pending', 'not_applicable', 'not applicable'})"
     ]
   },
   "test_getsource_count": {
     "reaching_a_private_member": 21,
     "total": 39
+  },
+  "threshold_comparisons": {
+    "comparisons": [
+      "0 < len(imports) <= _PACKED_IMPORT_LIMIT",
+      "0 <= self.threshold <= 64",
+      "16 <= len(content) <= max_pe_bytes",
+      "64 <= len(content) <= max_pe_bytes",
+      "OPERATIONAL_LIMITATIONS_HEADING in source",
+      "OPERATIONAL_LIMITATIONS_HEADING not in text",
+      "TOOL_NAME_MIN_LENGTH <= len(tool_name) <= TOOL_NAME_MAX_LENGTH",
+      "analyzed_bytes + entry.size > self.settings.max_sample_bytes",
+      "arg_name in _ENVIRONMENT_GUARD_THRESHOLD_NAMES",
+      "budget_limitation not in limitations",
+      "candidate_noise_ratio > 0.2",
+      "candidate_ratio > 0.35",
+      "consecutive_replan_no_gain < self._MAX_CONSECUTIVE_REPLAN_NO_GAIN",
+      "consecutive_replan_no_gain >= self._MAX_CONSECUTIVE_REPLAN_NO_GAIN",
+      "context_max_bytes < 1024",
+      "context_max_bytes > 50000000",
+      "decoded_chars > 0",
+      "depth > _MAX_SCHEMA_DEPTH",
+      "depth > max_depth",
+      "depth > self.settings.max_archive_depth",
+      "distance <= query.threshold",
+      "env_threshold is None",
+      "env_threshold is not None",
+      "even_null_ratio <= 0.05",
+      "even_null_ratio >= 0.3",
+      "key in {'evidence_id', 'artifact_id', 'kind', 'nature', 'context_role', 'selection_score', 'selection_rationale', 'quota_group', 'trust_zone'}",
+      "key not in TOOL_LIMIT_KEYS",
+      "len(_API_NAMES_CACHE) >= _API_NAMES_CACHE_LIMIT",
+      "len(_UNRESOLVED_CACHE) >= _UNRESOLVED_CACHE_LIMIT",
+      "len(action_sets) < target_window_limit",
+      "len(action_sets) >= target_window_limit",
+      "len(active) >= self.max_active_threads",
+      "len(addresses) < min_slots",
+      "len(addresses) >= max(1, max_addresses)",
+      "len(analyzed_ids) >= self.settings.max_sample_files",
+      "len(candidate) > self.max_messages",
+      "len(candidates) >= max_candidates * 8",
+      "len(code) > max_section_bytes",
+      "len(conditions) >= max_conditions",
+      "len(content) > max_bytes",
+      "len(content.encode('utf-8')) > self.max_tool_result_bytes",
+      "len(content.encode('utf-8')) > self.settings.model_context_max_bytes",
+      "len(encoded) <= REPORT_MAX_MARKDOWN_BYTES",
+      "len(entries) + len(members) >= max_files",
+      "len(entries) > self.settings.max_sample_files",
+      "len(entries) >= max_files",
+      "len(evidence_ids) > cls._MAX_COMPLETED_ACTION_EVIDENCE_IDS",
+      "len(evidence_rows) > self._REPORT_PROJECTION_EVIDENCE_LIMIT",
+      "len(hits) >= max(max_hits * 4, 64)",
+      "len(ids) < max_evidence_per_cluster",
+      "len(instructions) > max_operations",
+      "len(item) <= text_limit",
+      "len(keys) < _MAX_SCHEMA_NODES",
+      "len(links) >= max_links",
+      "len(optional_window) < target_window_limit",
+      "len(ordered_calls) > max_calls",
+      "len(output) + len(ordered) <= max_actions",
+      "len(output) + len(required) <= max_actions",
+      "len(output) >= max(1, max_calls)",
+      "len(output) >= max(1, max_resolutions)",
+      "len(output) >= max(1, max_windows)",
+      "len(path) >= max_depth",
+      "len(payload) <= _PAYLOAD_STRIP_MIN_CHARS",
+      "len(request.input_bytes) > self.max_input_bytes",
+      "len(row_texts) >= _ROW_TEXT_CACHE_LIMIT",
+      "len(selected) >= self.max_items",
+      "len(selected_calls) < max_calls",
+      "len(set(all_ids)) >= request.candidate_limit",
+      "len(steps) >= self.max_steps",
+      "len(tables) >= max_tables",
+      "max_active_threads < 1",
+      "max_clusters is None",
+      "max_consecutive_no_gain < 1",
+      "max_context_bytes < 1024",
+      "max_items < 1",
+      "max_items <= 0",
+      "max_items is None",
+      "max_paths < 1",
+      "max_references is None",
+      "max_rounds < 1",
+      "max_seeds < 1",
+      "max_steps < 1",
+      "max_steps is None",
+      "max_steps is not None",
+      "max_targets is None",
+      "max_tokens < 256",
+      "max_tokens > 32768",
+      "max_total_steps < 1",
+      "max_total_steps is not None",
+      "model_replan_turns < self._MAX_MODEL_REPLAN_TURNS",
+      "model_replan_turns >= self._MAX_MODEL_REPLAN_TURNS",
+      "name in _ENVIRONMENT_GUARD_THRESHOLD_NAMES",
+      "no_gain_streak >= self.max_consecutive_no_gain",
+      "odd_null_ratio <= 0.05",
+      "odd_null_ratio >= 0.3",
+      "previous_depth >= MAX_ABSTRACT_EXPRESSION_DEPTH",
+      "proposal.cpu_seconds > policy.max_cpu_seconds",
+      "proposal.memory_mb > policy.max_memory_mb",
+      "request.instruction_budget > self.max_instruction_budget",
+      "request.max_output_bytes < 0",
+      "request.max_output_bytes > self.max_output_bytes",
+      "request.timeout_seconds > self.max_timeout_seconds",
+      "row.get('type') in {'analysis_limitation', 'next_step'}",
+      "self.candidate_limit < 1",
+      "self.candidate_limit > 4096",
+      "self.investigation_max_rounds < 1",
+      "self.investigation_max_rounds > 8",
+      "self.investigation_max_steps < 1",
+      "self.investigation_max_steps > 1000000",
+      "self.investigation_task_max_actions < 1",
+      "self.investigation_task_max_actions > 1000000",
+      "self.model_context_max_bytes < 1024",
+      "self.model_max_tokens < 256",
+      "self.model_max_tokens > 32768",
+      "self.static_abstract_execution_max_steps < 1",
+      "self.static_abstract_execution_max_steps > 1000000",
+      "self.steps >= self.max_steps",
+      "size + reserved_completion_bytes + self.safety_margin_bytes <= self.max_context_bytes",
+      "size > REPORT_MAX_MARKDOWN_BYTES",
+      "size > self.max_bytes",
+      "size > self.settings.max_sample_bytes",
+      "stall_limitation not in limitations",
+      "structural_limitations is None",
+      "sum((entry.size for entry in entries)) > self.settings.max_sample_bytes",
+      "tables_scanned >= _PRIMITIVE_MAX_TABLES",
+      "task_action_budget_used >= task_action_budget_limit",
+      "total <= self.max_context_bytes",
+      "total > max_bytes",
+      "total > settings_for_request.max_sample_bytes",
+      "total_attempted >= max_total_steps",
+      "total_records > self.max_steps",
+      "total_size + info.file_size > max_bytes",
+      "total_size + size > max_bytes",
+      "total_size + submitted.size > max_bytes",
+      "total_size + sum((item[2] for item in members)) + member_size > max_bytes",
+      "used >= max_total",
+      "value in _ENVIRONMENT_GUARD_INVALID_THRESHOLDS",
+      "virtual >= _VIRTUAL_OVER_RAW_MIN_DELTA",
+      "virtual >= max(raw * 2, raw + _VIRTUAL_OVER_RAW_MIN_DELTA)",
+      "walked < max_records"
+    ],
+    "count": 140
   },
   "validator_thresholds": {
     "BSTR_MAX_CHARS": "4096",

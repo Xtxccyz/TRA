@@ -86,8 +86,12 @@ LEGACY_PATHS: dict[str, str] = {
     "decode_primitives": "facts.decode_primitives",
 }
 
-#: The state vocabularies a structural step must not edit. Keyed by SYMBOL, not by module, so moving the defining
-#: module is not a failure while changing the vocabulary is. MEASURED: all 15 resolve on the current tree.
+#: The state vocabularies a structural step must not edit, ON TOP of every enum class discovered automatically.
+#: WHY THE ENUM HALF IS AUTOMATIC (adversarial review of the previous revision): the tuple below is hand-written,
+#: and `ToolRunStatus` - six members whose strings are persisted and SQL-compared in `service.py` - was simply not
+#: in it, so editing `TIMED_OUT` to another value produced "no behaviour-surface change". A hand-written list
+#: cannot stay complete, so EVERY `Enum`/`StrEnum`/`IntEnum` subclass in the package is recorded, and this tuple
+#: adds the module-level frozensets that are not enum classes.
 STATE_SYMBOLS: tuple[str, ...] = (
     "PLACEHOLDER_STATUSES",
     "TaskLifecycle",
@@ -104,6 +108,34 @@ STATE_SYMBOLS: tuple[str, ...] = (
     "_IN_FLIGHT_TASK_LIFECYCLES",
     "_FRONTIER_CLOSED_STATUSES",
     "_NON_WORKER_STOP_REASONS",
+    "_UNRESOLVED_STATUSES",
+    "_PLAN_COMPLETED_STATUSES",
+    "_PLAN_BLOCKED_STATUSES",
+    "PERSIST_KEEP_ACTION_TYPES",
+    "HOW_SEED_CATEGORIES",
+    "SUPPORTING_SKIP_CATEGORIES",
+    "NO_NEW_EVIDENCE_CATEGORIES",
+    "INDEXED_EVIDENCE_KINDS",
+    "STATIC_TOOL_ALLOWLIST",
+    "SUPPORTED_MODEL_FAMILIES",
+    "SPECIALIST_STATIC_TOOLS",
+    "_REQUIRED_CHILD_TYPES",
+)
+
+#: Every surface that must be present in the result. MEASURED hole this closes (adversarial review): deleting a
+#: line from `compute_surfaces()` removed that surface from the comparison entirely, because the comparison walked
+#: the CURRENT keys only - so a structure step could stop measuring `budget_constants` and still be told
+#: "no behaviour-surface change".
+REQUIRED_SURFACES: tuple[str, ...] = (
+    "report_schema",
+    "validator_thresholds",
+    "state_enums",
+    "prompt_semantics",
+    "budget_constants",
+    "sample_execution_strategy",
+    "threshold_comparisons",
+    "compose_gate_fixture_verdicts",
+    "test_getsource_count",
 )
 
 BUDGET_FIELD_PATTERN = (
@@ -245,6 +277,19 @@ def legacy_path_imports() -> list[dict[str, str]]:
                 for old in LEGACY_PATHS:
                     if any(alias.name == f"{PACKAGE}.{old}" for alias in node.names):
                         found.add((old, module))
+            elif isinstance(node, ast.Call):
+                # `importlib.import_module("threat_report_agent.dataflow")`. MEASURED evasion the adversarial
+                # review confirmed: the string form kept an old-path access alive without appearing in this
+                # ledger (the import-graph's forbidden-edge rule DID see it, but the registered-importer list did
+                # not, so the old path could stay in use unrecorded).
+                func = node.func
+                callee = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                if callee in {"import_module", "__import__"} and node.args:
+                    first = node.args[0]
+                    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                        for old in LEGACY_PATHS:
+                            if first.value.startswith(f"{PACKAGE}.{old}"):
+                                found.add((old, module))
     return [{"old": old, "new": LEGACY_PATHS[old], "importer": module} for old, module in sorted(found)]
 
 
@@ -311,25 +356,46 @@ def _walk_top_level(tree: ast.Module) -> list[ast.stmt]:
     return out
 
 
+def _enum_classes(tree: ast.Module) -> list[ast.ClassDef]:
+    """Every `Enum`/`StrEnum`/`IntEnum` subclass in a file, wherever it is defined."""
+    found: list[ast.ClassDef] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        bases = {b.id if isinstance(b, ast.Name) else getattr(b, "attr", "") for b in node.bases}
+        if bases & {"Enum", "StrEnum", "IntEnum"}:
+            found.append(node)
+    return found
+
+
 def surface_state_enums() -> dict[str, object]:
-    """A vocabulary is recorded as its SOURCE TEXT (or its member list for an enum class), keyed by symbol name.
+    """Every enum class in the package, plus the named module-level vocabularies, as NAME=VALUE source text.
 
     Keying by symbol rather than by module is the whole point: plan P1.4 requires a pure move to pass, and moving
     `status.py` into a package must not read as a change to the state vocabulary. Editing a member must.
     """
     found: dict[str, list[str]] = defaultdict(list)
     for path in production_files():
-        for node in _walk_top_level(parse(path)):
+        tree = parse(path)
+        for node in _enum_classes(tree):
+            members: list[str] = []
+            for stmt in node.body:
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                    members.append(ast.unparse(stmt))
+                elif isinstance(stmt, ast.Assign) and stmt.targets and isinstance(stmt.targets[0], ast.Name):
+                    members.append(ast.unparse(stmt))
+            found[node.name].append(";".join(sorted(members)))
+        for node in _walk_top_level(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id in STATE_SYMBOLS:
                         found[target.id].append(ast.unparse(node.value))
-            elif isinstance(node, ast.ClassDef) and node.name in STATE_SYMBOLS:
-                # NAME=VALUE, not just NAME. MEASURED GAP this fixes: recording only member names made
-                # `CANDIDATE = "CANDIDATE"` -> `CANDIDATE = "CANDIDATE_X"` invisible to this surface, and a status
-                # STRING is persisted in the database and compared across modules, so its value is behaviour.
-                # The can-fail harness caught it: that case read "not detected" while the gate was working.
-                members: list[str] = []
+            elif (
+                isinstance(node, ast.ClassDef)
+                and node.name in STATE_SYMBOLS
+                and node.name not in found  # an enum class is already recorded above
+            ):
+                members = []
                 for stmt in node.body:
                     if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                         members.append(ast.unparse(stmt))
@@ -337,6 +403,23 @@ def surface_state_enums() -> dict[str, object]:
                         members.append(ast.unparse(stmt))
                 found[node.name].append(";".join(sorted(members)))
     return {name: sorted(set(texts)) for name, texts in sorted(found.items())}
+
+
+def surface_threshold_comparisons() -> dict[str, object]:
+    """Every COMPARISON whose operands mention a threshold-looking name, as source text.
+
+    MEASURED hole this closes (adversarial review): the validator surface recorded only the CONSTANT's value, so
+    changing `if len(payload) <= _PAYLOAD_STRIP_MIN_CHARS:` to `<` - a real behaviour change, and exactly the
+    "change the operator rather than the threshold" evasion - left every surface identical. The comparison itself
+    is the threshold's meaning, so it is recorded too.
+    """
+    matcher = re.compile(r"(?i)(THRESHOLD|_MIN|_MAX|TOLERANCE|_RATIO|_LIMIT|_CHARS|MIN_|MAX_)")
+    found: set[str] = set()
+    for path in production_files():
+        for node in ast.walk(parse(path)):
+            if isinstance(node, ast.Compare) and matcher.search(ast.unparse(node)):
+                found.add(ast.unparse(node))
+    return {"comparisons": sorted(found), "count": len(found)}
 
 
 def surface_prompt_semantics() -> dict[str, str]:
@@ -477,12 +560,25 @@ def compute_surfaces() -> dict[str, object]:
         "prompt_semantics": surface_prompt_semantics(),
         "budget_constants": surface_budget_constants(),
         "sample_execution_strategy": surface_sample_execution_strategy(),
+        "threshold_comparisons": surface_threshold_comparisons(),
     }
     surfaces["compose_gate_fixture_verdicts"] = {
         name: bool(item["rejected"]) for name, item in fixture_verdicts().items()
     }
     surfaces["test_getsource_count"] = surface_test_getsource_count()
+    _require_every_surface(surfaces)
     return surfaces
+
+
+def _require_every_surface(surfaces: dict[str, object]) -> None:
+    """A missing surface is a hard error HERE, not a quietly shorter dict.
+
+    MEASURED hole this closes: deleting one line from `compute_surfaces()` removed that surface from the
+    comparison, because the comparison walked the current keys only.
+    """
+    missing = [name for name in REQUIRED_SURFACES if name not in surfaces]
+    if missing:
+        raise RuntimeError(f"compute_surfaces() omitted {missing}; every declared surface must be measured")
 
 
 def compute_surfaces_resilient() -> dict[str, object]:
@@ -503,11 +599,13 @@ def compute_surfaces_resilient() -> dict[str, object]:
             "prompt_semantics": surface_prompt_semantics(),
             "budget_constants": surface_budget_constants(),
             "sample_execution_strategy": surface_sample_execution_strategy(),
+            "threshold_comparisons": surface_threshold_comparisons(),
             "test_getsource_count": surface_test_getsource_count(),
         }
         surfaces["compose_gate_fixture_verdicts"] = {
             "extraction_failed": f"{type(exc).__name__}: {str(exc)[:200]}"
         }
+        _require_every_surface(surfaces)
         return surfaces
 
 
@@ -619,11 +717,13 @@ def structure_findings() -> tuple[list[str], dict[str, object], list[str]]:
     for name, body_hash, modules in sorted(known_duplicates):
         measured = {key for key in duplicates if key.startswith(f"{name}::")}
         if not measured:
-            stale.append(f"duplicate record {name} [{body_hash}] is no longer measured in the tree")
+            problems.append(
+                f"duplicate record {name} [{body_hash}] is no longer measured; delete it deliberately"
+            )
         elif f"{name}::{body_hash}" not in measured:
-            stale.append(
-                f"duplicate record {name} [{body_hash}] no longer matches: the tree now has "
-                f"{sorted(measured)} - update the record deliberately"
+            problems.append(
+                f"duplicate record {name} [{body_hash}] no longer matches: the tree now has {sorted(measured)}; "
+                "the record must match exactly or be updated deliberately"
             )
 
     known_reach = {
@@ -637,14 +737,19 @@ def structure_findings() -> tuple[list[str], dict[str, object], list[str]]:
         recorded = known_reach.get((module, expr))
         if recorded is None:
             new_reach.append(key)
-        elif count > recorded:
-            new_reach.append(f"{key} (recorded {recorded}, now {count})")
-        elif count < recorded:
-            stale.append(f"private reach record {key} says {recorded}, tree has {count}")
+        elif count != recorded:
+            # EXACT, not `count > recorded`. MEASURED evasion the adversarial review confirmed: with `>` as the
+            # guard, pre-registering the SAME expression with a huge count (`999999`) pre-approved unlimited
+            # occurrences and the gate returned 0 with only a non-failing note. An allowlist that the policed step
+            # can widen in its own commit is not an allowlist. A decrease is also a mismatch, and updating the
+            # record for it is one deliberate line in the same commit.
+            new_reach.append(f"{key} (recorded {recorded}, tree has {count}; the record must match exactly)")
     problems.extend(f"private reach in a production file: {key}" for key in new_reach)
     for (module, expr), recorded in known_reach.items():
         if not any(key.startswith(f"{module}::{expr}") for key in reach):
-            stale.append(f"private reach record {module}::{expr} no longer exists (was {recorded})")
+            problems.append(
+                f"private reach record {module}::{expr} no longer exists (was {recorded}); delete it deliberately"
+            )
 
     known_legacy = {
         (str(item["old"]), str(item["importer"])) for item in policy.get("legacy_path_imports", [])
@@ -693,6 +798,13 @@ def surface_findings() -> tuple[list[str], dict[str, object]]:
         return ["no docs/structure-surface.json; run --record-surface deliberately"], current
     recorded = json.loads(SURFACE_PATH.read_text(encoding="utf-8"))
     problems: list[str] = []
+    # THE KEY SET IS PART OF THE COMPARISON. MEASURED hole this closes: iterating the CURRENT keys only meant a
+    # surface that was deleted from `compute_surfaces()` was never compared at all - a structural step could stop
+    # measuring `budget_constants` and still be told "no behaviour-surface change".
+    for name in sorted(set(recorded) - set(current)):
+        problems.append(f"surface {name} is recorded but no longer measured - a dropped surface is a regression")
+    for name in sorted(set(current) - set(recorded)):
+        problems.append(f"surface {name} is measured but not recorded")
     for name, value in sorted(current.items()):
         if name not in recorded:
             problems.append(f"surface {name} is not recorded")

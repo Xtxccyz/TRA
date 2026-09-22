@@ -7,9 +7,11 @@ The plan's success criteria are both about the GATE, not about the tree:
   * P1.4: "纯重命名/移动通过；故意改 UNKNOWN 为 CANDIDATE、删除 limitation、放宽 compose gate 的 fixture 被拒绝".
 
 The injected-violation half is measured end to end, against a COPY of the package, by the untracked harness
-`.scratch/check-structure-diff-canfail.py` (10 cases, including a real module move inside the copy). This file
-pins the parts that must hold in a normal test run, because a gate whose can-fail evidence lives only in a
-gitignored scratch script is a gate nobody re-runs.
+`.scratch/check-structure-diff-canfail.py` (19 cases, including a real module move inside the copy, a changed
+comparison operator, an unguarded enum, and an `importlib` old-path reach). This file pins the parts that must
+hold in a normal test run, because a gate whose can-fail evidence lives only in a gitignored scratch script is a
+gate nobody re-runs - a standards review of this change said exactly that, so the two cheapest cases now exist
+here as well (`test_a_pure_move_passes_the_surface_gate`, `test_a_dropped_surface_is_a_problem...
 
     python -m pytest -q tests/test_structure_diff_gate.py
 """
@@ -21,6 +23,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check-structure-diff.py"
@@ -163,6 +167,61 @@ def test_a_vanished_state_vocabulary_is_a_problem_not_an_absence(tmp_path) -> No
     )
 
 
+def test_a_dropped_surface_is_a_problem_not_a_shorter_comparison() -> None:
+    """The adversarial review's F5, closed and pinned.
+
+    MEASURED evasion before the fix: deleting one line from `compute_surfaces()` removed that surface from the
+    comparison entirely, because the comparison walked the CURRENT keys only - so a structural step could stop
+    measuring `budget_constants` and still be told "no behaviour-surface change". Two guards now exist: the
+    extraction refuses to return without every declared surface, and the comparison requires the recorded key set
+    to match.
+    """
+    module = load_gate_module()
+    with pytest.raises(RuntimeError, match="omitted"):
+        module._require_every_surface({"report_schema": {"headings": ["# x"]}})
+
+    recorded = json.loads(SURFACE.read_text(encoding="utf-8"))
+    pruned = {key: value for key, value in recorded.items() if key != "budget_constants"}
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(module, "compute_surfaces_resilient", lambda: pruned)
+        problems, _ = module.surface_findings()
+    finally:
+        monkey.undo()
+    assert any("budget_constants" in item and "no longer measured" in item for item in problems), (
+        f"a dropped surface was not reported as a regression: {problems}"
+    )
+
+
+def test_a_preregistered_violation_is_not_pre_approved(tmp_path) -> None:
+    """The adversarial review's F4, closed and pinned.
+
+    MEASURED evasion before the fix: `count > recorded` was the guard, so writing the SAME expression into the
+    policy with a huge count pre-approved unlimited occurrences and `--strict` still returned 0 with only a
+    non-failing note. An allowlist the policed step can widen in its own commit is not an allowlist, so the record
+    must now match the measurement EXACTLY.
+    """
+    module = load_gate_module()
+    policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    policy["known_private_reach"] = [
+        {"module": item["module"], "expr": item["expr"], "count": 999999, "note": item["note"]}
+        for item in policy["known_private_reach"]
+    ] or [{"module": "threat_report_agent.service", "expr": "getattr(self, '_wait_cursors')", "count": 999999,
+           "note": "preregistered with an absurd count, to prove the guard is exact rather than >="}]
+    scratch_policy = tmp_path / "policy.json"
+    scratch_policy.write_text(json.dumps(policy), encoding="utf-8")
+
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(module, "POLICY_PATH", scratch_policy)
+        problems, _, _ = module.structure_findings()
+    finally:
+        monkey.undo()
+    assert any("must match exactly" in item for item in problems), (
+        f"a pre-registered private reach with count 999999 was accepted: {problems}"
+    )
+
+
 def test_the_policy_records_what_the_gate_measures() -> None:
     """An allowlist entry must say what it is. A bare identifier is how a recorded defect becomes an approval."""
     policy = json.loads(POLICY.read_text(encoding="utf-8"))
@@ -181,21 +240,26 @@ def test_the_policy_records_what_the_gate_measures() -> None:
     assert len(str(policy.get("_legacy_path_imports_note", ""))) > 80
 
 
-def test_the_surface_file_records_all_eight_surfaces() -> None:
-    """Six named by P1.4, plus the compose-gate verdicts (so a relaxation shows up as a DIFF) and the test-side
-    `getsource` count (recorded for P3.7's progress, not gated)."""
+def test_the_surface_file_records_every_declared_surface() -> None:
+    """The declared surfaces, plus the compose-gate verdicts and the test-side `getsource` count.
+
+    The key set is asserted against the GATE's own `REQUIRED_SURFACES`, not against a second hand-written list
+    here: a surface added to the gate but not recorded (or recorded but no longer measured) must fail, and two
+    independent lists would drift apart silently.
+    """
     recorded = json.loads(SURFACE.read_text(encoding="utf-8"))
-    expected = {
-        "report_schema",
-        "validator_thresholds",
-        "state_enums",
-        "prompt_semantics",
-        "budget_constants",
-        "sample_execution_strategy",
-        "compose_gate_fixture_verdicts",
-        "test_getsource_count",
-    }
-    assert set(recorded) == expected, f"recorded surfaces are {sorted(recorded)}"
+    module = load_gate_module()
+    assert set(recorded) == set(module.REQUIRED_SURFACES), (
+        f"recorded {sorted(recorded)} but the gate declares {sorted(module.REQUIRED_SURFACES)}"
+    )
+    # A surface that extracted nothing must never look healthy.
+    assert recorded["state_enums"].get("ToolRunStatus"), (
+        "ToolRunStatus is a persisted status vocabulary and is missing from the state surface - a hand-written "
+        "symbol list let it through once; the enum half must stay automatic"
+    )
+    assert recorded["threshold_comparisons"]["count"] > 0, (
+        "the comparison surface is empty, so a changed comparison OPERATOR would be invisible"
+    )
     assert recorded["compose_gate_fixture_verdicts"]["unknown_restated_as_verified"] is True
     assert recorded["compose_gate_fixture_verdicts"]["narrow_case_heading_kept_bullets_dropped"] is False
     # A state vocabulary must record VALUES, not only member names: a status string is persisted and compared.
