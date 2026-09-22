@@ -7,7 +7,7 @@ from typing import Literal
 
 import yaml
 
-from threat_report_agent.function_simhash import ALGORITHM, FEATURE, FEATURE_HASH, hamming_distance
+from threat_report_agent.static.function_simhash import ALGORITHM, FEATURE, FEATURE_HASH, hamming_distance
 
 
 SimilarityScope = Literal["KNOWN_LIBRARY", "CURRENT_TASK", "CASE"]

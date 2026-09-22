@@ -86,6 +86,7 @@ SMOKE_MODULES: tuple[str, ...] = (
     "threat_report_agent.report.report_verification",
     "threat_report_agent.report.gold_output_bar",
     "threat_report_agent.intake",
+    "threat_report_agent.static.function_simhash",
 )
 
 
