@@ -35,7 +35,7 @@ and a non-empty one still is, however it is spelled.
 """
 from __future__ import annotations
 
-from threat_report_agent.mechanism_completeness import (
+from threat_report_agent.investigation.mechanism_completeness import (
     FIELD_WEIGHTS,
     has_semantic_value,
     mechanism_completeness_score,

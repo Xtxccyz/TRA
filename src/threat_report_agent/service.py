@@ -210,7 +210,7 @@ from threat_report_agent.model.model_gateway import (
     ModelRequest,
     provider_contract,
 )
-from threat_report_agent.mechanism_completeness import (
+from threat_report_agent.investigation.mechanism_completeness import (
     mechanism_completeness_score,
     mechanism_is_critical_ready,
 )
@@ -23142,7 +23142,7 @@ class AnalysisService:
         projection is useful for missing fields, but must never downgrade that
         status or replace a meaningful value with UNKNOWN/navigation text.
         """
-        from threat_report_agent.mechanism_completeness import has_semantic_value
+        from threat_report_agent.investigation.mechanism_completeness import has_semantic_value
 
         current_status = str(current.get("status", "")).upper()
         for key in (

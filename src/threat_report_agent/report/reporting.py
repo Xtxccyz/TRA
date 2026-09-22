@@ -23,7 +23,7 @@ from threat_report_agent.facts.thread_start import recovered_thread_start_addres
 from threat_report_agent.emulation.controlled_emulation import PLACEHOLDER_STATUSES as _EMU_PLACEHOLDER_STATUSES
 from threat_report_agent.product_certification import repair_static_runtime_wording
 from threat_report_agent.product_certification import static_wording_violations
-from threat_report_agent.mechanism_completeness import (
+from threat_report_agent.investigation.mechanism_completeness import (
     has_semantic_value,
     is_navigation_value,
     mechanism_completeness_score,

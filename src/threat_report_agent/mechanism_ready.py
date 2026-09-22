@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from threat_report_agent.mechanism_completeness import (
+from threat_report_agent.investigation.mechanism_completeness import (
     has_semantic_value,
     mechanism_completeness_score,
     mechanism_is_critical_ready,

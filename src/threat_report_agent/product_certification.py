@@ -428,7 +428,7 @@ def semantic_flow_metrics(mechanisms: Iterable[Mapping[str, object]]) -> dict[st
     input -> transformation/control -> output -> consumer.  Low-level CFG or
     instruction labels are intentionally ignored here.
     """
-    from threat_report_agent.mechanism_completeness import has_semantic_value
+    from threat_report_agent.investigation.mechanism_completeness import has_semantic_value
     from threat_report_agent.mechanism_ready import inspect_mechanism_ready
 
     eligible = 0
