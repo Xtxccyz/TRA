@@ -31,10 +31,22 @@ MAX_PORT_METHODS = 2
 
 
 def port_protocols() -> list[type]:
+    """The PORTS only. Data-only projection protocols (named `*View`) are inputs and outputs, not seams, and a
+    view has no callables to cap - counting them as ports would let a real port hide among them."""
     return [
         member
         for name, member in vars(ports).items()
-        if inspect.isclass(member) and getattr(member, "_is_protocol", False) and member.__module__ == ports.__name__
+        if inspect.isclass(member) and getattr(member, "_is_protocol", False)
+        and member.__module__ == ports.__name__ and not name.endswith("View")
+    ]
+
+
+def view_protocols() -> list[type]:
+    return [
+        member
+        for name, member in vars(ports).items()
+        if inspect.isclass(member) and getattr(member, "_is_protocol", False)
+        and member.__module__ == ports.__name__ and name.endswith("View")
     ]
 
 
@@ -115,10 +127,267 @@ class _FakeQueryReader:
         return ()
 
 
+# --- deterministic adapters for the four ports added after the consumer surveys (P1.2) ---------------
+
+
+class _FakePlanner:
+    """No provider, no HTTP, no key. Returns the same outcome for the same request, which is the point."""
+
+    def __init__(self, status: str = "SUCCEEDED", parsed: object | None = None) -> None:
+        self.status = status
+        self.parsed = parsed if parsed is not None else {"actions": []}
+        self.calls: list[str] = []
+
+    def plan(self, request: object) -> object:
+        self.calls.append(str(getattr(request, "module", "?")))
+        return _FakePlanningOutcome(self.status, self.parsed)
+
+
+class _FakePlanningOutcome:
+    error: str | None = None
+    run_id = "run-1"
+    attempts: tuple[object, ...] = ()
+    model_call_id = "call-1"
+    raw_response: bytes | None = None
+
+    def __init__(self, status: str, parsed: object) -> None:
+        self.status = status
+        self.parsed = parsed
+
+
+class _FakeToolExecutor:
+    """No Temporal, no container. Records the requests so idempotence can be asserted by a caller."""
+
+    def __init__(self, status: str = "SUCCEEDED") -> None:
+        self.status = status
+        self.executed: list[str] = []
+        self.cancelled: list[str] = []
+
+    async def execute(self, request: object) -> object:
+        self.executed.append(str(getattr(request, "tool_name", "?")))
+        return _FakeToolResult(self.status)
+
+    async def cancel(self, request: object) -> None:
+        self.cancelled.append(str(getattr(request, "tool_name", "?")))
+
+
+class _FakeToolResult:
+    output_sha256: str | None = "sha"
+    output_storage_key: str | None = "key"
+    error: str | None = None
+    started_at: object | None = None
+    finished_at: object | None = None
+    worker_metadata: object = {}
+
+    def __init__(self, status: str) -> None:
+        self.status = status
+
+
+class _FakeStaticEvidence:
+    """No subprocess. `disassemble` returns the tool-missing shape, so the caller's reason path is exercised."""
+
+    detected_type = "pe"
+
+    def analyze(self, content: bytes, logical_path: str) -> object:
+        return _FakeParserResult(len(content))
+
+    def disassemble(
+        self,
+        content: bytes,
+        logical_path: str,
+        *,
+        budget_seconds: int,
+        cancelled: object | None = None,
+        processor: str | None = None,
+    ) -> object:
+        return _FakeDisassembly("FAILED", "GHIDRA_HEADLESS_UNAVAILABLE", {})
+
+
+class _FakeParserResult:
+    facts: tuple[object, ...] = ()
+    pe: object | None = None
+    limitations: tuple[str, ...] = ()
+
+    def __init__(self, size: int) -> None:
+        self.detected_type = "pe" if size else "unknown"
+
+
+class _FakeDisassembly:
+    def __init__(self, status: str, error: str | None, output: object) -> None:
+        self.status = status
+        self.error = error
+        self.output = output
+
+
+class _FakeEmulation:
+    """No emulator. Every pass reports a deferral as a placeholder, never as an executed window."""
+
+    def __init__(self, placeholder_status: str = "DEFERRED_TO_WORKER") -> None:
+        self.placeholder_status = placeholder_status
+        self.passes: list[str] = []
+
+    def emulate(
+        self,
+        task_id: str,
+        artifact_id: str,
+        *,
+        scheduler: str | None = None,
+        planned_tool_names: tuple[str, ...] = (),
+        cancellation_requested: object | None = None,
+    ) -> object:
+        self.passes.append(task_id)
+        return _FakeEmulationOutcome(self.placeholder_status)
+
+    def is_real_result(self, row: object) -> bool:
+        status = str(getattr(row, "status", "") or "").upper()
+        return bool(status) and status not in _PLACEHOLDERS
+
+
+class _FakeEmulationOutcome:
+    real_result_count = 0
+    real_result_count_delta = 0
+    cancelled = False
+    output_read_error: str | None = None
+    limitations: tuple[str, ...] = ("emulation deferred to the isolated worker",)
+
+    def __init__(self, placeholder_status: str) -> None:
+        self.placeholder_status = placeholder_status
+
+
+#: Mirrors `controlled_emulation.PLACEHOLDER_STATUSES` for the adapter above. Duplicated HERE on purpose: this is
+#: test data, not a second canonical definition, and the real predicate is exercised by
+#: `tests/test_controlled_emulation.py`.
+_PLACEHOLDERS = frozenset({"", "DEFERRED_TO_WORKER", "WORKER_REQUIRED", "SUPERSEDED_BY_WORKER", "NOT_EXECUTED"})
+
+
 def test_the_ports_are_satisfiable_by_a_deterministic_adapter() -> None:
-    """A port nobody can implement is an untested design, so implement both here without any infrastructure."""
+    """A port nobody can implement is an untested design, so implement all six here without any infrastructure."""
     assert isinstance(_DeterministicRevisionWriter(), ports.ReportRevisionWriter)
     assert isinstance(_FakeQueryReader(), ports.WorkbenchQueryReader)
+    assert isinstance(_FakePlanner(), ports.ModelPlanningPort)
+    assert isinstance(_FakeToolExecutor(), ports.ToolExecutionPort)
+    assert isinstance(_FakeStaticEvidence(), ports.StaticEvidencePort)
+    assert isinstance(_FakeEmulation(), ports.EmulationPort)
+
+
+def test_the_measured_view_fields_are_satisfied_by_the_adapters() -> None:
+    """The views are contracts too, and a misspelt field there is silent for the same reason a misspelt port
+    member is: `runtime_checkable` compares member presence only."""
+    assert isinstance(_FakePlanningOutcome("SUCCEEDED", {}), ports.PlanningOutcomeView)
+    assert isinstance(_FakeToolResult("SUCCEEDED"), ports.ToolRunResultView)
+    assert isinstance(_FakeParserResult(4), ports.StaticEvidenceView)
+    assert isinstance(_FakeDisassembly("FAILED", None, {}), ports.StaticDisassemblyView)
+    assert isinstance(_FakeEmulationOutcome("DEFERRED_TO_WORKER"), ports.EmulationOutcomeView)
+
+
+def test_views_carry_no_callables_so_the_cap_counts_only_real_seams() -> None:
+    """`port_protocols()` splits on the `View` suffix, so a mis-split would silently move a port out of the cap.
+
+    MEASURED reason to assert it: if a data view ever grew a method it would be classified as a port and the cap
+    would fail loudly - which is correct - but if a PORT were named `...View` it would escape the deletion test
+    entirely. This pins both directions.
+    """
+    views = view_protocols()
+    assert views, "no `*View` protocols found, so the port/view split is not being exercised"
+    for view in views:
+        assert not public_callables(view), f"{view.__name__} has callables, so it is a seam named like a view"
+    for port in port_protocols():
+        assert not port.__name__.endswith("View"), f"{port.__name__} is a port the cap would skip"
+
+
+def test_the_deletion_test_can_fail() -> None:
+    """Can-fail proof for the cap: a port that forwards a large class's methods must exceed it."""
+    from typing import Protocol, runtime_checkable
+
+    @runtime_checkable
+    class _WidePort(Protocol):
+        def a(self) -> None: ...
+        def b(self) -> None: ...
+        def c(self) -> None: ...
+
+    assert len(public_callables(_WidePort)) == 3 > MAX_PORT_METHODS, (
+        "the cap instrument cannot see a wide surface, so `test_every_port_exposes_a_small_surface` proves nothing"
+    )
+
+
+#: Fields a view declares that the canonical class does NOT have under that name, with where the adapter takes them
+#: from. MEASURED by `.scratch/probe-p12-view-fidelity.py`: these two are the ONLY ones, and both are deliberate -
+#: `AgentRunResult` nests the model response, and `StaticResult` keeps `pe` inside `summary`.
+FLATTENED_FIELDS: dict[str, dict[str, str]] = {
+    "PlanningOutcomeView": {
+        "parsed": "AgentRunResult.response.parsed (service.py:14125, :22146, :23984)",
+        "model_call_id": "AgentRunResult.response.model_call_id (service.py:22231)",
+        "raw_response": "AgentRunResult.response.raw_response (service.py:14082, :22212)",
+    },
+    "StaticEvidenceView": {"pe": "StaticResult.summary['pe'] (service.py:16451, :16706, :19280)"},
+}
+
+#: Views with NO canonical class in the tree. `EmulationOutcomeView` is derived from what the orchestrator reads
+#: today (`analysis_task_orchestration.py:432-435` -> `service.py:8579-8593`), and the adapter that produces it is
+#: P3.5. Naming it here rather than leaving it out of the pairing is the difference between a measured gap and an
+#: oversight.
+VIEWS_WITHOUT_A_CANONICAL_CLASS: dict[str, str] = {
+    "EmulationOutcomeView": "no producer exists yet; the adapter is P3.5",
+}
+
+
+def _canonical_classes() -> dict[str, type | None]:
+    from threat_report_agent.agent_runtime import AgentRunResult
+    from threat_report_agent.ghidra_adapter import GhidraRun
+    from threat_report_agent.model_gateway import ModelAttempt, ModelRequest
+    from threat_report_agent.static_analysis import StaticResult
+    from threat_report_agent.tool_execution import ToolRunRequest, ToolRunResult
+
+    return {
+        "PlanningRequestView": ModelRequest,
+        "PlanningAttemptView": ModelAttempt,
+        "PlanningOutcomeView": AgentRunResult,
+        "ToolRunRequestView": ToolRunRequest,
+        "ToolRunResultView": ToolRunResult,
+        "StaticEvidenceView": StaticResult,
+        "StaticDisassemblyView": GhidraRun,
+        "EmulationOutcomeView": None,
+    }
+
+
+def _declared_fields(cls: type) -> set[str]:
+    found = set(getattr(cls, "__annotations__", {}))
+    model_fields = getattr(cls, "model_fields", None)
+    if isinstance(model_fields, dict):
+        found |= set(model_fields)
+    return found
+
+
+def test_every_view_field_comes_from_the_canonical_class_or_a_declared_flattening() -> None:
+    """A view field with no source is a contract NOBODY can satisfy, and `runtime_checkable` would report the real
+    object as unsatisfied at the point of use.
+
+    This is the strongest statement available about the views without running the pipeline: every field is either
+    on the canonical class today, or listed in `FLATTENED_FIELDS` with the expression the adapter uses. A future
+    field added on a hunch fails here instead of becoming an unsatisfiable seam.
+    """
+    pairs = _canonical_classes()
+    defined = {view.__name__ for view in view_protocols()}
+    assert set(pairs) == defined, (
+        "every `*View` in ports.py must be paired with the canonical class it projects, or recorded as having "
+        f"none; paired={sorted(pairs)} defined={sorted(defined)}"
+    )
+    unpaired = {name for name, canonical in pairs.items() if canonical is None}
+    assert unpaired == set(VIEWS_WITHOUT_A_CANONICAL_CLASS), (
+        f"views with no canonical class are {sorted(unpaired)} but only "
+        f"{sorted(VIEWS_WITHOUT_A_CANONICAL_CLASS)} is recorded with a reason"
+    )
+    for name, canonical in pairs.items():
+        if canonical is None:
+            continue
+        view = getattr(ports, name)
+        missing = sorted(_declared_fields(view) - _declared_fields(canonical))
+        declared = sorted(FLATTENED_FIELDS.get(name, {}))
+        assert missing == declared, (
+            f"{name} declares {missing} which {canonical.__name__} does not have; declared flattenings for this "
+            f"view are {declared}. Either the field is misspelt, or it is a real flattening and must be recorded "
+            "in FLATTENED_FIELDS with the expression the adapter uses"
+        )
 
 
 def test_the_writer_adapter_publishes_without_mutating_its_snapshot() -> None:
@@ -140,14 +409,21 @@ def test_the_writer_adapter_publishes_without_mutating_its_snapshot() -> None:
     assert writer.writes and writer.writes[0][0] == "snap-1"
 
 
-def test_the_record_of_unwritten_ports_matches_reality() -> None:
-    """P1.2's record must not claim more ports than exist, and must list the four that remain."""
-    written = [name for name, note in ports.P12_PORTS.items() if note.startswith("written")]
-    remaining = [name for name, note in ports.P12_PORTS.items() if note.startswith("NOT WRITTEN")]
+def test_the_port_record_matches_the_defined_ports() -> None:
+    """P1.2's record must not claim a port that does not exist, nor omit one that does.
+
+    P1.2 names six. After the four consumer surveys all six are defined as declarations; the notes say which of
+    them still lack an ADAPTER, which is a different and later thing from existing.
+    """
     defined = {protocol.__name__ for protocol in port_protocols()}
 
-    assert set(written) == defined, (
-        f"P12_PORTS claims {sorted(written)} are written but ports.py defines {sorted(defined)}"
+    assert set(ports.P12_PORTS) == defined, (
+        f"P12_PORTS names {sorted(ports.P12_PORTS)} but ports.py defines {sorted(defined)}"
     )
-    assert len(remaining) == 4, f"expected four remaining ports, found {sorted(remaining)}"
     assert len(ports.P12_PORTS) == 6, "P1.2 names six ports; the record must list all six"
+    assert all(note.strip() for note in ports.P12_PORTS.values()), "every port needs its note"
+    # The honest part: a port with no producer is a declaration. Recorded, so it cannot be read as decoupling.
+    assert "no producer yet" in ports.P12_PORTS["EmulationPort"], (
+        "EmulationOutcomeView has no producer in the tree; if an adapter now exists, update this note rather than "
+        "deleting the admission"
+    )
