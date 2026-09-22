@@ -749,9 +749,25 @@ def structure_findings() -> tuple[list[str], dict[str, object], list[str]]:
         for item in policy.get("known_duplicate_implementations", [])
     }
     duplicates = duplicate_implementations()
+
+    # Rename normalisation, from the SAME `moved_paths` map the cycle rule and `legacy_paths()` use. MEASURED GAP
+    # this closes (P2-R): the recorded pair named `threat_report_agent.reporting`, so moving that module to
+    # `report/reporting.py` made a RECORDED duplication look like a NEW one and failed the gate - a pure move
+    # tripping a rule that exists to catch new duplications. Records stay in the PRE-MOVE naming space, exactly as
+    # the cycle allowlist does, so a later move needs no hand edit here either.
+    def recorded_module_name(dotted: str) -> str:
+        prefix = f"{PACKAGE}."
+        short = dotted[len(prefix):] if dotted.startswith(prefix) else dotted
+        return prefix + reverse_paths.get(short, short)
+
+    reverse_paths = {new: old for old, new in legacy_paths().items()}
     new_duplicates = [
         key for key, modules in duplicates.items()
-        if (key.split("::")[0], key.split("::")[1], tuple(modules)) not in known_duplicates
+        if (
+            key.split("::")[0],
+            key.split("::")[1],
+            tuple(sorted(recorded_module_name(module) for module in modules)),
+        ) not in known_duplicates
     ]
     problems.extend(f"duplicate canonical implementation: {key} in {duplicates[key]}" for key in new_duplicates)
     # The recorded BODY HASH is gated too, not only the module pair. MEASURED gap the standards review found: with

@@ -15,7 +15,7 @@ from threat_report_agent.gold_output_bar import (
 )
 from threat_report_agent.investigation import ActionType, DeepMiningPlanner
 from threat_report_agent.main import create_app
-from threat_report_agent.reporting import build_report_document, document_to_markdown
+from threat_report_agent.report.reporting import build_report_document, document_to_markdown
 
 
 def _ns(**kwargs: object) -> SimpleNamespace:

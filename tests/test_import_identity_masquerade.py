@@ -29,7 +29,7 @@ assert the classifier stays honest: a real Windows system path must not become a
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import render_official_markdown
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     build_string_fact_projection,
     string_fact_class,
 )
@@ -126,7 +126,7 @@ def test_a_resolver_failure_is_not_published_as_an_api_name() -> None:
     「下载相关 API 名称：`WinHTTP export not found`」, which reads as an API the sample calls. It is the
     product reporting that it could not resolve the symbol.
     """
-    from threat_report_agent.reporting import build_string_fact_projection
+    from threat_report_agent.report.reporting import build_string_fact_projection
 
     projection = build_string_fact_projection([_row("WinHTTP export not found")])
     assert projection, "the resolution failure must still be published - it is a real boundary"
@@ -144,7 +144,7 @@ def test_the_resource_directory_reaches_the_published_body() -> None:
     whatsoever while its own limitations section listed 资源提取链 as reportable.
     """
     from threat_report_agent.analyst_report import render_official_markdown
-    from threat_report_agent.reporting import build_pe_resource_projection
+    from threat_report_agent.report.reporting import build_pe_resource_projection
 
     class _Evidence:
         def __init__(self, kind: str, value: dict) -> None:

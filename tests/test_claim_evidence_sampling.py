@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from threat_report_agent.reporting import select_claim_evidence_samples
+from threat_report_agent.report.reporting import select_claim_evidence_samples
 
 REGISTRY_CALLSITES = ("140007fa3", "140007fd7", "14000805f")
 
@@ -116,7 +116,7 @@ def test_the_recovered_write_type_is_among_them() -> None:
 
 def test_selection_stays_bounded_and_deterministic() -> None:
     """The bound is kept, and the same claim must always yield the same rows."""
-    from threat_report_agent.reporting import _CLAIM_EVIDENCE_SAMPLE_LIMIT
+    from threat_report_agent.report.reporting import _CLAIM_EVIDENCE_SAMPLE_LIMIT
 
     traces = [
         _trace(f"reg-{index}", REGISTRY_CALLSITES[index % 3], index % 4)

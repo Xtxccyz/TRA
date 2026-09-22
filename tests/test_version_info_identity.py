@@ -19,7 +19,7 @@ fewer fields rather than a guessed filename.
 """
 from __future__ import annotations
 
-from threat_report_agent.reporting import extract_versioninfo_fields
+from threat_report_agent.report.reporting import extract_versioninfo_fields
 
 
 def _string_row(offset: int, text: str, encoding: str = "utf-16le", ident: str = "") -> dict:

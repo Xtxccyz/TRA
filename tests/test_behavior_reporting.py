@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
     STATIC_ANALYSIS_PLAN_SNAPSHOT_PATH,
     _build_assessment,
@@ -2203,7 +2203,7 @@ def test_report_projects_gold_like_sequence_constants_and_emu_status() -> None:
 
 
 def test_ordered_flow_prefers_crypto_over_low_address_noise() -> None:
-    from threat_report_agent.reporting import build_ordered_static_call_flow
+    from threat_report_agent.report.reporting import build_ordered_static_call_flow
 
     evidence = {}
     for index in range(20):
@@ -2249,7 +2249,7 @@ def test_ordered_flow_prefers_crypto_over_low_address_noise() -> None:
 
 def test_ordered_flow_keeps_persist_createprocess_ahead_of_getprocaddress_flood() -> None:
     """Kunglao leftover remainder: prologue GetProcAddress must not hide Foxit HOW."""
-    from threat_report_agent.reporting import build_ordered_static_call_flow
+    from threat_report_agent.report.reporting import build_ordered_static_call_flow
 
     evidence: dict[str, object] = {}
     for index in range(20):
@@ -2313,7 +2313,7 @@ def test_ordered_flow_keeps_persist_createprocess_ahead_of_getprocaddress_flood(
 
 
 def test_ordered_flow_decodes_algid_from_same_function_instruction_window() -> None:
-    from threat_report_agent.reporting import build_ordered_static_call_flow
+    from threat_report_agent.report.reporting import build_ordered_static_call_flow
 
     evidence = {
         "sem": SimpleNamespace(
@@ -2470,7 +2470,7 @@ def test_unclassified_calls_do_not_crash_report_compose() -> None:
 
 
 def test_stack_frame_spills_are_omitted_from_semantic_how() -> None:
-    from threat_report_agent.reporting import _format_semantic_call
+    from threat_report_agent.report.reporting import _format_semantic_call
 
     rendered = _format_semantic_call(
         {
@@ -2906,7 +2906,7 @@ def test_one_round_readiness_flags_fun_dump_on_executive_and_ppid() -> None:
     violations = report_one_round_readiness_violations(document)
     assert any("parent-process-spoofing" in item for item in violations)
     assert any("executive" in item for item in violations)
-    from threat_report_agent.reporting import _stamp_one_round_readiness
+    from threat_report_agent.report.reporting import _stamp_one_round_readiness
 
     _stamp_one_round_readiness(document)
     assert document["analysis_quality"]["one_round_readiness"]["complete"] is False
@@ -3056,7 +3056,7 @@ def test_one_round_readiness_empty_how_is_note_not_hard_violation() -> None:
     markdown = "What: candidate. How: not recovered. Key unknowns: transport API."
     violations = report_one_round_readiness_violations(document, markdown)
     assert violations == []
-    from threat_report_agent.reporting import _stamp_one_round_readiness
+    from threat_report_agent.report.reporting import _stamp_one_round_readiness
 
     _stamp_one_round_readiness(document, markdown)
     readiness = document["analysis_quality"]["one_round_readiness"]

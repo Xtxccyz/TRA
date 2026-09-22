@@ -17,7 +17,7 @@ from threat_report_agent.analyst_report import (
     _recovered_endpoint_values,
     _recovered_static_facts,
 )
-from threat_report_agent.reporting import REPORT_V3_REQUIRED_SECTIONS
+from threat_report_agent.report.reporting import REPORT_V3_REQUIRED_SECTIONS
 from threat_report_agent.analyst_report import render_official_markdown
 
 

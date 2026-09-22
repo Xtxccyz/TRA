@@ -3,7 +3,7 @@ from __future__ import annotations
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
 from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob, Evidence, ToolRun
-from threat_report_agent.reporting import STATIC_ANALYSIS_PLAN_SNAPSHOT_KEY
+from threat_report_agent.report.reporting import STATIC_ANALYSIS_PLAN_SNAPSHOT_KEY
 from threat_report_agent.service import AnalysisService
 
 

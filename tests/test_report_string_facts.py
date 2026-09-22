@@ -26,7 +26,7 @@ is graded.  These tests therefore assert on `render_official_markdown` output.
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import render_official_markdown
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
     _summarize_evidence_rows,
     build_detection_rule_projection,

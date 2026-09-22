@@ -18,7 +18,7 @@ alone would have passed while the published artifact stayed wrong.
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import _notable_imports
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     _PE_IMPORT_NAME_CAP,
     _pe_import_entries,
     _pe_import_name_groups,

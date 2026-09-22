@@ -35,7 +35,7 @@ from threat_report_agent.models import (
     InvestigationThreadRecord,
     ToolRun,
 )
-from threat_report_agent.reporting import REPORT_MODULES
+from threat_report_agent.report.reporting import REPORT_MODULES
 from threat_report_agent.service import AnalysisService
 
 

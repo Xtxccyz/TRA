@@ -28,7 +28,7 @@ from threat_report_agent.investigation_protocol import (
 from threat_report_agent.mechanism_ready import inspect_mechanism_ready
 from threat_report_agent.product_certification import repair_static_runtime_wording
 from threat_report_agent.product_certification import static_wording_violations
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     _STRING_FACT_PATTERNS,
     _is_file_hash_source,
     build_process_flag_projections,

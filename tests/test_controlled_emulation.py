@@ -1740,7 +1740,7 @@ def test_post_static_emulation_selects_elf_and_qiling() -> None:
 
 
 def test_emulation_status_prefers_worker_outcome_over_deferred_placeholder() -> None:
-    from threat_report_agent.reporting import build_emulation_status_projection
+    from threat_report_agent.report.reporting import build_emulation_status_projection
 
     deferred = SimpleNamespace(
         id="e-deferred",

@@ -33,7 +33,7 @@ so the consumer cannot tell a recovered immediate from nothing and appends
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import iter_document_rows, render_official_markdown
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
     build_process_flag_projections,
 )
@@ -205,7 +205,7 @@ def test_body_does_not_stamp_unknown_next_to_the_value_it_prints() -> None:
     recovered value.  This asserts on the run-sequence builder, which is where that
     wording is produced.
     """
-    from threat_report_agent.reporting import build_runtime_sequence
+    from threat_report_agent.report.reporting import build_runtime_sequence
 
     findings = [
         {
@@ -391,7 +391,7 @@ def test_projection_keeps_the_window_that_holds_the_creation_flags() -> None:
     # The benign window is asserted on the PREDICATE, not on selection: the generic
     # kind-priority path can legitimately keep any window when the budget allows, so
     # exclusion from `selected` would be asserting something the rule does not govern.
-    from threat_report_agent.reporting import (
+    from threat_report_agent.report.reporting import (
         instruction_window_carries_process_creation_flags as predicate,
     )
 
@@ -410,7 +410,7 @@ def test_window_predicate_tests_each_instruction_separately() -> None:
     anchor can only match the whole blob. This test passes the same instructions joined as
     well as separate, and requires the predicate to see the line either way it is stored.
     """
-    from threat_report_agent.reporting import (
+    from threat_report_agent.report.reporting import (
         instruction_window_carries_process_creation_flags as predicate,
     )
 

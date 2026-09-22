@@ -28,7 +28,7 @@ when it does exist it must cite it.
 """
 from __future__ import annotations
 
-from threat_report_agent.reporting import build_detection_rule_projection
+from threat_report_agent.report.reporting import build_detection_rule_projection
 
 URL = "http://69.48.228.74/ComHost.exe"
 SAMPLE_SHA = "6bb6bfcbe68de69077b567789d5970c6613b1d4fb89becc4cf7a2f9a49861145"

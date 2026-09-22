@@ -42,7 +42,7 @@ MOVED = {
 FORBIDDEN_IN_MODEL = (
     "threat_report_agent.service",
     "threat_report_agent.investigation",
-    "threat_report_agent.reporting",
+    "threat_report_agent.report.reporting",
     "threat_report_agent.tools.tool_execution",
     "threat_report_agent.tool_authoring",
 )

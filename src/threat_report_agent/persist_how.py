@@ -33,7 +33,7 @@ from threat_report_agent.investigation import (
 )
 from threat_report_agent.facts.thread_start import recovered_thread_start_address
 from threat_report_agent.models import Claim, new_id
-from threat_report_agent.reporting import _address_lookup_keys, _thread_body_from_evidence
+from threat_report_agent.report.reporting import _address_lookup_keys, _thread_body_from_evidence
 from threat_report_agent.semantic_predicates import normalize_api_symbol
 from threat_report_agent.static.static_analysis import (
     is_process_command_candidate,

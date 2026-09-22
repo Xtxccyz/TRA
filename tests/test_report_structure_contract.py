@@ -50,7 +50,7 @@ SHIM = PACKAGE / "analyst_report.py"
 
 #: The modules P2-R moved into `report/`, whose old paths are now shims. Kept in step with
 #: `scripts/check-structure-diff.py`'s LEGACY_PATHS, which is the detector the old-path test delegates to.
-REPORT_MOVED_PATHS = ("analyst_report", "report_verification", "gold_output_bar")
+REPORT_MOVED_PATHS = ("analyst_report", "reporting", "report_verification", "gold_output_bar")
 
 
 def load_gate_module():
@@ -227,6 +227,7 @@ def test_the_old_path_detector_sees_every_import_spelling(tmp_path) -> None:
         "import threat_report_agent.analyst_report\n"
         "import threat_report_agent.report_verification\n"
         "from threat_report_agent import gold_output_bar\n"
+        "from threat_report_agent import reporting\n"
         "from . import analyst_report as _relative_alias\n"
         "from .report_verification import verify_report_correctness\n"
         "import importlib\n"
@@ -276,6 +277,7 @@ def test_no_second_copy_of_the_composer_exists_under_report() -> None:
 # The two small report modules that followed the same recipe
 # ------------------------------------------------------------------------------------------------------------
 MOVED_MODULES = {
+    "reporting": ("build_report_document", "REPORT_MODULES", "document_to_markdown"),
     "report_verification": ("verify_report_correctness", "corrections_summary", "correctness_summary"),
     "gold_output_bar": (),
 }
@@ -313,6 +315,52 @@ def test_the_small_report_modules_moved_with_the_same_recipe() -> None:
         for forbidden in (f"from threat_report_agent.{name} import",
                           f"from threat_report_agent import {name}"):
             assert forbidden not in text, f"{name} imports its own old path"
+
+
+def test_the_document_to_markdown_test_exit_is_still_present_and_still_tests_only() -> None:
+    """Plan 7.3 step 5 defers this on purpose, and this pins the deferral so it cannot happen by accident.
+
+    `document_to_markdown` is a second path to official markdown that only TESTS use. Plan 7.3 requires retiring it
+    in its own step, because the rule it protects is "one Report Revision, one official markdown producer", and
+    deleting it changes the test surface (measured at 9 test files / 78 references) rather than the structure.
+
+    So: it must still exist right now, it must still be reachable through the shim after the move, and it must NOT
+    have a production caller. When the retirement step happens, this test is inverted deliberately in that commit.
+    """
+    import importlib
+
+    old = importlib.import_module("threat_report_agent.reporting")
+    new = importlib.import_module("threat_report_agent.report.reporting")
+    assert callable(old.document_to_markdown), (
+        "`document_to_markdown` is gone; if the P2-R step-5 retirement was performed, invert this test and record "
+        "it in that step's checkpoint rather than deleting the pin"
+    )
+    assert old.document_to_markdown is new.document_to_markdown
+
+    production_callers: list[str] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in path.parts or path.name == "reporting.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        # AST, not a text search: MEASURED - the first version of this check flagged `report/__init__.py`, which
+        # only MENTIONS the name in its docstring. A docstring is an `ast.Constant`, so it is invisible here.
+        for node in ast.walk(tree):
+            found = (
+                isinstance(node, ast.Name) and node.id == "document_to_markdown"
+            ) or (
+                isinstance(node, ast.Attribute) and node.attr == "document_to_markdown"
+            ) or (
+                isinstance(node, (ast.Import, ast.ImportFrom))
+                and any(alias.name == "document_to_markdown" for alias in node.names)
+            )
+            if found:
+                production_callers.append(f"{path.relative_to(PACKAGE).as_posix()}:{node.lineno}")
+                break
+    assert not production_callers, (
+        f"`document_to_markdown` now has production caller(s) {production_callers}; plan 7.3 requires that the "
+        "official markdown has exactly ONE producer, so wiring this second exit into production is a behaviour "
+        "change, not a structural one"
+    )
 
 
 def test_no_production_module_imports_the_small_modules_by_their_old_path() -> None:

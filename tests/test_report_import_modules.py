@@ -26,7 +26,7 @@ Assertions are on the PUBLISHED body, because that is what the objective grades 
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import render_official_markdown
-from threat_report_agent.reporting import REPORT_V3_REQUIRED_SECTIONS
+from threat_report_agent.report.reporting import REPORT_V3_REQUIRED_SECTIONS
 
 
 def _import_row(module: str, name: str, kind: str = "import_symbol") -> dict[str, object]:

@@ -134,7 +134,7 @@ def test_the_verdict_survives_the_real_document_projection() -> None:
     pipeline published nothing: a hand-made fixture asserts the shape I ASSUMED, not the shape the pipeline
     produces. This test goes through `build_decode_result_projections` so the seam is covered.
     """
-    from threat_report_agent.reporting import build_decode_result_projections
+    from threat_report_agent.report.reporting import build_decode_result_projections
 
     rows = build_decode_result_projections(
         {
@@ -166,7 +166,7 @@ def test_the_verdict_survives_the_real_document_projection() -> None:
 
 def test_the_projection_leaves_the_verdict_absent_when_it_did_not_run() -> None:
     """An absent key must stay absent - not become an empty dict that reads as a passing check."""
-    from threat_report_agent.reporting import build_decode_result_projections
+    from threat_report_agent.report.reporting import build_decode_result_projections
 
     rows = build_decode_result_projections(
         {

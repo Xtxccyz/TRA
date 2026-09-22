@@ -22,7 +22,7 @@ text. These tests assert the values, not their presence.
 """
 from __future__ import annotations
 
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     _named_digest_values,
     build_detection_rule_projection,
 )

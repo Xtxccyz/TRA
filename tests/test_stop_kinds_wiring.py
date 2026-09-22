@@ -122,7 +122,7 @@ def test_render_states_when_a_kind_has_no_entries() -> None:
 
 
 def _document_with_open_slots() -> dict[str, object]:
-    from threat_report_agent.reporting import REPORT_V3_REQUIRED_SECTIONS
+    from threat_report_agent.report.reporting import REPORT_V3_REQUIRED_SECTIONS
 
     return {
         "report_version": "3.0",

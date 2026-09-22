@@ -222,7 +222,7 @@ from threat_report_agent.report.report_verification import (
     correctness_summary,
     verify_report_correctness,
 )
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_MODULES,
     STATIC_ANALYSIS_PLAN_SNAPSHOT_KEY,
     _address_lookup_keys,

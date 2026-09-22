@@ -8,7 +8,7 @@ from threat_report_agent.product_certification import (
     supported_artifact_matrix,
     validate_corpus_split,
 )
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
     document_to_markdown,
     report_v3_quality_violations,

@@ -15,7 +15,7 @@ The fix is a per-class quota applied before rank order fills the remainder.
 """
 from __future__ import annotations
 
-from threat_report_agent.reporting import build_string_fact_projection
+from threat_report_agent.report.reporting import build_string_fact_projection
 
 
 def _row(text: str, index: int) -> dict:
@@ -76,7 +76,7 @@ def test_results_are_deterministic() -> None:
 
 def test_a_script_host_is_classified_as_an_execution_capability() -> None:
     """`Wscript.Shell` + `.Exec` starts a process without importing CreateProcess."""
-    from threat_report_agent.reporting import string_fact_class
+    from threat_report_agent.report.reporting import string_fact_class
 
     assert string_fact_class("Wscript.Shell") == "execution_api"
     assert string_fact_class("WScript.Shell.Exec") == "execution_api"
@@ -85,7 +85,7 @@ def test_a_script_host_is_classified_as_an_execution_capability() -> None:
 
 def test_ordinary_prose_is_not_an_execution_api() -> None:
     """A bare `exec` token must not label English text as a capability."""
-    from threat_report_agent.reporting import string_fact_class
+    from threat_report_agent.report.reporting import string_fact_class
 
     for value in ("executive summary", "execution is unobserved", "exec", "Exec", "shell32.dll"):
         assert string_fact_class(value) != "execution_api", f"{value!r} was read as an execution API"

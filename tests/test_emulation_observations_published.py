@@ -233,7 +233,7 @@ def test_the_blocking_dependency_reaches_the_chapter_through_the_projection() ->
     report.
     """
     from threat_report_agent.analyst_report import _emulation_status_section as chapter
-    from threat_report_agent.reporting import build_emulation_status_projection
+    from threat_report_agent.report.reporting import build_emulation_status_projection
 
     evidence = {
         "ev-1": {
@@ -268,7 +268,7 @@ def test_the_blocking_dependency_reaches_the_chapter_through_the_projection() ->
 def test_the_blocking_dependency_is_not_published_when_there_is_none() -> None:
     """Non-regression: a run that stalled on nothing must not invent a blocker."""
     from threat_report_agent.analyst_report import _emulation_status_section as chapter
-    from threat_report_agent.reporting import build_emulation_status_projection
+    from threat_report_agent.report.reporting import build_emulation_status_projection
 
     evidence = {
         "ev-1": {

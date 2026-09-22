@@ -1,5 +1,5 @@
 from threat_report_agent.product_certification import analysis_coverage, semantic_flow_metrics
-from threat_report_agent.reporting import document_to_markdown
+from threat_report_agent.report.reporting import document_to_markdown
 
 
 def _closed_mechanism() -> dict[str, object]:

@@ -1865,7 +1865,7 @@ def test_process_persist_claim_uses_command_flags_not_ppid_keywords() -> None:
     assert "0x00080000" in stamped["transformation_or_control"][0]
     assert "FoxitPDFReader.exe" in stamped["transformation_or_control"][0]
     assert "command=" in stamped["transformation_or_control"][0]
-    from threat_report_agent.reporting import _finding_has_recovered_how, _module_how_from_finding
+    from threat_report_agent.report.reporting import _finding_has_recovered_how, _module_how_from_finding
 
     finding = {
         "how": stamped["transformation_or_control"],

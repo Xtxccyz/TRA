@@ -32,7 +32,7 @@ import json
 import re
 from typing import Any, Iterable, Mapping, NamedTuple
 
-from threat_report_agent.reporting import _is_file_hash_source
+from threat_report_agent.report.reporting import _is_file_hash_source
 
 #: `$sN = "value" // label` - the YARA projection's own string declaration.
 _YARA_STRING_RE = re.compile(r'\$(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"\s*(?://\s*(\S+))?')

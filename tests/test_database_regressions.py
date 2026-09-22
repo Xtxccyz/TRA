@@ -26,7 +26,7 @@ from threat_report_agent.models import (
     AnalysisTurnResultRecord,
     Relation,
 )
-from threat_report_agent.reporting import REPORT_MODULES
+from threat_report_agent.report.reporting import REPORT_MODULES
 from threat_report_agent.service import AnalysisService
 
 

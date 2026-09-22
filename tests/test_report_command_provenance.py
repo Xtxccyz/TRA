@@ -33,7 +33,7 @@ reverted for bypassing the product's own evidence contracts.
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import render_official_markdown
-from threat_report_agent.reporting import REPORT_V3_REQUIRED_SECTIONS
+from threat_report_agent.report.reporting import REPORT_V3_REQUIRED_SECTIONS
 
 
 def _document(*rows: dict[str, object]) -> dict[str, object]:

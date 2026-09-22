@@ -112,7 +112,7 @@ def test_attempted_and_unresolved_still_uses_the_third_kind() -> None:
 
 
 def test_official_markdown_surfaces_the_ticket() -> None:
-    from threat_report_agent.reporting import REPORT_V3_REQUIRED_SECTIONS
+    from threat_report_agent.report.reporting import REPORT_V3_REQUIRED_SECTIONS
 
     document: dict[str, object] = {
         "report_version": "3.0",
@@ -149,7 +149,7 @@ def test_official_markdown_surfaces_the_ticket() -> None:
 
 def test_official_markdown_surfaces_tickets_carried_only_by_coverage_gaps() -> None:
     """The live path has no model draft, so limitations arrive as coverage gaps."""
-    from threat_report_agent.reporting import REPORT_V3_REQUIRED_SECTIONS
+    from threat_report_agent.report.reporting import REPORT_V3_REQUIRED_SECTIONS
 
     document: dict[str, object] = {
         "report_version": "3.0",

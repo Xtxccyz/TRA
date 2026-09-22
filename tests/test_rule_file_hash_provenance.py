@@ -27,7 +27,7 @@ file identity. This pins that rule and the projections it depends on.
 """
 from __future__ import annotations
 
-from threat_report_agent.reporting import build_detection_rule_projection
+from threat_report_agent.report.reporting import build_detection_rule_projection
 
 SAMPLE_SHA = "6bb6bfcbe68de69077b567789d5970c6613b1d4fb89becc4cf7a2f9a49861145"
 RESOURCE_SHA = "0b05c0df699028e6cfc4c02147e91b7a4ecbc79569004caaf550ebcdb25c63a3"

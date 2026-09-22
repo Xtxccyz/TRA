@@ -26,7 +26,7 @@ from threat_report_agent.analyst_report import (
     stamp_official_report_chrome,
 )
 from threat_report_agent.prompts import PromptRegistry
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
     build_report_document,
     document_to_markdown,

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
     build_report_document,
     build_observed_mechanism_projections,
@@ -539,7 +539,7 @@ def test_legacy_report_compacts_unresolved_argument_rows() -> None:
 def test_verified_mechanism_is_projected_as_security_finding() -> None:
     claim = SimpleNamespace(id="c1", statement="ETW is patched", mechanism="VirtualProtect -> write")
     evidence = {"e1": SimpleNamespace(id="e1", value="patch", kind="patch_bytes", anchor={})}
-    from threat_report_agent.reporting import build_verified_security_findings
+    from threat_report_agent.report.reporting import build_verified_security_findings
     findings = build_verified_security_findings(
         [{"id": "m1", "status": "VERIFIED", "claim_id": "c1", "evidence_ids": ["e1"], "target": "EtwEventWrite", "verifier": {"status": "VERIFIED"}}],
         [claim], evidence,
@@ -549,7 +549,7 @@ def test_verified_mechanism_is_projected_as_security_finding() -> None:
 
 
 def test_verified_deduplicated_mechanism_uses_claim_ids_and_preserves_shape() -> None:
-    from threat_report_agent.reporting import build_verified_security_findings
+    from threat_report_agent.report.reporting import build_verified_security_findings
 
     claim = SimpleNamespace(
         id="c2",
@@ -724,7 +724,7 @@ def test_equivalent_verified_mechanisms_merge_hunting_guidance() -> None:
 
 
 def test_claim_is_materialized_as_structured_candidate_mechanism() -> None:
-    from threat_report_agent.reporting import build_mechanism_projections
+    from threat_report_agent.report.reporting import build_mechanism_projections
 
     claim = SimpleNamespace(
         id="c-mech", module="loader", subject="sample.exe",
@@ -966,7 +966,7 @@ def test_report_keeps_specialist_link_visible_ahead_of_generic_candidates() -> N
 
 def test_static_link_projection_recovers_function_and_resolver_consumer_callsites() -> None:
     """Cross-function links retain the anchors needed for an analyst-grade HOW."""
-    from threat_report_agent.reporting import build_static_link_mechanism_projections
+    from threat_report_agent.report.reporting import build_static_link_mechanism_projections
 
     pointer = SimpleNamespace(
         id="pointer-1", artifact_id="artifact-1", kind="indirect_function_pointer_link",
@@ -1005,7 +1005,7 @@ def test_static_link_projection_recovers_function_and_resolver_consumer_callsite
 
 def test_static_link_projection_keeps_transport_shell_and_patch_callsite_maps() -> None:
     """C2-C4 derived links expose their typed call sequence in the report."""
-    from threat_report_agent.reporting import build_static_link_mechanism_projections
+    from threat_report_agent.report.reporting import build_static_link_mechanism_projections
 
     cases = (
         (
@@ -1060,7 +1060,7 @@ def test_static_link_projection_keeps_transport_shell_and_patch_callsite_maps() 
 
 def test_report_projects_observed_static_chains_into_analyst_mechanisms() -> None:
     """High-value observed chains must be readable even when no Claim is closed."""
-    from threat_report_agent.reporting import build_report_document
+    from threat_report_agent.report.reporting import build_report_document
 
     evidence = [
         SimpleNamespace(
@@ -1436,7 +1436,7 @@ def test_specialist_suppression_keeps_same_function_independent_callsite() -> No
 
 
 def test_report_projects_recovered_dynamic_api_into_mechanism() -> None:
-    from threat_report_agent.reporting import build_observed_mechanism_projections
+    from threat_report_agent.report.reporting import build_observed_mechanism_projections
 
     evidence = SimpleNamespace(
         id="resolved-1", artifact_id="artifact-1", kind="resolved_api",
@@ -1461,7 +1461,7 @@ def test_report_projects_recovered_dynamic_api_into_mechanism() -> None:
 
 def test_observed_mechanism_dedup_preserves_all_evidence_and_callsites() -> None:
     """Projection deduplication must not erase corroborating source rows."""
-    from threat_report_agent.reporting import build_observed_mechanism_projections
+    from threat_report_agent.report.reporting import build_observed_mechanism_projections
 
     def evidence(evidence_id: str, resolver: str, consumer: str) -> SimpleNamespace:
         return SimpleNamespace(
@@ -1499,7 +1499,7 @@ def test_observed_mechanism_dedup_preserves_all_evidence_and_callsites() -> None
 
 def test_observed_resolver_recovers_function_and_pointer_sites_from_sources() -> None:
     """A file-level resolver observation must still render its concrete path."""
-    from threat_report_agent.reporting import build_observed_mechanism_projections
+    from threat_report_agent.report.reporting import build_observed_mechanism_projections
 
     source = SimpleNamespace(
         id="pointer-source", artifact_id="artifact-1", module="loader",
@@ -1574,7 +1574,7 @@ def test_generic_dynamic_resolution_does_not_claim_full_completeness() -> None:
 
 def test_report_projects_decode_result_with_verification_and_consumer() -> None:
     """A recovered decode must be visible as an analyst result, not a raw row."""
-    from threat_report_agent.reporting import build_report_document, document_to_markdown
+    from threat_report_agent.report.reporting import build_report_document, document_to_markdown
 
     evidence = SimpleNamespace(
         id="decode-result-1", artifact_id="artifact-1", tool_run_id="tool-1",
@@ -1698,7 +1698,7 @@ def test_candidate_projection_selection_keeps_persist_how_process_and_decode() -
     selected_types = {row["mechanism_type"] for row in selected}
     assert "PROCESS_EXECUTION" in selected_types
     assert "DECODE_CONFIG" in selected_types
-    from threat_report_agent.reporting import _is_actionable_candidate_mechanism
+    from threat_report_agent.report.reporting import _is_actionable_candidate_mechanism
 
     process = next(row for row in rows if row["mechanism_id"] == "process-1")
     decode = next(row for row in rows if row["mechanism_id"] == "decode-1")
@@ -1722,7 +1722,7 @@ def test_candidate_projection_selection_keeps_persist_how_process_and_decode() -
 
 def test_named_api_consumer_is_actionable_without_module_input() -> None:
     """One-round report must print named API + JMP even without GetProcAddress in the row."""
-    from threat_report_agent.reporting import _is_actionable_candidate_mechanism
+    from threat_report_agent.report.reporting import _is_actionable_candidate_mechanism
 
     assert _is_actionable_candidate_mechanism(
         {
@@ -1758,7 +1758,7 @@ def test_named_api_consumer_is_actionable_without_module_input() -> None:
 
 def test_unique_thread_start_is_actionable_candidate_mechanism() -> None:
     """Recovered lpStartAddress is one-round HOW, not TRACE bait."""
-    from threat_report_agent.reporting import _is_actionable_candidate_mechanism
+    from threat_report_agent.report.reporting import _is_actionable_candidate_mechanism
 
     assert _is_actionable_candidate_mechanism(
         {
@@ -1788,7 +1788,7 @@ def test_unique_thread_start_is_actionable_candidate_mechanism() -> None:
 
 def test_ppid_chain_without_specialist_token_is_not_actionable() -> None:
     """Resume OpenProcess/UpdateProcThreadAttribute/CreateProcess is not PPID HOW."""
-    from threat_report_agent.reporting import _is_actionable_candidate_mechanism
+    from threat_report_agent.report.reporting import _is_actionable_candidate_mechanism
 
     chain = {
         "status": "CANDIDATE",
@@ -2983,7 +2983,7 @@ def test_report_renders_static_abstract_execution_prediction() -> None:
 
 
 def test_static_indicator_projection_exposes_high_value_pivots_with_provenance() -> None:
-    from threat_report_agent.reporting import build_static_indicator_projections
+    from threat_report_agent.report.reporting import build_static_indicator_projections
 
     evidence = {
         "e-url": SimpleNamespace(
@@ -3017,7 +3017,7 @@ def test_static_indicator_projection_exposes_high_value_pivots_with_provenance()
 
 
 def test_static_attack_candidates_require_multi_signal_conjunctions() -> None:
-    from threat_report_agent.reporting import build_static_attack_candidates
+    from threat_report_agent.report.reporting import build_static_attack_candidates
 
     evidence = {
         "e-defender": SimpleNamespace(
@@ -3055,7 +3055,7 @@ def test_static_attack_candidates_require_multi_signal_conjunctions() -> None:
 
 def test_static_attack_candidates_use_typed_evidence_kind_for_decode_mapping() -> None:
     """A typed decode observation maps even when its payload details are opaque."""
-    from threat_report_agent.reporting import build_static_attack_candidates
+    from threat_report_agent.report.reporting import build_static_attack_candidates
 
     mappings = build_static_attack_candidates({
         "decode-window": SimpleNamespace(

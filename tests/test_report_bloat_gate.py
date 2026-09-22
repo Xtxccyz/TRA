@@ -1,4 +1,4 @@
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_MAX_MARKDOWN_BYTES,
     apply_report_display_budget,
     document_to_markdown,

@@ -23,7 +23,7 @@ the failure being fixed.
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import render_official_markdown
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
     build_string_fact_projection,
     string_fact_class,

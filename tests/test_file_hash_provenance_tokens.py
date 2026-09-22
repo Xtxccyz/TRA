@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     _OBJECT_DIGEST_TOKENS,
     _is_file_hash_source,
     build_detection_rule_projection,

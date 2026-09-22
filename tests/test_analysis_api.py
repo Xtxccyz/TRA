@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from threat_report_agent.config import Settings
 from threat_report_agent.main import create_app
-from threat_report_agent.reporting import REPORT_MODULES
+from threat_report_agent.report.reporting import REPORT_MODULES
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
 from threat_report_agent.models import AnalysisSnapshot, AnalysisTask, Claim, TaskSecret, ToolRun

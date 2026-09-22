@@ -1373,7 +1373,7 @@ def test_late_specialist_link_is_verified_and_reportable_after_high_signal_cap(t
         assert claim is not None
         assert claim.nature == "STATIC_INFERRED"
         assert claim.status == "SUPPORTED"
-        from threat_report_agent.reporting import build_report_document
+        from threat_report_agent.report.reporting import build_report_document
 
         task = session.get(AnalysisTask, task_id)
         assert task is not None

@@ -43,7 +43,7 @@ from threat_report_agent.observability import (
     configure_observability,
     metrics_payload,
 )
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     REPORT_MODULES,
     markdown_to_docx,
     markdown_to_pdf,

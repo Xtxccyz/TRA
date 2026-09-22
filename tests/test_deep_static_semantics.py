@@ -4,7 +4,7 @@ from threat_report_agent.investigation import ActionSpec, ActionType
 from threat_report_agent.service import AnalysisService
 from threat_report_agent.database import Database
 from threat_report_agent.content_store import LocalContentStore
-from threat_report_agent.reporting import document_to_markdown
+from threat_report_agent.report.reporting import document_to_markdown
 from threat_report_agent.models import AnalysisTask, Evidence, ReportRevision
 
 

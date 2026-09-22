@@ -25,7 +25,7 @@ projection comes first and the 正文-level assertion covers both halves.
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import render_official_markdown
-from threat_report_agent.reporting import build_tls_callback_projection
+from threat_report_agent.report.reporting import build_tls_callback_projection
 
 CALLBACKS = [
     {"entry": "0x140016920", "name": "tls_callback", "role": "tls_callback", "rva": "0x16920"},

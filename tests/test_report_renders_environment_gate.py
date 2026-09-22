@@ -32,7 +32,7 @@ from threat_report_agent.analyst_report import (
     plan_analyst_topics,
     render_official_markdown,
 )
-from threat_report_agent.reporting import REPORT_V3_REQUIRED_SECTIONS
+from threat_report_agent.report.reporting import REPORT_V3_REQUIRED_SECTIONS
 
 
 def _document(rows: list[dict[str, object]] | None = None, **extra: object) -> dict[str, object]:

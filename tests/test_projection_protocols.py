@@ -90,13 +90,13 @@ def test_imported_modules_helper_sees_relative_and_dynamic_imports(tmp_path: Pat
         "from .models import Evidence\n"
         "from threat_report_agent import service\n"
         "import importlib\n"
-        "m = importlib.import_module('threat_report_agent.reporting')\n"
+        "m = importlib.import_module('threat_report_agent.report.reporting')\n"
         "n = __import__('sqlalchemy')\n"
     )
     scratch = tmp_path / "_import-helper-canfail.py"
     scratch.write_text(source, encoding="utf-8")
     found = imported_modules(scratch)
-    for expected in ("models", "Evidence", "service", "threat_report_agent.reporting", "sqlalchemy"):
+    for expected in ("models", "Evidence", "service", "threat_report_agent.report.reporting", "sqlalchemy"):
         assert expected in found, f"helper missed {expected!r} in {sorted(found)}"
 
 

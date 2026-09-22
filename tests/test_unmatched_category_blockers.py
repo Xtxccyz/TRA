@@ -23,7 +23,7 @@ grades the body and the checker counts phrases in it.
 from __future__ import annotations
 
 from threat_report_agent.analyst_report import render_official_markdown
-from threat_report_agent.reporting import REPORT_V3_REQUIRED_SECTIONS
+from threat_report_agent.report.reporting import REPORT_V3_REQUIRED_SECTIONS
 
 # The two phrases the acceptance checker counts.
 BOILERPLATE_PHRASES = (

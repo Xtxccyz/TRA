@@ -15,7 +15,7 @@ its evidence while the published report still read ``UNKNOWN(parent identity)`` 
 "no Process32 enumeration chain".
 """
 
-from threat_report_agent.reporting import (
+from threat_report_agent.report.reporting import (
     _evidence_has_recovered_parent_identity,
     _has_parent_handle_relation,
 )
