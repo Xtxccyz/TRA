@@ -162,7 +162,17 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--source",
+        default="",
+        help="measure another copy of the package instead of src/ (used by the structure-diff can-fail harness)",
+    )
+    parser.add_argument("--policy", default="", help="use another policy file")
     args = parser.parse_args()
+    if args.source:
+        global SOURCE  # noqa: PLW0603 - a single deliberate override for the can-fail harness
+        SOURCE = Path(args.source).resolve()
+    policy_path = Path(args.policy).resolve() if args.policy else POLICY
 
     files = sorted(path for path in SOURCE.rglob("*.py") if "__pycache__" not in path.parts)
     runtime: dict[str, set[str]] = {}
@@ -181,8 +191,8 @@ def main() -> int:
     cycles_short = [tuple(sorted(short(node) for node in group)) for group in cycles]
 
     policy: dict[str, object] = {}
-    if POLICY.is_file():
-        policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    if policy_path.is_file():
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
     allowed_cycles = {tuple(sorted(item)) for item in policy.get("known_cycles", [])}
     forbidden = {(str(a), str(b)) for a, b in policy.get("forbidden_edges", [])}
     # Pre-existing violations are RECORDED, not fixed, in a structural step (plan P0.4: "发现现有循环先记录,
@@ -229,7 +239,7 @@ def main() -> int:
     if args.strict:
         print("\nSTRICT: no new cycles and no new reverse edges")
     if not policy:
-        print("\nnote: no policy file at docs/import-policy.json, so nothing is enforced yet")
+        print(f"\nnote: no policy file at {policy_path}, so nothing is enforced yet")
     return 0
 
 

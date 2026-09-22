@@ -67,5 +67,33 @@
   "known_violations": [
     ["persist_how", "reporting"]
   ],
-  "_known_violations_note": "MEASURED pre-existing violation of the rule above: persist_how imports reporting, and plan section 3.2's allow-list for the layer that owns persist_how does not include the report layer ('未列出的边默认禁止'). It is RECORDED rather than fixed, because plan P0.4 forbids rewriting business logic during a structural step and P1.4 forbids smuggling a behaviour change into one. --strict therefore fails only on violations NOT in this list, so a NEW reverse edge is still blocked. Unwinding this one belongs with the P1.2 ports."
+  "_known_violations_note": "MEASURED pre-existing violation of the rule above: persist_how imports reporting, and plan section 3.2's allow-list for the layer that owns persist_how does not include the report layer ('未列出的边默认禁止'). It is RECORDED rather than fixed, because plan P0.4 forbids rewriting business logic during a structural step and P1.4 forbids smuggling a behaviour change into one. --strict therefore fails only on violations NOT in this list, so a NEW reverse edge is still blocked. Unwinding this one belongs with the P1.2 ports.",
+  "_p13_note": "The three keys below are what scripts/check-structure-diff.py --structure compares against. Each is MEASURED on the current tree (never invented) and registered in the same spirit as known_violations: P1.3's success criterion is that a PURE MOVE PASSES, so a pre-existing instance must be recorded rather than fixed inside a structural step, while any NEW instance fails --strict. Every entry states what it is, so an allowlist entry cannot be mistaken for an approval.",
+  "known_duplicate_implementations": [
+    {
+      "name": "_function_call_names",
+      "modules": [
+        "threat_report_agent.investigation_protocol",
+        "threat_report_agent.reporting"
+      ],
+      "note": "MEASURED byte-identical body (docstring excluded) in two modules, i.e. two canonical implementations of one helper - the exact thing plan section 3.2 forbids. It is a genuine duplication, NOT a compatibility shim, and it is recorded rather than fixed because a structural step may not merge the two: choosing one of them changes which module a caller must import, which is a move, and the bodies must be compared for drift first. It must be resolved in the P2 move of report/ or investigation/, and this entry deleted in the same commit."
+    }
+  ],
+  "known_private_reach": [
+    {
+      "module": "threat_report_agent.service",
+      "expr": "getattr(self, '_wait_cursors')",
+      "count": 2,
+      "note": "MEASURED: AnalysisService reads its OWN private attribute by string name, defensively (the attribute may not exist, hence the getattr default). It is recorded rather than fixed because the fix is to declare the attribute on the class, which is a behaviour-visible edit and belongs to P3's split of AnalysisService. Unlike the plan's named example it does NOT reach across classes."
+    }
+  ],
+  "legacy_path_imports": [
+    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.emulation_plan"},
+    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.investigation"},
+    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.persist_how"},
+    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.service"},
+    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.static_analysis"},
+    {"old": "decode_primitives", "new": "facts.decode_primitives", "importer": "threat_report_agent.static_analysis"}
+  ],
+  "_legacy_path_imports_note": "MEASURED importers of a path that has already moved. The migration left `sys.modules` shims at the old paths, so these imports still work - which is exactly why they must be enumerated: an unregistered old-path import is how a moved implementation keeps a second access path alive, and plan 7.1 step 5 says production callers move to the new path FIRST. These six are pre-existing and are the P4.1 work item; any importer NOT listed here fails --strict."
 }

@@ -1,0 +1,211 @@
+{
+  "budget_constants": {
+    "allow_demo_auth": "True",
+    "audit_object_lock_days": "3650",
+    "audit_object_lock_mode": "'COMPLIANCE'",
+    "environment": "<required>",
+    "fallback_model": "<required>",
+    "investigation_max_rounds": "4",
+    "investigation_max_steps": "65536",
+    "investigation_task_max_actions": "64",
+    "max_archive_depth": "<required>",
+    "max_concurrent_analyses": "1",
+    "max_sample_bytes": "<required>",
+    "max_sample_files": "<required>",
+    "model_calls_enabled": "False",
+    "model_config_secret_key": "''",
+    "model_context_max_bytes": "2000000",
+    "model_max_tokens": "2048",
+    "model_payload_retention_days": "180",
+    "model_timeout_s": "180.0",
+    "primary_model": "<required>",
+    "simulation_allow_local_process": "False",
+    "simulation_instruction_budget": "900000",
+    "simulation_max_input_bytes": "4194304",
+    "simulation_max_output_bytes": "65536",
+    "simulation_profile": "'static-only'",
+    "simulation_timeout_seconds": "8",
+    "static_abstract_execution_max_steps": "65536",
+    "tool_execution_mode": "'local'"
+  },
+  "compose_gate_fixture_verdicts": {
+    "compose_gate_relaxed_unprovenanced_endpoint": true,
+    "limitation_block_deleted": true,
+    "narrow_case_heading_kept_bullets_dropped": false,
+    "unknown_restated_as_verified": true
+  },
+  "prompt_semantics": {
+    "policies/preset-commands.json": "577192df02ce1878",
+    "policies/tool-policy.json": "45851d51a3e76640",
+    "prompts/analyst-report-system-v1.md": "8d49d0f071cc19c7",
+    "prompts/manifest.json": "673adc95d31ef2a4",
+    "prompts/planning-system-v1.md": "0484b46e13fc055c",
+    "prompts/static-analysis-system-v1.md": "d0525bfad2b2f32c",
+    "prompts/triage-system-v1.md": "28820d17a605ca71"
+  },
+  "report_schema": {
+    "count": 53,
+    "headings": [
+      "# 静态分析报告",
+      "## 1. Executive Assessment",
+      "## 10. Analysis Coverage",
+      "## 2.",
+      "## 2. Artifact Summary",
+      "## 3. Key Static Findings",
+      "## 4. Verified Mechanisms",
+      "## 5. Reconstructed Static Behavior Flow",
+      "## 6. IOC / Indicators",
+      "## 7. Detection / Hunting Opportunities",
+      "## 8. ATT&CK Reference",
+      "## 9. Unknowns",
+      "## 9. Unknowns / Static Boundaries",
+      "## Full Imports",
+      "## Full Strings",
+      "## Investigation Seed Map",
+      "## ` tail) that",
+      "## 分析结论",
+      "## 完整 Imports",
+      "## 完整 Strings",
+      "## 调查附录（内部账本，非分析结论）",
+      "### Analysis Traceability",
+      "### Analyst Assessment",
+      "### Behavior Overview",
+      "### Candidate Mechanisms",
+      "### Controlled emulation (isolated worker, not host execution)",
+      "### Evidence-backed Behavior Relations",
+      "### Finding",
+      "### Function Semantic Summary:",
+      "### Function-Level Semantic Recovery",
+      "### IOC / 指标速查",
+      "### Investigation Seed Map",
+      "### Investigation Timeline",
+      "### Model-Synthesized Candidates",
+      "### Module deep-dives (static reconstruction)",
+      "### Ordered static call sequence (reconstructed)",
+      "### PE basics (static header)",
+      "### Runtime sequence (static reconstruction)",
+      "### Security Finding",
+      "### Static API Argument Recovery",
+      "### Static Abstract Execution Prediction",
+      "### Static Decode Result",
+      "### Static analysis plan",
+      "### TLS 回调入口（静态恢复）",
+      "### 十问槽位",
+      "### 恢复到的字符串事实",
+      "### 样本概况",
+      "### 检测规则建议（分析侧生成）",
+      "### 模型合成候选",
+      "### 结论摘要",
+      "### 运行时序（静态重建）",
+      "### 隔离模拟结果（各模拟器实际走到了哪一步）",
+      "### 验证门限与候选"
+    ]
+  },
+  "sample_execution_strategy": {
+    "Settings": {
+      "simulation_allow_local_process": "False",
+      "simulation_allowed_simulators": "()",
+      "simulation_instruction_budget": "900000",
+      "simulation_max_input_bytes": "4194304",
+      "simulation_max_output_bytes": "65536",
+      "simulation_profile": "'static-only'",
+      "simulation_qiling_rootfs": "''",
+      "simulation_timeout_seconds": "8",
+      "simulation_worker_identity": "''",
+      "simulation_worker_image_digest": "''",
+      "tool_execution_mode": "'local'"
+    },
+    "ToolRunRequest": {
+      "max_cpu_seconds": "Field(ge=1, le=3600)",
+      "max_memory_mb": "Field(ge=64, le=32768)",
+      "network_access": "False",
+      "sample_execution": "False",
+      "storage_access": "None"
+    }
+  },
+  "state_enums": {
+    "ActionType": [
+      "COMPARE_FUNCTION = 'COMPARE_FUNCTION';CONTROLLED_EMULATE = 'CONTROLLED_EMULATE';DECODE_CANDIDATE = 'DECODE_CANDIDATE';EVALUATE_CONSTANT = 'EVALUATE_CONSTANT';GET_CALLEES = 'GET_CALLEES';GET_CALLERS = 'GET_CALLERS';GET_CFG_SLICE = 'GET_CFG_SLICE';GET_DATA_REFERENCES = 'GET_DATA_REFERENCES';GET_DECOMPILE = 'GET_DECOMPILE';GET_FUNCTION = 'GET_FUNCTION';GET_PCODE_SLICE = 'GET_PCODE_SLICE';GET_STRINGS_REFERENCED = 'GET_STRINGS_REFERENCED';GET_XREFS_FROM = 'GET_XREFS_FROM';GET_XREFS_TO = 'GET_XREFS_TO';READ_BYTES = 'READ_BYTES';TRACE_API_ARGUMENT = 'TRACE_API_ARGUMENT';TRACE_GLOBAL_USAGE = 'TRACE_GLOBAL_USAGE';TRACE_RETURN_VALUE = 'TRACE_RETURN_VALUE'"
+    ],
+    "CERTIFIED_PROFILES": [
+      "frozenset({'controlled-worker-v1', 'static-first-controlled-emulation'})"
+    ],
+    "ClaimStatus": [
+      "CANDIDATE = 'CANDIDATE';DISPUTED = 'DISPUTED';REJECTED = 'REJECTED';VERIFIED = 'VERIFIED'"
+    ],
+    "InvestigationThreadState": [
+      "BLOCKED = 'BLOCKED';CLAIM_READY = 'CLAIM_READY';CLOSED = 'CLOSED';CONTEXT_READY = 'CONTEXT_READY';CONTRADICTED = 'CONTRADICTED';DISCOVERED = 'DISCOVERED';HYPOTHESIZING = 'HYPOTHESIZING';INVESTIGATING = 'INVESTIGATING';MECHANISM_READY = 'MECHANISM_READY';PRIORITIZED = 'PRIORITIZED';REJECTED = 'REJECTED';UNKNOWN = 'UNKNOWN';VERIFYING = 'VERIFYING'"
+    ],
+    "LEDGER_ACTIVE": [
+      "frozenset({LEDGER_OPEN, LEDGER_IN_PROGRESS, LEDGER_DEFERRED})"
+    ],
+    "LEDGER_TERMINAL": [
+      "frozenset({LEDGER_CLOSED, LEDGER_UNKNOWN, LEDGER_UNSUPPORTED})"
+    ],
+    "PLACEHOLDER_STATUSES": [
+      "frozenset({'', 'DEFERRED_TO_WORKER', 'WORKER_REQUIRED', 'SUPERSEDED_BY_WORKER', 'NOT_EXECUTED'})"
+    ],
+    "TERMINAL_STATES": [
+      "frozenset({'COMPLETED', 'FAILED', 'CANCELLED'})"
+    ],
+    "TaskLifecycle": [
+      "CANCELLED = 'CANCELLED';FAILED = 'FAILED';FINALIZING = 'FINALIZING';PAUSED = 'PAUSED';PENDING = 'PENDING';RUNNING = 'RUNNING';SUCCEEDED = 'SUCCEEDED';WAITING_GATE = 'WAITING_GATE'"
+    ],
+    "_BEHAVIOR_SEVERITY_VALUES": [
+      "frozenset({'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'})"
+    ],
+    "_BEHAVIOR_STATUS_VALUES": [
+      "frozenset({*_BEHAVIOR_CLOSED_STATUSES, 'CANDIDATE', 'INFERRED', 'UNKNOWN', 'NOT_IDENTIFIED', 'REJECTED', 'REFUTED', 'BLOCKED'})"
+    ],
+    "_FRONTIER_CLOSED_STATUSES": [
+      "frozenset({'VERIFIED', 'SUPPORTED', 'CONFIRMED', 'REJECTED', 'CONTRADICTED', 'CANDIDATE', 'CLAIM_READY', 'MECHANISM_READY', 'CLOSED', 'UNKNOWN', 'PARTIAL', 'UNSUPPORTED', 'STATIC_BOUNDARY'})"
+    ],
+    "_IN_FLIGHT_TASK_LIFECYCLES": [
+      "frozenset({TaskLifecycle.PENDING.value, TaskLifecycle.WAITING_GATE.value, TaskLifecycle.RUNNING.value})"
+    ],
+    "_NON_WORKER_STOP_REASONS": [
+      "frozenset({'NO_GRANTED_WINDOW', 'DISABLED_BY_POLICY', 'DEFERRED_TO_WORKER', 'WORKER_REQUIRED', 'ROOTFS_REQUIRED', 'NOT_PE', 'NOT_LINUX_ELF', 'ARCHITECTURE_UNSUPPORTED', 'INPUT_REQUIRED', 'INPUT_HASH_MISMATCH'})"
+    ],
+    "_POLICY_OR_PLACEHOLDER_STATUSES": [
+      "frozenset({'DISABLED_BY_POLICY', 'DEFERRED_TO_WORKER', 'WORKER_REQUIRED', 'NO_GRANTED_WINDOW', 'UNSUPPORTED', 'UNAVAILABLE', 'SUPERSEDED_BY_WORKER', 'INPUT_REQUIRED'})"
+    ]
+  },
+  "test_getsource_count": {
+    "reaching_a_private_member": 21,
+    "total": 39
+  },
+  "validator_thresholds": {
+    "BSTR_MAX_CHARS": "4096",
+    "DEFAULT_MAX_STEPS": "65536",
+    "DEFAULT_TOOL_LIMITS": "MappingProxyType({TOOL_LIMIT_WALL_SECONDS: 30, TOOL_LIMIT_CPU_SECONDS: 10, TOOL_LIMIT_INSTRUCTION_BUDGET: 100000, TOOL_LIMIT_MAX_OUTPUT_BYTES: 65536})",
+    "HARD_TOOL_LIMITS": "MappingProxyType({TOOL_LIMIT_WALL_SECONDS: 120, TOOL_LIMIT_CPU_SECONDS: 60, TOOL_LIMIT_INSTRUCTION_BUDGET: 1000000, TOOL_LIMIT_MAX_OUTPUT_BYTES: 262144})",
+    "HEX_CHARS_PER_RECORD": "20",
+    "OPERATIONAL_LIMITATIONS_HEADING": "'**运行过程中的限制（与样本行为无关）：**'",
+    "REPORT_MAX_MARKDOWN_BYTES": "256 * 1024",
+    "TOOL_LIMIT_CPU_SECONDS": "'cpu_seconds'",
+    "TOOL_LIMIT_INSTRUCTION_BUDGET": "'instruction_budget'",
+    "TOOL_LIMIT_KEYS": "(TOOL_LIMIT_WALL_SECONDS, TOOL_LIMIT_CPU_SECONDS, TOOL_LIMIT_INSTRUCTION_BUDGET, TOOL_LIMIT_MAX_OUTPUT_BYTES)",
+    "TOOL_LIMIT_MAX_OUTPUT_BYTES": "'max_output_bytes'",
+    "TOOL_LIMIT_WALL_SECONDS": "'wall_seconds'",
+    "TOOL_NAME_MAX_LENGTH": "64",
+    "TOOL_NAME_MIN_LENGTH": "3",
+    "VIOLATION_RESOURCE_LIMIT_EXCEEDED": "'RESOURCE_LIMIT_EXCEEDED'",
+    "VIOLATION_RESOURCE_LIMIT_INVALID": "'RESOURCE_LIMIT_INVALID'",
+    "VIOLATION_RESOURCE_LIMIT_MISSING": "'RESOURCE_LIMIT_MISSING'",
+    "VIOLATION_RESOURCE_LIMIT_UNKNOWN_KEY": "'RESOURCE_LIMIT_UNKNOWN_KEY'",
+    "_ABSENCE_ENUMERATION_CHARS": "120",
+    "_API_NAMES_CACHE_LIMIT": "200000",
+    "_CLAIM_EVIDENCE_SAMPLE_LIMIT": "12",
+    "_ENVIRONMENT_GUARD_INVALID_THRESHOLDS": "frozenset({0, 4294967295, 4294967294})",
+    "_ENVIRONMENT_GUARD_THRESHOLD_NAMES": "frozenset({'threshold', 'comparison', 'tick_threshold', 'memory_threshold', 'uptime', 'dwtotalphys', 'ulltotalphys'})",
+    "_MAX_SCHEMA_DEPTH": "6",
+    "_MAX_SCHEMA_NODES": "256",
+    "_MODEL_CANDIDATE_LIMIT": "12",
+    "_PACKED_IMPORT_LIMIT": "8",
+    "_PAYLOAD_STRIP_MIN_CHARS": "200",
+    "_PRIMITIVE_MAX_TABLES": "96",
+    "_ROW_TEXT_CACHE_LIMIT": "200000",
+    "_UNRESOLVED_CACHE_LIMIT": "200000",
+    "_VIRTUAL_OVER_RAW_MIN_DELTA": "4096"
+  }
+}
