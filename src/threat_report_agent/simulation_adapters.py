@@ -624,9 +624,26 @@ class SimulationResult:
                 str(row.get(key, ""))
                 for key in ("event", "kind", "category", "operation", "name", "api")
             ).casefold()
-            for bucket, markers in terms.items():
-                if any(marker in label for marker in markers):
-                    buckets[bucket].append(row)
+            matched = {
+                bucket
+                for bucket, markers in terms.items()
+                if any(marker in label for marker in markers)
+            }
+            # A call the emulator could NOT model was never EXECUTED, so it is not an observed behaviour and
+            # must not be counted as one. MEASURED defect: the T2 observation carries `event="unsupported_api"`
+            # and `kind="unsupported"`, whose label contains BOTH "api" and "unsupported", so it landed in
+            # `attempted_apis` AND `unsupported_apis` - a call that was never attempted was published as
+            # attempted. The same naive substring match would also drop such a row into a behavioural bucket
+            # whenever its NAME happens to contain a marker (e.g. an ordinal called `..._http_...` landing in
+            # `network_intents`), which is the EC-2 error: a string read as observed behaviour.
+            #
+            # The rule is therefore general rather than a patch for one bucket: a row classified as
+            # unsupported contributes to `unsupported_apis` ONLY. It is recorded as the blocking dependency,
+            # which is what it is, and to nothing else.
+            if "unsupported_apis" in matched:
+                matched = {"unsupported_apis"}
+            for bucket in matched:
+                buckets[bucket].append(row)
         return buckets
 
     def as_dict(self) -> dict[str, object]:

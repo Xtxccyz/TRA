@@ -47,3 +47,48 @@ def test_a_run_without_an_error_yields_nothing() -> None:
     assert _speakeasy_unsupported_api_names(["not-a-mapping"]) == []
     assert _speakeasy_unsupported_api_names([{"error": "a string, not a mapping"}]) == []
     assert _speakeasy_unsupported_api_names([{"error": {}}]) == []
+
+
+def test_a_never_attempted_call_is_not_published_as_attempted() -> None:
+    """MEASURED over-claim (third review, item 2): an unsupported call was ALSO counted as ATTEMPTED.
+
+    `_observation_buckets` matched each row against every bucket's marker substrings independently, and the T2
+    observation is `{"event": "unsupported_api", "name": ..., "kind": "unsupported"}` - a label containing BOTH
+    "api" and "unsupported". So a call the emulator explicitly could NOT model appeared in `unsupported_apis`
+    (correct) and in `attempted_apis` (a claim that it was attempted, which is false).
+
+    The same naive matching could also place such a row in a BEHAVIOURAL bucket whenever its NAME happens to
+    contain a marker - e.g. an ordinal named `..._http_...` landing in `network_intents`, which reports
+    behaviour for a call that never ran (analysis-verification EC-2, a string read as behaviour).
+
+    FAILS BEFORE THE FIX: `attempted_apis` contained the unsupported names.
+    """
+    from threat_report_agent.simulation_adapters import SimulationResult
+
+    result = SimulationResult(
+        status="FAILED",
+        simulator="speakeasy",
+        observations=[
+            {"event": "unsupported_api", "name": "MSVBVM60.ordinal_648", "kind": "unsupported"},
+            # A real, modelled call must still count as attempted - the fix must not empty the bucket.
+            {"event": "api_call", "name": "kernel32.CreateFileW", "kind": "resolved_api"},
+            # A never-modelled call whose NAME carries a behavioural marker must not fabricate behaviour.
+            {"event": "unsupported_api", "name": "MSVBVM60.ordinal_http_send", "kind": "unsupported"},
+        ],
+    )
+    payload = result.as_dict()
+
+    attempted = [row.get("name") for row in payload["attempted_apis"]]
+    assert attempted == ["kernel32.CreateFileW"], (
+        "a call the emulator could not model was published as ATTEMPTED, or a real call was dropped: "
+        f"attempted={attempted}"
+    )
+    assert [row.get("name") for row in payload["unsupported_apis"]] == [
+        "MSVBVM60.ordinal_648",
+        "MSVBVM60.ordinal_http_send",
+    ], "the blocking dependencies must still be recorded"
+    assert payload["network_intents"] == [], (
+        "a never-modelled call whose name contains 'http' was published as an observed NETWORK behaviour - "
+        "a string read as behaviour"
+    )
+
