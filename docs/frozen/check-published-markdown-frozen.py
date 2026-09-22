@@ -38,7 +38,22 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+def _repo_root() -> Path:
+    """Find the repository root by walking up to `.git`, NOT by counting parents.
+
+    MEASURED: this file was first written in `.scratch/` and then copied to `docs/frozen/`, one level deeper.
+    A `parents[1]` root silently became `docs/`, so the checker looked for `docs/docs/frozen/...`, reported
+    NO CORPUS and exited 2. That failure was loud only because a missing corpus is coded as "not a pass" - if
+    the missing case had defaulted to success, a broken gate would have shipped.
+    """
+    here = Path(__file__).resolve()
+    for candidate in [here.parent, *here.parents]:
+        if (candidate / ".git").exists():
+            return candidate
+    return here.parents[2]
+
+
+ROOT = _repo_root()
 CORPUS = ROOT / "docs" / "frozen" / "published-markdown.json"
 GRADER = ROOT / ".scratch" / "check-report-acceptance.py"
 PSQL = ["docker", "exec", "threat-report-agent-postgres-1", "psql", "-U", "threat_agent", "-d", "threat_agent", "-t", "-A"]
