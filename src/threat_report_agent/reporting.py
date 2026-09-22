@@ -8157,11 +8157,25 @@ def build_emulation_status_projection(
         # which a consumer would have to parse. Order is preserved (first-failure first) because the FIRST
         # unmodelled dependency is the one that bounded the run.
         unsupported_apis: list[str] = []
+        # What the adapter's own bounds removed, carried so the chapter can say the list is bounded. MEASURED:
+        # 102 evidence rows over 34 tasks hold exactly 256 api names and none holds 257, so the cap saturates
+        # and the body published "已观测 API 调用：256 次" as though it were a total.
+        api_truncation: dict[str, object] | None = None
         for observation in observations:
             if not isinstance(observation, Mapping):
                 continue
             event = str(observation.get("event") or "")
-            if event == "api":
+            if event == "api_truncated":
+                # This dict is a WHITELIST like every other branch here, so each field is named explicitly
+                # rather than forwarded wholesale.
+                api_truncation = {
+                    "kept": observation.get("kept"),
+                    "dropped": observation.get("dropped"),
+                    "entry_points_dropped": observation.get("entry_points_dropped"),
+                    "api_cap": observation.get("api_cap"),
+                    "entry_point_cap": observation.get("entry_point_cap"),
+                }
+            elif event == "api":
                 name = str(observation.get("name") or "").strip()
                 # A Ghidra placeholder (`FUN_0040d2c0`) is a ledger identifier, not an API name. The
                 # primary body is gated against ledger jargon, and publishing these counts forwarded such
@@ -8214,6 +8228,9 @@ def build_emulation_status_projection(
                 # The dependency that bounded the run, for the chapter to NAME rather than leaving a reader
                 # to parse the prose limitation (plan T2).
                 "unsupported_apis": unsupported_apis,
+                # Whitelisted like everything else here: without this key the chapter cannot know the api list
+                # was bounded, and a bounded list published as a total is the defect this carries.
+                "api_truncation": api_truncation,
             }
         )
     if results:

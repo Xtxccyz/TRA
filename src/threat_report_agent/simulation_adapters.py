@@ -1357,14 +1357,43 @@ def _speakeasy_adapter(request: SimulationRequest) -> SimulationResult:
         report = report if isinstance(report, Mapping) else {}
         apis = []
         entry = report.get("entry_points") if isinstance(report.get("entry_points"), list) else []
-        for item in entry[:64]:
+        # NAMED, and their provenance stated honestly (G2/G4): these are bounds on how much of a Speakeasy
+        # report becomes observations, and bounding it is defensible because the Temporal payload limit is a
+        # measured 2 MiB (plan R8). But the VALUES 64 and 256 are NOT derived from that measurement - they are
+        # pre-existing literals. They are named here, and what they DROP is now recorded, because a silent
+        # bound whose result is rendered as a total is the defect this fixes.
+        #
+        # MEASURED: 102 evidence rows over 34 tasks hold exactly 256 api names and none holds 257, so the cap
+        # saturates in production while the report publishes "已观测 API 调用：256 次" as if it were a total.
+        entry_point_cap = 64
+        api_cap = 256
+        dropped_apis = 0
+        for item in entry[:entry_point_cap]:
             if isinstance(item, Mapping):
                 for api in item.get("apis", []) if isinstance(item.get("apis"), list) else []:
-                    if isinstance(api, Mapping) and len(apis) < 256:
-                        name = str(api.get("api_name") or api.get("name") or "")
-                        observations.append({"event": "api", "name": name, "kind": "api_call"})
-                        if name:
-                            apis.append(name)
+                    if not isinstance(api, Mapping):
+                        continue
+                    if len(apis) >= api_cap:
+                        # Count what the cap removes instead of letting it vanish; the reader is told further
+                        # down the pipeline, and an unstated bound reads as completeness.
+                        dropped_apis += 1
+                        continue
+                    name = str(api.get("api_name") or api.get("name") or "")
+                    observations.append({"event": "api", "name": name, "kind": "api_call"})
+                    if name:
+                        apis.append(name)
+        entries_dropped = max(0, len(entry) - entry_point_cap)
+        if dropped_apis or entries_dropped:
+            observations.append(
+                {
+                    "event": "api_truncated",
+                    "kept": len(apis),
+                    "dropped": dropped_apis,
+                    "entry_points_dropped": entries_dropped,
+                    "api_cap": api_cap,
+                    "entry_point_cap": entry_point_cap,
+                }
+            )
         status, stop_reason, detail = _speakeasy_stop(
             list(entry), instruction_budget=effective_budget
         )

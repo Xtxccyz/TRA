@@ -4981,7 +4981,23 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
                 f"`{name}`×{count}" if isinstance(count, int) and count > 1 else f"`{name}`"
                 for name, count in list(visible.items())[:8]
             )
-            lines.append(f"  - 已观测 API 调用：{total} 次（{rendered}）")
+            # A BOUNDED list must say it is bounded. The adapter keeps at most `api_cap` names per run, and
+            # MEASURED 102 evidence rows over 34 tasks sit exactly at 256 with none above - so the cap
+            # saturates in production and this line published "256" as though it were the sample's total.
+            truncation = item.get("api_truncation")
+            bound_note = ""
+            if isinstance(truncation, Mapping):
+                try:
+                    dropped = int(truncation.get("dropped") or 0)
+                    cap = int(truncation.get("api_cap") or 0)
+                except (TypeError, ValueError):
+                    dropped, cap = 0, 0
+                if dropped > 0:
+                    bound_note = (
+                        f"，另有 `{dropped}` 个未展开"
+                        f"（每次运行最多保留 `{cap}` 个 API 名，**该上限不是本样本的调用总数**）"
+                    )
+            lines.append(f"  - 已观测 API 调用：{total} 次（{rendered}）{bound_note}")
         elif _observation_count(item) > 0:
             # The run EXECUTED and produced observations, but not one of them was an API call.
             #
