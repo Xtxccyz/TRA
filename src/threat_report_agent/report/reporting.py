@@ -15,7 +15,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
-from threat_report_agent.behavior_catalog import BehaviorCatalog
+from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog
 from threat_report_agent.investigation import (
     recovered_thread_parameter,
 )

@@ -39,7 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from threat_report_agent import analyst_report  # noqa: E402
-from threat_report_agent.behavior_catalog import BehaviorCatalog  # noqa: E402
+from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog  # noqa: E402
 from threat_report_agent.report import analyst_report as moved_report  # noqa: E402
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "threat_report_agent"

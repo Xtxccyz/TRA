@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from threat_report_agent.behavior_catalog import (
+from threat_report_agent.investigation.behavior_catalog import (
     BehaviorCatalog,
     EvidenceContract,
     EvidencePredicate,

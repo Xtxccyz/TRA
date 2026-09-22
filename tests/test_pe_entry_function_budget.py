@@ -1,7 +1,7 @@
 import inspect
 from types import SimpleNamespace
 
-from threat_report_agent.behavior_catalog import BehaviorCatalog
+from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog
 from threat_report_agent.dataflow import (
     catalog_output_consumer_relation,
     catalog_parent_handle_identity,

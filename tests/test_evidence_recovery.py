@@ -1301,7 +1301,7 @@ def test_decode_candidate_emits_process_join_when_command_buffer_matches(test_se
 
 def test_decode_candidate_links_output_pointer_loaded_into_a_call(test_settings) -> None:
     """Resume-style decode windows never emit api_argument_trace; the CALL still consumes the VA."""
-    from threat_report_agent.behavior_catalog import BehaviorCatalog
+    from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog
 
     service = AnalysisService(
         test_settings,
@@ -1397,7 +1397,7 @@ def test_decode_candidate_links_output_pointer_loaded_into_a_call(test_settings)
 
 def test_decode_candidate_links_rdata_xref_without_argument_register(test_settings) -> None:
     """A same-VA data xref is a locator, not an object-level decode consumer."""
-    from threat_report_agent.behavior_catalog import BehaviorCatalog
+    from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog
 
     service = AnalysisService(
         test_settings,

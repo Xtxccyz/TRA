@@ -20,7 +20,7 @@ strings).  These tests pin that the fast path returns exactly what the full walk
 
 from __future__ import annotations
 
-from threat_report_agent.behavior_catalog import (
+from threat_report_agent.investigation.behavior_catalog import (
     _contains_unresolved_status,
     is_concrete_value,
 )
@@ -104,7 +104,7 @@ def _original_contains_unresolved(value: object) -> bool:
 
 
 def _original_unknown_scalar(value: object) -> bool:
-    from threat_report_agent.behavior_catalog import _is_unknown_scalar
+    from threat_report_agent.investigation.behavior_catalog import _is_unknown_scalar
 
     return _is_unknown_scalar(value)
 

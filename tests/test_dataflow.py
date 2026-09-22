@@ -1,6 +1,6 @@
 import pytest
 
-from threat_report_agent.behavior_catalog import BehaviorCatalog
+from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog
 from threat_report_agent.dataflow import (
     addresses_alias,
     catalog_fields_from_api_arguments,

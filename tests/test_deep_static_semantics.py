@@ -58,7 +58,7 @@ def test_trace_api_argument_recovers_x64_call_arguments_and_consumer(test_settin
 
 def test_trace_api_argument_projects_catalog_facts_off_unresolved_slots(test_settings) -> None:
     """ClaimGate reads flat fields; nested UNKNOWN slots must not poison them."""
-    from threat_report_agent.behavior_catalog import BehaviorCatalog
+    from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog
 
     service = AnalysisService(
         test_settings,
@@ -139,7 +139,7 @@ def test_trace_api_argument_projects_catalog_facts_off_unresolved_slots(test_set
 
 def test_trace_api_argument_projects_creation_flags_and_return_branch(test_settings) -> None:
     """x64 windows omit arg5; the unique nearby immediate and TEST/Jcc are CFG facts."""
-    from threat_report_agent.behavior_catalog import BehaviorCatalog
+    from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog
 
     service = AnalysisService(
         test_settings,
