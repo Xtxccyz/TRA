@@ -78,11 +78,9 @@ def set_source(value: str) -> None:
 #: the report with coincidences. MEASURED: at 120 chars the tree has exactly ONE duplicate group.
 DUPLICATE_MIN_CHARS = 120
 
-#: Paths that have ALREADY moved, with the canonical module that now holds the implementation. A registered shim
-#: keeps the old path importable; the point of the rule is that the list of files still using the old path is
-#: explicit rather than discovered by grep during P4. The three report modules were added in round 69, when the
-#: move was verified: their registered importer count is ZERO, because production moved to the new path first
-#: (plan 7.1 step 5) - so any future old-path import of them fails immediately.
+#: Paths that have ALREADY moved, with the canonical module that now holds the implementation. Kept as a FALLBACK:
+#: the authoritative map is `moved_paths` in `docs/import-policy.json`, read by `legacy_paths()` below, so this rule
+#: and the import-graph's rename normalisation share ONE source and a move no longer needs two hand edits.
 LEGACY_PATHS: dict[str, str] = {
     "dataflow": "facts.dataflow",
     "decode_primitives": "facts.decode_primitives",
@@ -96,7 +94,32 @@ LEGACY_PATHS: dict[str, str] = {
     "function_similarity": "static.function_similarity",
     "literal_table": "static.literal_table",
     "static_simulation": "static.static_simulation",
+    "evidence_recovery": "static.evidence_recovery",
+    "pma_static_plan": "static.pma_static_plan",
+    "static_analysis": "static.static_analysis",
 }
+
+
+def legacy_paths() -> dict[str, str]:
+    """The rename map, from `docs/import-policy.json` when it is readable and from the constant otherwise.
+
+    A root shim keeps an old path importable; the point of the rule is that the list of files still using it is
+    explicit rather than discovered by grep during P4. Every entry has ZERO registered importers, because production
+    moved to the new path first (plan 7.1 step 5) - so a future old-path use fails immediately.
+    """
+    if POLICY_PATH.is_file():
+        try:
+            policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            policy = {}
+        entries = {
+            str(item["old"]): str(item["new"])
+            for item in policy.get("moved_paths", [])
+            if isinstance(item, dict) and item.get("old") and item.get("new")
+        }
+        if entries:
+            return entries
+    return dict(LEGACY_PATHS)
 
 #: The state vocabularies a structural step must not edit, ON TOP of every enum class discovered automatically.
 #: WHY THE ENUM HALF IS AUTOMATIC (adversarial review of the previous revision): the tuple below is hand-written,
@@ -267,6 +290,9 @@ def legacy_path_imports() -> list[dict[str, str]]:
     the module. Both are resolved here against the importing module's own package.
     """
     found: set[tuple[str, str]] = set()
+    # The map comes from docs/import-policy.json (module `moved_paths`), so this rule and the import graph's
+    # rename normalisation share ONE source; the LEGACY_PATHS constant is only a fallback.
+    paths = legacy_paths()
 
     def resolve(node: ast.ImportFrom, module: str) -> str:
         if not node.level:
@@ -282,11 +308,11 @@ def legacy_path_imports() -> list[dict[str, str]]:
             if isinstance(node, ast.ImportFrom):
                 resolved = resolve(node, module)
                 candidates = {resolved} | {f"{resolved}.{alias.name}" for alias in node.names}
-                for old in LEGACY_PATHS:
+                for old in paths:
                     if f"{PACKAGE}.{old}" in candidates:
                         found.add((old, module))
             elif isinstance(node, ast.Import):
-                for old in LEGACY_PATHS:
+                for old in paths:
                     if any(alias.name == f"{PACKAGE}.{old}" for alias in node.names):
                         found.add((old, module))
             elif isinstance(node, ast.Call):
@@ -299,10 +325,10 @@ def legacy_path_imports() -> list[dict[str, str]]:
                 if callee in {"import_module", "__import__"} and node.args:
                     first = node.args[0]
                     if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                        for old in LEGACY_PATHS:
+                        for old in paths:
                             if first.value.startswith(f"{PACKAGE}.{old}"):
                                 found.add((old, module))
-    return [{"old": old, "new": LEGACY_PATHS[old], "importer": module} for old, module in sorted(found)]
+    return [{"old": old, "new": paths[old], "importer": module} for old, module in sorted(found)]
 
 
 # ------------------------------------------------------------------------------------------------------------

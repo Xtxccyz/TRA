@@ -43,7 +43,7 @@ with workflow.unsafe.imports_passed_through():
     from threat_report_agent.intake import IntakeGateRequired, PackageEntry, expand_submission
     from threat_report_agent.models import AnalysisTask, TaskSecret, ToolRun, utcnow
     from threat_report_agent.secret_store import SecretCipher
-    from threat_report_agent.static_analysis import (
+    from threat_report_agent.static.static_analysis import (
         StaticFact,
         StaticResult,
         analyze_bytes,

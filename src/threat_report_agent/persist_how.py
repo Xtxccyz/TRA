@@ -35,7 +35,7 @@ from threat_report_agent.investigation import (
 from threat_report_agent.models import Claim, new_id
 from threat_report_agent.reporting import _address_lookup_keys, _thread_body_from_evidence
 from threat_report_agent.semantic_predicates import normalize_api_symbol
-from threat_report_agent.static_analysis import (
+from threat_report_agent.static.static_analysis import (
     is_process_command_candidate,
     projected_process_image_name,
 )
@@ -395,7 +395,7 @@ class PersistHow:
         name: hardcoding it is sample-specific (plan §2 #4) and it must not be
         stamped as dwCreationFlags on its own.
         """
-        from threat_report_agent.static_analysis import (  # deferred: avoid import cycle
+        from threat_report_agent.static.static_analysis import (  # deferred: avoid import cycle
             credible_windows_process_creation_flags,
             is_specialist_ppid_creation_flag,
         )

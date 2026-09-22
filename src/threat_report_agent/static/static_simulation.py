@@ -673,12 +673,12 @@ def simulation_evidence_from_function(
     # configured budget as the trace instead of a second, smaller cap; the
     # exporter bounds native P-code rows independently.
     try:
-        from threat_report_agent.static_analysis import build_pcode_slice
+        from threat_report_agent.static.static_analysis import build_pcode_slice
 
         value["pcode_slice"] = build_pcode_slice(
             function, source_evidence_ids=source_evidence_ids, max_operations=budget
         )
-        from threat_report_agent.static_analysis import track_indirect_function_pointers
+        from threat_report_agent.static.static_analysis import track_indirect_function_pointers
 
         value["indirect_function_pointer_links"] = list(
             track_indirect_function_pointers(function)

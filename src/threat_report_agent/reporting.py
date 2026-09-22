@@ -29,7 +29,7 @@ from threat_report_agent.mechanism_completeness import (
 from threat_report_agent.deep_analysis_quality import apply_adversarial_downgrades, deep_analysis_metrics
 from threat_report_agent.investigation_protocol import TEN_QUESTION_SLOTS, fill_protocol, is_empty_marker
 from threat_report_agent.semantic_predicates import normalize_api_symbol, semantic_category
-from threat_report_agent.static_analysis import (
+from threat_report_agent.static.static_analysis import (
     credible_windows_process_creation_flags,
     decode_windows_process_creation_flags,
     is_specialist_ppid_creation_flag,

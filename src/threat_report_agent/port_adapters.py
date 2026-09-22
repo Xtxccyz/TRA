@@ -28,7 +28,7 @@ from collections.abc import Callable
 from typing import Any
 
 from threat_report_agent.ghidra_adapter import GhidraHeadlessRunner
-from threat_report_agent.static_analysis import analyze_bytes
+from threat_report_agent.static.static_analysis import analyze_bytes
 
 
 class _ParserEvidenceView:

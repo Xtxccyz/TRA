@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from threat_report_agent.prompts import PromptRegistry
-from threat_report_agent.static_analysis import ClaimSpec, StaticFact
+from threat_report_agent.static.static_analysis import ClaimSpec, StaticFact
 
 
 @dataclass(frozen=True)

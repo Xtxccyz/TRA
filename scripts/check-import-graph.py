@@ -193,6 +193,60 @@ def main() -> int:
     policy: dict[str, object] = {}
     if policy_path.is_file():
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
+
+    # NORMALISE RENAMED MODULES BEFORE COMPARING ANYTHING (plan 7.1: a structural move changes WHERE a module
+    # lives, not WHICH module it is). MEASURED why: moving `static_analysis.py` into `static/` made the recorded
+    # cycle `controlled_emulation <-> emulation_plan <-> investigation <-> static_analysis` report as NEW, because
+    # the graph spelled the member `static.static_analysis` while the allowlist spells it the old way. The cycle had
+    # not changed; one member had been renamed.
+    #
+    # THE MAP IS APPLIED NEW -> OLD, deliberately: the whole policy (known_cycles, forbidden_edges,
+    # known_violations) is written in FLAT names, and `_forbidden_edges_note` says why those flat names are listed -
+    # "the migration leaves shims that keep both names alive; enforcing only the package names would let a reverse
+    # edge survive under the old name". Normalising to the old name therefore keeps every direction rule applying
+    # ACROSS a move instead of going blind the moment a module is relocated.
+    renames = {}
+    for item in policy.get("moved_paths", []):
+        if not (isinstance(item, dict) and item.get("old") and item.get("new")):
+            continue
+        new = str(item["new"])
+        old = str(item["old"])
+        # Graph nodes are FULLY QUALIFIED (`threat_report_agent.static.static_analysis`) while the policy lists short
+        # paths, so the map is built in the qualified form. MEASURED: keying it short made the normalisation a no-op
+        # and the renamed cycle still reported as NEW.
+        key = new if new.startswith(PACKAGE + ".") else f"{PACKAGE}.{new}"
+        value = old if old.startswith(PACKAGE + ".") else f"{PACKAGE}.{old}"
+        renames[key] = value
+
+    def canonical(name: str) -> str:
+        """Follow the rename chain (a moved path may itself move again) until it settles on the flat name."""
+        seen: set[str] = set()
+        while name in renames and name not in seen:
+            seen.add(name)
+            name = renames[name]
+        return name
+
+    # MERGE on collision rather than overwrite. MEASURED BUG: a rename makes TWO graph nodes canonicalise to the
+    # same flat name (the shim `threat_report_agent.static_analysis` and the real
+    # `threat_report_agent.static.static_analysis`), and a dict comprehension let the later one win - which silently
+    # dropped the real module's out-edges and made `static_analysis` vanish from a recorded cycle it is still part of.
+    merged: dict[str, set[str]] = {}
+    for node, targets in resolved.items():
+        key = canonical(node)
+        for target in targets:
+            canonical_target = canonical(target)
+            if canonical_target != key:
+                merged.setdefault(key, set()).add(canonical_target)
+    for node in known:
+        merged.setdefault(canonical(node), set())
+    resolved = merged
+    nodes = sorted(set(resolved))
+    cycles = components(nodes, resolved)
+    # Compare on SHORT names throughout. MEASURED BUG: `components` returns fully-qualified module names while
+    # the policy lists short ones, so every allowlisted cycle was reported as NEW and --strict failed on the
+    # very cycles the policy had just recorded.
+    cycles_short = [tuple(sorted(short(node) for node in group)) for group in cycles]
+
     allowed_cycles = {tuple(sorted(item)) for item in policy.get("known_cycles", [])}
     forbidden = {(str(a), str(b)) for a, b in policy.get("forbidden_edges", [])}
     # Pre-existing violations are RECORDED, not fixed, in a structural step (plan P0.4: "发现现有循环先记录,

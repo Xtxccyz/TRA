@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from threat_report_agent.static_analysis import function_fuzzy_fingerprint
+from threat_report_agent.static.static_analysis import function_fuzzy_fingerprint
 
 
 GHIDRA_OUTPUT_SCHEMA_VERSION = "1.0"

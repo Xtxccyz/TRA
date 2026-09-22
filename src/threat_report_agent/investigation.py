@@ -18,7 +18,7 @@ import uuid
 import re
 from typing import AbstractSet, Callable, Iterable, Mapping, Sequence
 
-from threat_report_agent.evidence_recovery import (
+from threat_report_agent.static.evidence_recovery import (
     FailureInterpretation,
     canonical_action_key,
 )
@@ -30,7 +30,7 @@ from threat_report_agent.behavior_catalog import (
     SupportLevel,
     is_unknown_or_negative,
 )
-from threat_report_agent.pma_static_plan import (
+from threat_report_agent.static.pma_static_plan import (
     pma_dispatch_items,
     packer_latch_active,
     reconstructed_import_names,
@@ -5343,7 +5343,7 @@ def _creation_flags_from_row(row: Mapping[str, object]) -> int | None:
         return None
     # Deferred import: static_analysis imports recovered_thread_start_address from
     # this module at module scope, so a top-level import here would be a cycle.
-    from threat_report_agent.static_analysis import credible_windows_process_creation_flags
+    from threat_report_agent.static.static_analysis import credible_windows_process_creation_flags
 
     if not credible_windows_process_creation_flags(parsed):
         return None

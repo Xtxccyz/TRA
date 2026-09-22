@@ -34,7 +34,7 @@ from threat_report_agent.reporting import (
     build_process_flag_projections,
     string_fact_class,
 )
-from threat_report_agent.static_analysis import credible_windows_process_creation_flags
+from threat_report_agent.static.static_analysis import credible_windows_process_creation_flags
 
 
 ANALYST_CONCLUSION_HEADING = "## 分析结论"

@@ -80,7 +80,7 @@ from threat_report_agent.orchestration import (
     QuestionCompiler,
     StaticInvestigationOrchestrator,
 )
-from threat_report_agent.evidence_recovery import (
+from threat_report_agent.static.evidence_recovery import (
     BoundedEvidenceRepository,
     ContextPacket,
     EvidenceDeliveryLedger,
@@ -216,7 +216,7 @@ from threat_report_agent.mechanism_completeness import (
 )
 from threat_report_agent.mechanism_ready import inspect_mechanism_ready
 from threat_report_agent.deep_analysis_quality import no_new_evidence_autopsy
-from threat_report_agent.pma_static_plan import static_analysis_plan_snapshot
+from threat_report_agent.static.pma_static_plan import static_analysis_plan_snapshot
 from threat_report_agent.report.report_verification import (
     corrections_summary,
     correctness_summary,
@@ -263,7 +263,7 @@ from threat_report_agent.controlled_emulation import (
     simulation_covers_request,
 )
 from threat_report_agent.static.static_simulation import StaticAbstractExecutor
-from threat_report_agent.static_analysis import (
+from threat_report_agent.static.static_analysis import (
     StaticFact,
     MAX_INSTRUCTION_WINDOW_ITEMS,
     analyze_xor_decode_window,
