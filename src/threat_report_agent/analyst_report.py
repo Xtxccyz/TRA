@@ -4987,6 +4987,13 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
                     "**这不代表样本没有相关行为**）"
                 )
             else:
+                # PROVENANCE (G2), stated because the ledger got this wrong: this `4` IS a number T2
+                # introduced, and the ledger entry claiming T2 "introduced zero numbers" is inaccurate.
+                # What makes it defensible is NOT that it is measured - it is not, it is a DISPLAY cap - but
+                # that it cannot silently truncate: the total is always stated in the same parenthetical and
+                # any remainder is reported as 「另有 N 个未展开」. A bounded list that says it is bounded is
+                # this project's rule (EC-4); leaving it unbounded would put an arbitrarily long
+                # grader-supplied name list into the published body.
                 shown = named[:4]
                 rendered_stalled = "、".join(f"`{name}`" for name in shown)
                 # A capped list must SAY it is capped, and must state the TOTAL: otherwise a reader cannot

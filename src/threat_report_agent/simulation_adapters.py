@@ -1238,11 +1238,19 @@ def _speakeasy_adapter(request: SimulationRequest) -> SimulationResult:
     config["emu_engine"] = "unicorn"
     started = time.monotonic()
     observations: list[dict[str, object]] = []
-    # Record the request shape. MEASURED need: with the SAME entry address and budget, a direct probe
-    # produced `modelled_calls=1031 / api=256 / elapsed_ms=351` while the worker path produced
-    # `1 / 1 / 29`. Entry choice and instruction budget were both disproved by measurement as the cause,
-    # so the difference must lie in the remaining request fields - this makes them comparable instead of
-    # guessable. Lengths only: the payload itself is not evidence about the request.
+    # Record the request shape so two runs can be compared instead of guessed at. Lengths only: the payload
+    # itself is not evidence about the request.
+    #
+    # CORRECTED (plan R9): this comment used to claim that "with the SAME entry address and budget, a direct
+    # probe produced `modelled_calls=1031 / api=256` while the worker path produced `1 / 1 / 29`", and concluded
+    # the difference "must lie in the remaining request fields". THAT DISCREPANCY DOES NOT EXIST. R9 re-ran the
+    # product's own `_speakeasy_adapter` inside the emu-worker with the exact parameters recorded in the
+    # evidence (`entry=0x40d2c0 bytes=159744 budget=3694880 timeout=8`) and reproduced
+    # `api=256 / registered=132 / modelled_calls=1031 / strings_observed=1028`,
+    # stopping at `unsupported_api api=MSVBVM60.ordinal_648` - i.e. the worker path IS the 1031/256/1028 path.
+    # The old "1 / 1 / 29" figure is not reproducible on the deployed code, so the inference drawn from it is
+    # withdrawn rather than left for a later reader to chase. Reproduce with
+    # `.scratch/probe-r9-worker-reproduces-1031.py`.
     observations.append(
         {
             "event": "request",
