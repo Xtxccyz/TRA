@@ -23,7 +23,7 @@ from threat_report_agent.static.evidence_recovery import (
     canonical_action_key,
 )
 from threat_report_agent.investigation.mechanism_completeness import mechanism_completeness_score as _semantic_mechanism_completeness_score
-from threat_report_agent.semantic_predicates import normalize_api_symbol
+from threat_report_agent.investigation.semantic_predicates import normalize_api_symbol
 from threat_report_agent.investigation.behavior_catalog import (
     BehaviorCatalog,
     ContractEvaluation,

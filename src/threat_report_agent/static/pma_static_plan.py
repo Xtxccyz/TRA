@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping, Sequence
 
-from threat_report_agent.semantic_predicates import normalize_api_symbol
+from threat_report_agent.investigation.semantic_predicates import normalize_api_symbol
 
 
 ALLOWED_NEXT_STATIC_ACTIONS: frozenset[str] = frozenset(

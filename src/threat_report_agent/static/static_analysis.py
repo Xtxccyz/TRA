@@ -18,7 +18,7 @@ from threat_report_agent.facts.decode_primitives import decrypt_candidates
 from threat_report_agent.static.literal_table import discover_hex_literal_table
 from threat_report_agent.static.function_simhash import fingerprint_mnemonics, hamming_distance
 from threat_report_agent.facts.dataflow import catalog_return_branch_after_call, output_buffer_identity, is_projected_catalog_value
-from threat_report_agent.semantic_predicates import (
+from threat_report_agent.investigation.semantic_predicates import (
     is_anti_analysis_signal,
     is_injection_call,
     normalize_api_symbol,

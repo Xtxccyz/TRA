@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 import hashlib
 import re
 
-from threat_report_agent.semantic_predicates import normalize_api_symbol
+from threat_report_agent.investigation.semantic_predicates import normalize_api_symbol
 
 
 _REGISTERS = {

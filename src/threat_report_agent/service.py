@@ -304,7 +304,7 @@ from threat_report_agent.static.static_analysis import (
     recover_static_xor_configs,
     decoded_config_string_table,
 )
-from threat_report_agent.semantic_predicates import (
+from threat_report_agent.investigation.semantic_predicates import (
     classify_api_symbol,
     is_anti_analysis_signal,
     is_dynamic_loader_call,

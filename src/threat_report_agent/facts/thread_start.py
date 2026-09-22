@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from threat_report_agent.semantic_predicates import normalize_api_symbol
+from threat_report_agent.investigation.semantic_predicates import normalize_api_symbol
 
 
 _THREAD_START_ARG_INDEX = {

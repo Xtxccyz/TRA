@@ -1,4 +1,4 @@
-from threat_report_agent.semantic_predicates import (
+from threat_report_agent.investigation.semantic_predicates import (
     ApiSemantic,
     classify_api_symbol,
     normalize_api_symbol,

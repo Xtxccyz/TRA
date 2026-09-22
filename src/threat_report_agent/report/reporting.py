@@ -36,7 +36,7 @@ from threat_report_agent.investigation.investigation_protocol import (
     function_call_names,
     is_empty_marker,
 )
-from threat_report_agent.semantic_predicates import normalize_api_symbol, semantic_category
+from threat_report_agent.investigation.semantic_predicates import normalize_api_symbol, semantic_category
 from threat_report_agent.static.static_analysis import (
     credible_windows_process_creation_flags,
     decode_windows_process_creation_flags,
