@@ -37,7 +37,7 @@ from threat_report_agent.static.pma_static_plan import (
     stub_import_names,
     unpack_completed,
 )
-from threat_report_agent.controlled_emulation import is_real_simulation_row
+from threat_report_agent.emulation.controlled_emulation import is_real_simulation_row
 from threat_report_agent.dataflow import (
     catalog_buffers_are_same_object,
     catalog_decode_output_to_process_command_relation,

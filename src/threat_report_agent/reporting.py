@@ -17,7 +17,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
 from threat_report_agent.behavior_catalog import BehaviorCatalog
 from threat_report_agent.investigation import recovered_thread_parameter, recovered_thread_start_address
-from threat_report_agent.controlled_emulation import PLACEHOLDER_STATUSES as _EMU_PLACEHOLDER_STATUSES
+from threat_report_agent.emulation.controlled_emulation import PLACEHOLDER_STATUSES as _EMU_PLACEHOLDER_STATUSES
 from threat_report_agent.product_certification import repair_static_runtime_wording
 from threat_report_agent.product_certification import static_wording_violations
 from threat_report_agent.mechanism_completeness import (

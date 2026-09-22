@@ -7,82 +7,294 @@
     "cycles": 2
   },
   "known_cycles": [
-    ["controlled_emulation", "emulation_plan", "investigation", "static_analysis"],
-    ["service", "tool_execution"]
+    [
+      "controlled_emulation",
+      "emulation_plan",
+      "investigation",
+      "static_analysis"
+    ],
+    [
+      "service",
+      "tool_execution"
+    ]
   ],
   "_known_cycles_note": "The first is a genuine 4-module cycle: controlled_emulation imports emulation_plan, which imports investigation, which imports static_analysis, which imports back. The second is the service/tool_execution pair, where tool_execution needs the service surface and the service dispatches tools. Both are pre-existing and are NOT to be fixed inside a structural step; they must be unwound through the ports in P1.2 if at all. Any cycle NOT listed here fails --strict.",
   "forbidden_edges": [
-    ["dataflow", "service"],
-    ["dataflow", "reporting"],
-    ["decode_primitives", "service"],
-    ["decode_primitives", "reporting"],
-    ["simulation_adapters", "service"],
-    ["simulation_adapters", "reporting"],
-    ["controlled_emulation", "service"],
-    ["controlled_emulation", "reporting"],
-    ["emulation_plan", "service"],
-    ["emulation_plan", "reporting"],
-    ["vb6_runtime_shim", "service"],
-    ["vb6_runtime_shim", "reporting"],
-    ["tool_execution", "reporting"],
-    ["tool_authoring", "service"],
-    ["tool_authoring", "reporting"],
-    ["intake", "service"],
-    ["intake", "reporting"],
-    ["content_store", "service"],
-    ["content_store", "reporting"],
-    ["behavior_catalog", "service"],
-    ["behavior_catalog", "reporting"],
-    ["persist_how", "service"],
-    ["persist_how", "reporting"],
-    ["semantic_predicates", "service"],
-    ["semantic_predicates", "reporting"],
-    ["mechanism_ready", "service"],
-    ["mechanism_ready", "reporting"],
-    ["mechanism_completeness", "service"],
-    ["mechanism_completeness", "reporting"],
-    ["evidence_index", "service"],
-    ["evidence_index", "reporting"],
-    ["evidence_recovery", "service"],
-    ["evidence_recovery", "reporting"],
-    ["function_similarity", "service"],
-    ["function_similarity", "reporting"],
-    ["function_simhash", "service"],
-    ["function_simhash", "reporting"],
-    ["literal_table", "service"],
-    ["literal_table", "reporting"],
-    ["pma_static_plan", "service"],
-    ["pma_static_plan", "reporting"],
-    ["static_simulation", "service"],
-    ["static_simulation", "reporting"],
-    ["investigation_protocol", "service"],
-    ["investigation_protocol", "reporting"],
-    ["investigation_ledger", "service"],
-    ["investigation_ledger", "reporting"],
-    ["facts", "service"],
-    ["facts", "reporting"],
-    ["facts", "emulation"]
+    [
+      "dataflow",
+      "service"
+    ],
+    [
+      "dataflow",
+      "reporting"
+    ],
+    [
+      "decode_primitives",
+      "service"
+    ],
+    [
+      "decode_primitives",
+      "reporting"
+    ],
+    [
+      "simulation_adapters",
+      "service"
+    ],
+    [
+      "simulation_adapters",
+      "reporting"
+    ],
+    [
+      "controlled_emulation",
+      "service"
+    ],
+    [
+      "controlled_emulation",
+      "reporting"
+    ],
+    [
+      "emulation_plan",
+      "service"
+    ],
+    [
+      "emulation_plan",
+      "reporting"
+    ],
+    [
+      "vb6_runtime_shim",
+      "service"
+    ],
+    [
+      "vb6_runtime_shim",
+      "reporting"
+    ],
+    [
+      "tool_execution",
+      "reporting"
+    ],
+    [
+      "tool_authoring",
+      "service"
+    ],
+    [
+      "tool_authoring",
+      "reporting"
+    ],
+    [
+      "intake",
+      "service"
+    ],
+    [
+      "intake",
+      "reporting"
+    ],
+    [
+      "content_store",
+      "service"
+    ],
+    [
+      "content_store",
+      "reporting"
+    ],
+    [
+      "behavior_catalog",
+      "service"
+    ],
+    [
+      "behavior_catalog",
+      "reporting"
+    ],
+    [
+      "persist_how",
+      "service"
+    ],
+    [
+      "persist_how",
+      "reporting"
+    ],
+    [
+      "semantic_predicates",
+      "service"
+    ],
+    [
+      "semantic_predicates",
+      "reporting"
+    ],
+    [
+      "mechanism_ready",
+      "service"
+    ],
+    [
+      "mechanism_ready",
+      "reporting"
+    ],
+    [
+      "mechanism_completeness",
+      "service"
+    ],
+    [
+      "mechanism_completeness",
+      "reporting"
+    ],
+    [
+      "evidence_index",
+      "service"
+    ],
+    [
+      "evidence_index",
+      "reporting"
+    ],
+    [
+      "evidence_recovery",
+      "service"
+    ],
+    [
+      "evidence_recovery",
+      "reporting"
+    ],
+    [
+      "function_similarity",
+      "service"
+    ],
+    [
+      "function_similarity",
+      "reporting"
+    ],
+    [
+      "function_simhash",
+      "service"
+    ],
+    [
+      "function_simhash",
+      "reporting"
+    ],
+    [
+      "literal_table",
+      "service"
+    ],
+    [
+      "literal_table",
+      "reporting"
+    ],
+    [
+      "pma_static_plan",
+      "service"
+    ],
+    [
+      "pma_static_plan",
+      "reporting"
+    ],
+    [
+      "static_simulation",
+      "service"
+    ],
+    [
+      "static_simulation",
+      "reporting"
+    ],
+    [
+      "investigation_protocol",
+      "service"
+    ],
+    [
+      "investigation_protocol",
+      "reporting"
+    ],
+    [
+      "investigation_ledger",
+      "service"
+    ],
+    [
+      "investigation_ledger",
+      "reporting"
+    ],
+    [
+      "facts",
+      "service"
+    ],
+    [
+      "facts",
+      "reporting"
+    ],
+    [
+      "facts",
+      "emulation"
+    ]
   ],
   "_forbidden_edges_note": "Direction rules from plan section 3.2: facts/static/emulation/tools/intake must not import the service or the report layer, and facts/ must not depend on emulation/. The flat-module names are listed alongside the future package names because the migration leaves shims that keep both names alive; enforcing only the package names would let a reverse edge survive under the old name. The `service -> forbidden` direction is NOT encoded because service.py legitimately orchestrates every layer: plan section 3.2 places task/ above all of them.",
   "known_violations": [
-    ["persist_how", "reporting"]
+    [
+      "persist_how",
+      "reporting"
+    ]
   ],
   "_known_violations_note": "MEASURED pre-existing violation of the rule above: persist_how imports reporting, and plan section 3.2's allow-list for the layer that owns persist_how does not include the report layer ('未列出的边默认禁止'). It is RECORDED rather than fixed, because plan P0.4 forbids rewriting business logic during a structural step and P1.4 forbids smuggling a behaviour change into one. --strict therefore fails only on violations NOT in this list, so a NEW reverse edge is still blocked. Unwinding this one belongs with the P1.2 ports.",
   "_p13_note": "The three keys below are what scripts/check-structure-diff.py --structure compares against. Each is MEASURED on the current tree (never invented) and registered in the same spirit as known_violations: P1.3's success criterion is that a PURE MOVE PASSES, so a pre-existing instance must be recorded rather than fixed inside a structural step, while any NEW instance fails --strict. Every entry states what it is, so an allowlist entry cannot be mistaken for an approval.",
   "moved_paths": [
-    {"old": "dataflow", "new": "facts.dataflow"},
-    {"old": "decode_primitives", "new": "facts.decode_primitives"},
-    {"old": "analyst_report", "new": "report.analyst_report"},
-    {"old": "report_verification", "new": "report.report_verification"},
-    {"old": "gold_output_bar", "new": "report.gold_output_bar"},
-    {"old": "function_simhash", "new": "static.function_simhash"},
-    {"old": "evidence_index", "new": "static.evidence_index"},
-    {"old": "function_similarity", "new": "static.function_similarity"},
-    {"old": "literal_table", "new": "static.literal_table"},
-    {"old": "static_simulation", "new": "static.static_simulation"},
-    {"old": "evidence_recovery", "new": "static.evidence_recovery"},
-    {"old": "pma_static_plan", "new": "static.pma_static_plan"},
-    {"old": "static_analysis", "new": "static.static_analysis"}
+    {
+      "old": "dataflow",
+      "new": "facts.dataflow"
+    },
+    {
+      "old": "decode_primitives",
+      "new": "facts.decode_primitives"
+    },
+    {
+      "old": "analyst_report",
+      "new": "report.analyst_report"
+    },
+    {
+      "old": "report_verification",
+      "new": "report.report_verification"
+    },
+    {
+      "old": "gold_output_bar",
+      "new": "report.gold_output_bar"
+    },
+    {
+      "old": "function_simhash",
+      "new": "static.function_simhash"
+    },
+    {
+      "old": "evidence_index",
+      "new": "static.evidence_index"
+    },
+    {
+      "old": "function_similarity",
+      "new": "static.function_similarity"
+    },
+    {
+      "old": "literal_table",
+      "new": "static.literal_table"
+    },
+    {
+      "old": "static_simulation",
+      "new": "static.static_simulation"
+    },
+    {
+      "old": "evidence_recovery",
+      "new": "static.evidence_recovery"
+    },
+    {
+      "old": "pma_static_plan",
+      "new": "static.pma_static_plan"
+    },
+    {
+      "old": "static_analysis",
+      "new": "static.static_analysis"
+    },
+    {
+      "old": "emulation_plan",
+      "new": "emulation.emulation_plan"
+    },
+    {
+      "old": "controlled_emulation",
+      "new": "emulation.controlled_emulation"
+    },
+    {
+      "old": "vb6_runtime_shim",
+      "new": "emulation.vb6_runtime_shim"
+    }
   ],
   "_moved_paths_note": "The canonical rename map, and the SINGLE SOURCE for it: scripts/check-import-graph.py normalises module names through it and scripts/check-structure-diff.py derives its old-path rule from it. WHY IT EXISTS (MEASURED in round 74): moving `static_analysis.py` into `static/` made the recorded cycle `controlled_emulation <-> emulation_plan <-> investigation <-> static_analysis` report as NEW, because the graph now spells the member `static.static_analysis` while the allowlist spells it `static_analysis`. The cycle did not change; only one member's name did. Normalising through this map is the fix, and it means the rest of P2 and all of P4 need no policy edit per move. Before this map existed the same information was duplicated in a constant inside check-structure-diff.py, which had to be hand-edited on every move.",
   "known_duplicate_implementations": [
@@ -105,10 +317,21 @@
     }
   ],
   "legacy_path_imports": [
-    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.emulation_plan"},
-    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.investigation"},
-    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.persist_how"},
-    {"old": "dataflow", "new": "facts.dataflow", "importer": "threat_report_agent.service"}
+    {
+      "old": "dataflow",
+      "new": "facts.dataflow",
+      "importer": "threat_report_agent.investigation"
+    },
+    {
+      "old": "dataflow",
+      "new": "facts.dataflow",
+      "importer": "threat_report_agent.persist_how"
+    },
+    {
+      "old": "dataflow",
+      "new": "facts.dataflow",
+      "importer": "threat_report_agent.service"
+    }
   ],
   "_legacy_path_imports_note": "MEASURED importers of a path that has already moved. The migration left `sys.modules` shims at the old paths, so these imports still work - which is exactly why they must be enumerated: an unregistered old-path import is how a moved implementation keeps a second access path alive, and plan 7.1 step 5 says production callers move to the new path FIRST. These FOUR are the remaining P4.1 work item; any importer NOT listed here fails --strict. TWO ENTRIES WERE REMOVED IN ROUND 74, not re-registered: `threat_report_agent.static_analysis` was the last importer of `dataflow` and `decode_primitives` by their old paths, and when it moved into `static/` its imports were migrated to `facts.dataflow` / `facts.decode_primitives` in the same step - so the ledger shrank from 6 to 4 because the code changed, and the gate reported the two entries as stale before they were deleted."
 }

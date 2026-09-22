@@ -248,12 +248,12 @@ from threat_report_agent.simulation_adapters import (
     simulation_policy_from_settings,
     static_phase_simulation_evidence,
 )
-from threat_report_agent.emulation_plan import (
+from threat_report_agent.emulation.emulation_plan import (
     _as_int_address,
     controlled_emulation_windows,
     unicorn_granted_windows_for_worker,
 )
-from threat_report_agent.controlled_emulation import (
+from threat_report_agent.emulation.controlled_emulation import (
     PLACEHOLDER_STATUSES,
     emulation_entry_key,
     has_real_simulation_result,

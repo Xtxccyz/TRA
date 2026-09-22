@@ -1327,7 +1327,7 @@ def _speakeasy_adapter(request: SimulationRequest) -> SimulationResult:
             shim_state = None
             shim_registered: list[str] = []
             try:
-                from threat_report_agent.vb6_runtime_shim import (
+                from threat_report_agent.emulation.vb6_runtime_shim import (
                     ARGUMENT_PAIRS_CAP,
                     SAMPLE_STRINGS_CAP,
                     install_vb6_shim,
@@ -1916,7 +1916,7 @@ def request_for_granted_window(
     """Build a granted-bytes request. ``sample_path`` is never a host sample."""
     granted = window.get("input_bytes")
     granted_bytes = granted if isinstance(granted, (bytes, bytearray)) else b""
-    from threat_report_agent.emulation_plan import _as_int_address
+    from threat_report_agent.emulation.emulation_plan import _as_int_address
 
     entry_address = _as_int_address(window.get("entry_address", window.get("function_entry", 0x1000000)))
     if entry_address is None:

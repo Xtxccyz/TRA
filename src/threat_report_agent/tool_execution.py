@@ -49,8 +49,8 @@ with workflow.unsafe.imports_passed_through():
         analyze_bytes,
         identify_format,
     )
-    from threat_report_agent.controlled_emulation import is_placeholder_status
-    from threat_report_agent.emulation_plan import (
+    from threat_report_agent.emulation.controlled_emulation import is_placeholder_status
+    from threat_report_agent.emulation.emulation_plan import (
         _as_int_address,
         controlled_emulation_windows,
     )
