@@ -86,16 +86,22 @@ def probe() -> dict[str, object]:
 
     # 4/5. ADR-0035: object-level alias accepted, name co-occurrence rejected.
     anchor = {"artifact": "sample.exe", "function": "FUN_140001000", "callsite": "0x140001010"}
-    producer = "decoded_buffer:0x14005d080"
-    candidate = {"decoder": "CryptDecrypt", "output": "0x14005d080", "input": "0x14005d000"}
+    producer = "evidence:decoded-buffer-1"
+    candidate = {
+        "decoder": "CryptDecrypt",
+        "image_base": "140000000",
+        "output_buffer": {"address_space": "ram", "address": "0x14005d080", "length": 64},
+    }
     positive_value = {
         "resolved": True,
         "api": "WinHttpSendRequest",
         "argument_index": 2,
-        "producer": producer,
+        "producer_evidence_id": producer,
+        "source_role": "decoded_output",
         "callsite": "0x140001010",
+        "source_buffer": {"address_space": "ram", "address": "0x14005d080", "length": 32},
     }
-    cooccurrence_value = {"resolved": True, "api": "WinHttpSendRequest"}  # same function, no trace
+    cooccurrence_value = {"resolved": True, "api": "WinHttpSendRequest", "argument_index": 2}
     observed["4_decoded_join_positive"] = decoded_output_consumer(
         producer, candidate, "api_argument_trace", positive_value, anchor
     )
