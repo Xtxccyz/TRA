@@ -32,7 +32,7 @@ from threat_report_agent.control_activities import (
     ModelPayloadCleanupWorkflow,
     ensure_model_payload_cleanup_schedule,
 )
-from threat_report_agent.tool_execution import (
+from threat_report_agent.tools.tool_execution import (
     StaticToolActivities,
     StaticToolRunWorkflow,
     ToolRunRequest,
@@ -375,7 +375,7 @@ def test_workflow_runs_durable_tool_slices_in_order(monkeypatch) -> None:
         return request.model_dump(mode="json")
 
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.workflow.execute_activity",
+        "threat_report_agent.tools.tool_execution.workflow.execute_activity",
         fake_execute_activity,
     )
 
@@ -409,7 +409,7 @@ def test_workflow_execution_timeout_allows_worker_cleanup(monkeypatch) -> None:
         return request.model_dump(mode="json")
 
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.workflow.execute_activity",
+        "threat_report_agent.tools.tool_execution.workflow.execute_activity",
         fake_execute_activity,
     )
 
@@ -459,7 +459,7 @@ def test_workflow_dispatches_control_and_scoped_execution_to_separate_queues(
         return request.model_dump(mode="json")
 
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.workflow.execute_activity",
+        "threat_report_agent.tools.tool_execution.workflow.execute_activity",
         fake_execute_activity,
     )
 
@@ -491,7 +491,7 @@ def test_workflow_finalizes_a_tool_run_when_execution_exhausts_retries(
         return request.model_dump(mode="json")
 
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.workflow.execute_activity",
+        "threat_report_agent.tools.tool_execution.workflow.execute_activity",
         fake_execute_activity,
     )
 
@@ -527,7 +527,7 @@ def test_workflow_propagates_cancelled_activity_cause(monkeypatch) -> None:
         return request.model_dump(mode="json")
 
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.workflow.execute_activity",
+        "threat_report_agent.tools.tool_execution.workflow.execute_activity",
         fake_execute_activity,
     )
 
@@ -607,15 +607,15 @@ def test_activity_cancellation_stops_ghidra_and_persists_cancelled(
             return GhidraRun("CANCELLED", {}, "", "", "GHIDRA_CANCELLED")
 
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.ScopedToolRunContentStore",
+        "threat_report_agent.tools.tool_execution.ScopedToolRunContentStore",
         RecordingScopedStore,
     )
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.GhidraHeadlessRunner",
+        "threat_report_agent.tools.tool_execution.GhidraHeadlessRunner",
         CancellableRunner,
     )
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.activity.heartbeat",
+        "threat_report_agent.tools.tool_execution.activity.heartbeat",
         lambda *_: None,
     )
     activities = StaticToolActivities(test_settings, store, database)
@@ -724,11 +724,11 @@ def test_activity_cancellation_stops_emulator_and_persists_cancelled(
             return Stored()
 
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.ScopedToolRunContentStore",
+        "threat_report_agent.tools.tool_execution.ScopedToolRunContentStore",
         RecordingScopedStore,
     )
     monkeypatch.setattr(
-        "threat_report_agent.tool_execution.activity.heartbeat",
+        "threat_report_agent.tools.tool_execution.activity.heartbeat",
         lambda *_: None,
     )
     activities = StaticToolActivities(settings, store, database)

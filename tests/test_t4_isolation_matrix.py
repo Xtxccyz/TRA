@@ -25,7 +25,7 @@ from threat_report_agent.simulation_adapters import (
     linux_x86_64_exit_elf,
 )
 from threat_report_agent.static_analysis import recovered_payload_from_verification
-from threat_report_agent.tool_execution import StaticToolActivities, ToolRunRequest
+from threat_report_agent.tools.tool_execution import StaticToolActivities, ToolRunRequest
 
 
 def _local_policy(**overrides: object) -> SimulationExecutionPolicy:

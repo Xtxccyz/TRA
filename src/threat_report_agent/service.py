@@ -324,7 +324,7 @@ from threat_report_agent.methodology import (
     FactLibrary,
     build_profile,
 )
-from threat_report_agent.tool_execution import (
+from threat_report_agent.tools.tool_execution import (
     ToolRunRequest,
     ToolRunResult,
     TemporalToolExecutor,

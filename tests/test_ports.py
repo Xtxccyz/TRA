@@ -336,7 +336,7 @@ def _canonical_classes() -> dict[str, type | None]:
     from threat_report_agent.ghidra_adapter import GhidraRun
     from threat_report_agent.model_gateway import ModelAttempt, ModelRequest
     from threat_report_agent.static_analysis import StaticResult
-    from threat_report_agent.tool_execution import ToolRunRequest, ToolRunResult
+    from threat_report_agent.tools.tool_execution import ToolRunRequest, ToolRunResult
 
     return {
         "PlanningRequestView": ModelRequest,

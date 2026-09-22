@@ -23,7 +23,7 @@ SOURCE = REPO / "src" / "threat_report_agent"
 
 #: The packages that existed, measured on disk, when this test was written. Present so the derived set cannot
 #: become quietly empty; the equality check below is what actually keeps the list honest.
-MEASURED = ("emulation", "facts", "intake", "investigation", "model", "report", "static")
+MEASURED = ("emulation", "facts", "intake", "investigation", "model", "report", "static", "tools")
 
 #: Data directories that must NOT be smoked as packages: they have no `__init__.py`, so `import
 #: threat_report_agent.<name>` would either fail or invent a namespace package.

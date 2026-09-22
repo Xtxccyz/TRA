@@ -41,7 +41,7 @@ with workflow.unsafe.imports_passed_through():
     from threat_report_agent.config import Settings
     from threat_report_agent.content_store import ContentStore, LocalContentStore, S3ContentStore
     from threat_report_agent.database import Database
-    from threat_report_agent.tool_execution import StaticToolActivities, StaticToolRunWorkflow
+    from threat_report_agent.tools.tool_execution import StaticToolActivities, StaticToolRunWorkflow
 
 
 class RetentionActivities:

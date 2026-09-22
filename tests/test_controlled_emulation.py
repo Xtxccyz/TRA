@@ -22,7 +22,7 @@ from threat_report_agent.simulation_adapters import (
     request_for_granted_window,
     simulation_policy_from_settings,
 )
-from threat_report_agent.tool_execution import StaticToolActivities, ToolRunRequest
+from threat_report_agent.tools.tool_execution import StaticToolActivities, ToolRunRequest
 
 
 def _docker_settings(**overrides: object) -> SimpleNamespace:
@@ -987,7 +987,7 @@ def test_a_window_the_budget_excluded_does_not_change_the_overall_status() -> No
     branch and reported FAILED. A window that never ran says nothing about the outcome, so it must not
     participate in the aggregation at all.
     """
-    from threat_report_agent.tool_execution import emulation_overall_from_results
+    from threat_report_agent.tools.tool_execution import emulation_overall_from_results
 
     only_unsupported = [
         {"status": "UNSUPPORTED", "simulator": "qiling"},
@@ -1895,7 +1895,7 @@ def test_post_static_emu_still_needed_for_uncovered_start_routine() -> None:
 
 def test_emulation_overall_keeps_unicorn_success_when_speakeasy_fails() -> None:
     """Leftover remainder: Speakeasy EXECUTION_ERROR must not hide Unicorn HOW."""
-    from threat_report_agent.tool_execution import emulation_overall_from_results
+    from threat_report_agent.tools.tool_execution import emulation_overall_from_results
 
     overall, error = emulation_overall_from_results(
         [
@@ -1917,7 +1917,7 @@ def test_emulation_overall_keeps_unicorn_success_when_speakeasy_fails() -> None:
 
 
 def test_emu_worker_does_not_default_speakeasy_on() -> None:
-    from threat_report_agent.tool_execution import StaticToolActivities
+    from threat_report_agent.tools.tool_execution import StaticToolActivities
 
     source = inspect.getsource(StaticToolActivities._execute_controlled_emulator)
     assert 'get("allow_speakeasy", False)' in source

@@ -114,7 +114,8 @@ SMOKE_ALWAYS: tuple[str, ...] = ("threat_report_agent.facts",)
 #: `control-worker: NOT RUNNING`, while the import smoke stayed silent - it never imported the new module at all.
 SMOKE_MODULES: tuple[str, ...] = (
     "threat_report_agent.control_activities",
-    "threat_report_agent.tool_execution",
+    "threat_report_agent.tools.tool_execution",
+    "threat_report_agent.tools.tool_authoring",
     "threat_report_agent.cli",
 )
 

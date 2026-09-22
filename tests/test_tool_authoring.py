@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from threat_report_agent import tool_authoring as ta
+from threat_report_agent.tools import tool_authoring as ta
 
 LIMIT_KEYS = {"wall_seconds", "cpu_seconds", "instruction_budget", "max_output_bytes"}
 

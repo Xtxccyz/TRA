@@ -27,8 +27,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 REPO = Path(__file__).resolve().parents[1]
 SOURCE = REPO / "src" / "threat_report_agent"
-TOOL = SOURCE / "tool_execution.py"
-CONTROL = SOURCE / "control_activities.py"
+
+
+def implementation(dotted: str) -> tuple[Path, str]:
+    """Resolve a module's implementation through the import system, and refuse to read a compatibility shim.
+
+    MEASURED TWICE NOW, which is why this helper exists: P2-M's move turned a hard-coded source path into a shim and
+    three assertions silently started checking shim text, and P2-T then moved `tool_execution.py` into `tools/`,
+    which would have done exactly the same to this file's `TOOL` constant. Resolving through the import system
+    follows the module wherever the plan moves it, and the guard below fails loudly instead of drifting.
+    """
+    module = importlib.import_module(dotted)
+    path = Path(module.__file__)
+    text = path.read_text(encoding="utf-8")
+    assert "Compatibility shim" not in text, (
+        f"{dotted} resolved to a compatibility shim at {path}, not the implementation"
+    )
+    return path, text
+
+
+TOOL, TOOL_SOURCE = implementation("threat_report_agent.tools.tool_execution")
+CONTROL, CONTROL_SOURCE = implementation("threat_report_agent.control_activities")
 
 #: The registered names each class must own, read from Temporal's own activity definitions.
 #: `execute_static_tool` is the ONLY one the tool role worker registers; the other four tool activities run on the
@@ -86,7 +105,7 @@ def test_the_control_module_is_the_one_that_drives_the_service() -> None:
     meaningful claim is that BOTH imports sit inside function bodies, so importing the control module does not drag
     the service in, which is the behaviour that existed before the extraction and must be preserved by it.
     """
-    tree = ast.parse(CONTROL.read_text(encoding="utf-8"))
+    tree = ast.parse(CONTROL_SOURCE)
     module_level = [
         ast.unparse(node)
         for node in tree.body
@@ -110,7 +129,7 @@ def test_activity_names_are_unchanged_and_ownership_moved() -> None:
     """Read from Temporal's own definitions, so a rename cannot hide behind a matching class attribute."""
     module = importlib.import_module("threat_report_agent.config")
     settings = module.Settings.from_environment()
-    tool = importlib.import_module("threat_report_agent.tool_execution")
+    tool = importlib.import_module("threat_report_agent.tools.tool_execution")
     control = importlib.import_module("threat_report_agent.control_activities")
 
     assert registered_names(tool.StaticToolActivities(settings, None)) == TOOL_ACTIVITY_NAMES
@@ -123,7 +142,7 @@ def test_activity_names_are_unchanged_and_ownership_moved() -> None:
 
 def test_the_composition_root_registers_the_same_names_per_role() -> None:
     """Parsed from `run_static_worker`, because that registration is the behaviour Temporal actually sees."""
-    tree = ast.parse(CONTROL.read_text(encoding="utf-8"))
+    tree = ast.parse(CONTROL_SOURCE)
     worker_function = next(
         node for node in tree.body
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "run_static_worker"
@@ -162,7 +181,7 @@ def test_the_composition_root_registers_the_same_names_per_role() -> None:
 
 
 def test_the_workflows_dispatch_the_same_activity_names() -> None:
-    tree = ast.parse(CONTROL.read_text(encoding="utf-8"))
+    tree = ast.parse(CONTROL_SOURCE)
     dispatched = {
         node.value
         for node in ast.walk(tree)
@@ -184,7 +203,7 @@ def test_every_name_the_composition_root_registers_exists_in_its_module() -> Non
     name exists. This one resolves each registered name in the module's actual namespace.
     """
     control = importlib.import_module("threat_report_agent.control_activities")
-    tree = ast.parse(CONTROL.read_text(encoding="utf-8"))
+    tree = ast.parse(CONTROL_SOURCE)
     function = next(
         node for node in tree.body
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "run_static_worker"
@@ -231,7 +250,7 @@ def test_the_control_plane_module_is_import_smoked_in_every_container() -> None:
 
 def test_the_schedules_keep_their_utc_times() -> None:
     """03:17 for retention cleanup, 03:23 for audit sealing, SKIP overlap - the moved code must be byte-equal."""
-    source = CONTROL.read_text(encoding="utf-8")
+    source = CONTROL_SOURCE
     assert "hour=[ScheduleRange(start=3, end=3)]" in source
     assert "minute=[ScheduleRange(start=17, end=17)]" in source, "the retention schedule moved off 03:17 UTC"
     assert "minute=[ScheduleRange(start=23, end=23)]" in source, "the audit-seal schedule moved off 03:23 UTC"
