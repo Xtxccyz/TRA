@@ -4563,6 +4563,44 @@ def _repair_unrecovered_creation_flags(
     return repaired, repaired != raw
 
 
+def _operational_limitation_lines(document: Mapping[str, object]) -> list[str]:
+    """Limitations the PIPELINE reported, rendered independently of mechanism bookkeeping.
+
+    MEASURED (adversarial audit, then a reader-level test, then this gate): `document[
+    "analyst_report_limitations"]` was reachable by a reader only through `_verification_note`, which begins
+
+        if total_n <= 0 and not ready:
+            return []
+
+    so a run that verified no mechanism - the run whose explanation matters MOST - silently lost the whole
+    limitations block. Published bodies carry `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database
+    holds 7 timed-out tool runs, 2 cancelled tool runs and 49 cancelled tasks. And `render_stop_kinds` consumes
+    its `limitations` argument ONLY through `_tool_authoring_blockers` / `tool_authoring_required_entries`, so
+    even on the path that runs, a non-tool-authoring notice was discarded.
+
+    These entries are NOT one of the three stop kinds and NOT mechanism bookkeeping: they say the pipeline
+    itself had a problem, which is a different claim from "the sample stopped here". They are therefore printed
+    on their own, and a pipeline failure must never be readable as a property of the sample.
+    """
+    sources = document.get("analyst_report_limitations")
+    if not isinstance(sources, (list, tuple)):
+        return []
+    rendered = set(_tool_authoring_blockers(sources))
+    rendered.update(str(item) for item in tool_authoring_required_entries(sources))
+    operational: list[str] = []
+    for item in sources:
+        text = str(item or "").strip()
+        if not text or text in rendered or text in operational:
+            continue
+        operational.append(text)
+    if not operational:
+        return []
+    lines = ["**运行过程中的限制（与样本行为无关）：**", ""]
+    lines.extend(f"- {item}" for item in operational)
+    lines.append("")
+    return lines
+
+
 def _verification_note(document: Mapping[str, object], rows: Sequence[Mapping[str, object]]) -> list[str]:
     coverage = document.get("analysis_coverage")
     if not isinstance(coverage, Mapping):
@@ -4577,7 +4615,10 @@ def _verification_note(document: Mapping[str, object], rows: Sequence[Mapping[st
     registry = BehaviorCatalog()
     ready = [row for row in _mechanism_records(rows) if _mechanism_ready(row)]
     if total_n <= 0 and not ready:
-        return []
+        # The mechanism bookkeeping below is skipped, but the PIPELINE's own limitations must not be: a run
+        # that verified no mechanism is exactly the run whose explanation matters most. Returning `[]` here is
+        # what hid every operational limitation - see `_operational_limitation_lines`.
+        return _operational_limitation_lines(document)
     if total_n <= 0:
         total_n = max(len(_mechanism_records(rows)), len(ready))
         verified_n = len(ready)
@@ -4657,6 +4698,13 @@ def _verification_note(document: Mapping[str, object], rows: Sequence[Mapping[st
     lines.extend(
         render_stop_kinds(stop_tokens, limitation_sources).splitlines()
     )
+    # OPERATIONAL limitations get their own block, because the channel above is NOT a general one.
+    #
+    # `render_stop_kinds` consumes `limitations` ONLY through `_tool_authoring_blockers` and
+    # `tool_authoring_required_entries`, so any limitation that is not a tool-authoring blocker or ticket is
+    # DISCARDED. The block below is rendered by a helper that does not depend on mechanism counts, so it is
+    # also emitted on the path where `ready` is empty (see `_operational_limitation_lines`).
+    lines.extend(_operational_limitation_lines(document))
     lines.append("")
     return lines
 
