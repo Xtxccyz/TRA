@@ -4,7 +4,7 @@ from threat_report_agent.investigation import ActionSpec, ActionType
 from threat_report_agent.service import AnalysisService
 from threat_report_agent.database import Database
 from threat_report_agent.content_store import LocalContentStore
-from threat_report_agent.report.reporting import document_to_markdown
+from threat_report_agent.report.reporting import render_ledger_markdown
 from threat_report_agent.models import AnalysisTask, Evidence, ReportRevision
 
 
@@ -328,7 +328,7 @@ def test_resource_payload_frontier_and_static_format_probe_are_deep_mined(test_s
 
 
 def test_report_renders_argument_trace_as_how_not_raw_field_dump() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "case_id": "case-1",
             "task_id": "task-1",
@@ -406,7 +406,7 @@ def test_static_submission_persists_seed_map_and_queues_frontier(test_settings) 
         revision = session.query(ReportRevision).filter_by(task_id=result.task_id).first()
         assert revision is not None
         assert "Investigation Seed Map" not in revision.markdown
-        assert "Investigation Seed Map" in document_to_markdown(revision.document)
+        assert "Investigation Seed Map" in render_ledger_markdown(revision.document)
         timeline_rows = [
             row
             for module in revision.document.get("modules", [])

@@ -15,7 +15,7 @@ from threat_report_agent.gold_output_bar import (
 )
 from threat_report_agent.investigation import ActionType, DeepMiningPlanner
 from threat_report_agent.main import create_app
-from threat_report_agent.report.reporting import build_report_document, document_to_markdown
+from threat_report_agent.report.reporting import build_report_document, render_ledger_markdown
 
 
 def _ns(**kwargs: object) -> SimpleNamespace:
@@ -325,7 +325,7 @@ def _document(evidence, claims, links):
 
 def test_rich_recovered_ledger_meets_simulated_gold_bar() -> None:
     evidence, claims, links = _rich_ledger()
-    markdown = document_to_markdown(_document(evidence, claims, links))
+    markdown = render_ledger_markdown(_document(evidence, claims, links))
     result = score_official_markdown(markdown, rich_ledger=True)
     assert result.passed, format_gold_bar(result)
     assert result.score >= GOLD_BAR_PASS_SCORE
@@ -342,7 +342,7 @@ def test_thin_ledger_stays_honest_and_still_projects_pe_and_emu() -> None:
         {"format": "PE32", "machine": "0x14c", "entry_rva": 0x1000, "image_base": 0x400000, "imports": []},
         nature="STATIC_OBSERVED",
     )
-    markdown = document_to_markdown(_document([pe], [], []))
+    markdown = render_ledger_markdown(_document([pe], [], []))
     result = score_official_markdown(markdown, rich_ledger=False)
     assert "PE basics (static header)" in markdown
     assert "Controlled emulation (isolated worker" in markdown
@@ -697,7 +697,7 @@ def test_ghidra_shaped_pipeline_meets_simulated_gold_bar(test_settings) -> None:
         )
     )
     evidence = [*static_rows, *_observations_to_evidence(observations)]
-    markdown = document_to_markdown(_document(evidence, [], []))
+    markdown = render_ledger_markdown(_document(evidence, [], []))
     result = score_official_markdown(markdown, rich_ledger=True)
     assert result.passed, format_gold_bar(result) + "\n\n--- markdown head ---\n" + markdown[:4000]
     assert result.score >= GOLD_BAR_PASS_SCORE
@@ -724,7 +724,7 @@ def _strip_decoded_constants(markdown: str) -> str:
 
 def test_benign_t5_bar_allows_decoded_constants_miss_without_weakening_scorer() -> None:
     evidence, claims, links = _rich_ledger()
-    markdown = _strip_decoded_constants(document_to_markdown(_document(evidence, claims, links)))
+    markdown = _strip_decoded_constants(render_ledger_markdown(_document(evidence, claims, links)))
     gold = score_official_markdown(markdown, rich_ledger=True)
     assert not gold.passed
     assert [item.check_id for item in gold.blocking_failures] == ["decoded_constants"]
@@ -741,7 +741,7 @@ def test_benign_t5_bar_allows_decoded_constants_miss_without_weakening_scorer() 
 def test_benign_t5_bar_rejects_false_malicious_claim() -> None:
     evidence, claims, links = _rich_ledger()
     markdown = (
-        document_to_markdown(_document(evidence, claims, links))
+        render_ledger_markdown(_document(evidence, claims, links))
         + "\nseverity: HIGH. verdict: malicious. confirmed C2.\n"
     )
     gold = score_official_markdown(markdown, rich_ledger=True)

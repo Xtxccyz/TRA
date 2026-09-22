@@ -6,7 +6,7 @@ from threat_report_agent.investigation import mechanism_completeness_score
 from threat_report_agent.investigation import MechanismPlaybookRegistry, verify_dynamic_api_mechanism
 from threat_report_agent.product_certification import AnalysisResultClass, classify_artifact_result
 from threat_report_agent.product_certification import analysis_coverage, mechanism_coverage_metrics
-from threat_report_agent.report.reporting import build_mechanism_projections, document_to_markdown
+from threat_report_agent.report.reporting import build_mechanism_projections, render_ledger_markdown
 from threat_report_agent.service import AnalysisService
 from threat_report_agent.static_analysis import derive_function_mechanism_facts
 
@@ -125,7 +125,7 @@ def test_navigation_claims_do_not_materialize_as_mechanism_candidates(
 
 
 def test_navigation_only_claim_is_not_a_core_finding() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "report_version": "3.0",
             "report_sections": [
@@ -249,7 +249,7 @@ def test_missing_external_component_is_a_structural_static_boundary() -> None:
 
 
 def test_model_runtime_assertion_is_rendered_as_static_conditional() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "report_version": "3.0",
             "report_sections": ["Executive Assessment", "Key Static Findings"],
@@ -414,7 +414,7 @@ def test_verified_specialist_fields_are_not_overwritten_by_generic_projection() 
 
 
 def test_nested_verified_flow_is_rendered_in_primary_report() -> None:
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "report_version": "3.0",
         "report_sections": ["Executive Assessment", "Key Static Findings", "Verified Mechanisms", "Reconstructed Static Behavior Flow"],
         "case_id": "case-1",
@@ -436,7 +436,7 @@ def test_nested_verified_flow_is_rendered_in_primary_report() -> None:
 
 
 def test_production_snapshot_with_unclosed_mechanisms_has_no_semantic_flow() -> None:
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "report_version": "3.0",
         "report_sections": ["Executive Assessment", "Reconstructed Static Behavior Flow"],
         "case_id": "case-1",

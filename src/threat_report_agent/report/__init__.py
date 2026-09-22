@@ -16,10 +16,11 @@ report path already has an interface: the `ReportRevisionWriter` port in `threat
 import `threat_report_agent.report.<module>` directly, or the old path, which is a `sys.modules` shim and therefore
 the SAME module object.
 
-STILL OUTSTANDING IN P2-R (deliberately NOT part of a structural move): plan 7.3 step 5 retires the tests-only
-`document_to_markdown` exit inside `reporting.py`. It is measured at 9 test files / 78 references, it touches the
-"one official markdown producer" rule, and it is a TEST-SURFACE BEHAVIOUR change, so it must be its own step rather
-than ride along with this one.
+P2-R IS COMPLETE, including plan 7.3 step 5: the tests-only `document_to_markdown` exit is retired. It had a V3
+projection branch and a ~300-line pre-V3 renderer with ZERO production callers; the projection survives as
+`reporting.render_ledger_markdown`, which says in its docstring that it is NOT the official body, and the pre-V3
+renderer went with the old exit. `analyst_report.compose_official_markdown` is the ONE official markdown producer,
+pinned positively by `tests/test_report_structure_contract.py`.
 """
 
 __all__: tuple[str, ...] = ()

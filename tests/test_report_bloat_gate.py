@@ -1,7 +1,7 @@
 from threat_report_agent.report.reporting import (
     REPORT_MAX_MARKDOWN_BYTES,
     apply_report_display_budget,
-    document_to_markdown,
+    render_ledger_markdown,
     report_bloat_violations,
 )
 
@@ -28,7 +28,7 @@ def test_one_round_report_budget_keeps_how_past_96_kib() -> None:
 
 
 def test_unanswered_behavior_leads_stay_compact_instead_of_fake_how() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "case_id": "case-1",
             "task_id": "task-1",
@@ -74,7 +74,7 @@ def test_unanswered_behavior_leads_stay_compact_instead_of_fake_how() -> None:
 
 
 def test_report_banner_treats_emulators_as_static_not_sandbox_dynamic() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "case_id": "case-1",
             "task_id": "task-1",

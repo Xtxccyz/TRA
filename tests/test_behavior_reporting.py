@@ -12,7 +12,7 @@ from threat_report_agent.report.reporting import (
     build_report_document,
     build_runtime_sequence,
     build_unique_execution_threads,
-    document_to_markdown,
+    render_ledger_markdown,
     report_one_round_readiness_violations,
     report_v3_quality_violations,
 )
@@ -282,7 +282,7 @@ def test_report_markdown_does_not_present_same_artifact_injects_as_injection() -
         selected_modules=["executive_summary", "behavior_attack"],
     )
 
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "INJECTS; INFERRED" not in markdown
     assert not any(
         "INJECTS" in line and "-->" in line and line.count("`sample.dll`") >= 2
@@ -480,7 +480,7 @@ def test_report_exposes_behavior_projection_without_attribution_summary() -> Non
     assert finding["finding_status"] == "CANDIDATE"
     summary = document["modules"][0]["rows"][0]["summary"]
     assert "APT29" not in summary
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Behavior Overview" in markdown
     assert "CANDIDATE" in markdown
 
@@ -572,7 +572,7 @@ def test_behavior_overview_renders_condition_output_consumer_and_evidence() -> N
         claim_evidence=[SimpleNamespace(claim_id="c-full", evidence_id="e1", stance="SUPPORTS")],
         relations=[], gates=[], model_calls=[], selected_modules=["executive_summary"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Condition:" in markdown
     assert "Output:" in markdown
     assert "Consumer:" in markdown
@@ -869,7 +869,7 @@ def test_cover_findings_drop_fun_dump_and_unknown_behavior_when_named_catalog_ex
         "analysis_quality": {},
         "analysis_coverage": {},
     }
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     overview = markdown.split("### Behavior Overview", 1)[-1].split("## 3.", 1)[0]
     findings = markdown.split("## 3. Key Static Findings", 1)[-1].split("## 4.", 1)[0]
     cover = overview + findings
@@ -2084,7 +2084,7 @@ def test_report_markdown_renders_catalog_table_and_unique_threads_without_empty_
         relations=[], gates=[], model_calls=[],
         selected_modules=["executive_summary", "behavior_attack"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Discovered catalog behaviors" in markdown
     assert "thread-and-callback" in markdown
     assert "lateral-movement" not in markdown
@@ -2191,7 +2191,7 @@ def test_report_projects_gold_like_sequence_constants_and_emu_status() -> None:
         relations=[], gates=[], model_calls=[],
         selected_modules=["executive_summary", "static_triage", "behavior_attack"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "PE basics (static header)" in markdown
     assert "0x1420" in markdown or "0x140001420" in markdown
     assert "Ordered static call sequence (reconstructed)" in markdown
@@ -2418,7 +2418,7 @@ def test_gold_flow_survives_large_finding_volume() -> None:
             }
         ],
     }
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "PE basics (static header)" in markdown
     assert "Ordered static call sequence (reconstructed)" in markdown
     assert "Controlled emulation (isolated worker, not host execution)" in markdown
@@ -2464,7 +2464,7 @@ def test_unclassified_calls_do_not_crash_report_compose() -> None:
         relations=[], gates=[], model_calls=[],
         selected_modules=["executive_summary", "static_triage", "behavior_attack"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "LoadLibraryA" in markdown
     assert "Ordered static call sequence (reconstructed)" in markdown
 
@@ -2486,7 +2486,7 @@ def test_stack_frame_spills_are_omitted_from_semantic_how() -> None:
 
 
 def test_recovered_function_parameter_consumer_renders_concrete_how() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "case_id": "case-how",
             "task_id": "task-how",
@@ -2645,7 +2645,7 @@ def test_name_only_api_seeds_stay_candidate_and_omit_overclaimed_attack() -> Non
         model_calls=[],
         selected_modules=["executive_summary", "behavior_attack"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "`T1055`" not in markdown
     assert "`T1071`" not in markdown
     assert "`T1547`" not in markdown
@@ -2705,7 +2705,7 @@ def test_s4_closed_empty_attempts_renders_blocked_not_static_boundary() -> None:
     s4 = {item["thread_id"]: item for item in document["analysis_quality"]["s4_orchestration"]}
     assert s4["thread-vacuous"]["status"] in {"BLOCKED", "PARTIAL"}
     assert s4["thread-vacuous"]["status"] != "CLOSED"
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "S4 orchestration" in markdown
     assert "thread-vacuous" in markdown
     assert "status=**BLOCKED**" in markdown or "status=**PARTIAL**" in markdown
@@ -2738,7 +2738,7 @@ def test_persist_claim_ready_without_trace_renders_closed_not_blocked() -> None:
     )
     s4 = {item["thread_id"]: item for item in document["analysis_quality"]["s4_orchestration"]}
     assert s4["thread-process"]["status"] == "CLOSED"
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "thread-process" in markdown
     assert "status=**CLOSED**" in markdown
     assert "status=**BLOCKED**" not in markdown
@@ -3182,7 +3182,7 @@ def test_packed_stub_iat_does_not_appear_as_verified_how() -> None:
             }
         ],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Static analysis plan" in markdown
     assert STATIC_ANALYSIS_PLAN_SNAPSHOT_PATH in markdown
     assert "unpack" in markdown
@@ -3241,7 +3241,7 @@ def test_missing_creation_flags_renders_named_unknown() -> None:
         model_calls=[],
         selected_modules=["executive_summary"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "UNKNOWN(creation_flags)" in markdown
     assert "UNKNOWN(parent_identity)" in markdown
     assert "open investigation gap" not in markdown.casefold()
@@ -3272,7 +3272,7 @@ def test_missing_static_analysis_plan_key_still_builds_report() -> None:
         model_calls=[],
         selected_modules=["executive_summary", "behavior_attack"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert document["case_id"] == "case-old"
     assert document["task_id"] == "task-plan"
     assert "Static analysis plan" not in markdown
@@ -3292,8 +3292,8 @@ def test_missing_static_analysis_plan_key_still_builds_report() -> None:
         model_calls=[],
         selected_modules=["executive_summary"],
     )
-    assert document_to_markdown(document_legacy)
-    assert "Static analysis plan" not in document_to_markdown(document_legacy)
+    assert render_ledger_markdown(document_legacy)
+    assert "Static analysis plan" not in render_ledger_markdown(document_legacy)
 
 
 def test_plan_completion_does_not_verify_how_or_weaken_readiness() -> None:
@@ -3327,7 +3327,7 @@ def test_plan_completion_does_not_verify_how_or_weaken_readiness() -> None:
         model_calls=[],
         selected_modules=["executive_summary"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "status=**COMPLETED**" in markdown
     assert "not verified HOW closure" in markdown
     verified_block = markdown.split("## 4. Verified Mechanisms", 1)[1].split("## 5.", 1)[0]

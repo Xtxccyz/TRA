@@ -7,7 +7,7 @@ command dispatch from strcmp, DoS/SAM), while coverage said 1/13 mechanisms
 were verified (8%).
 
 Official GET markdown must be the analyst document.  The V3 ledger remains
-available via document_to_markdown / Evidence Explorer.  Raising the 8%
+available via render_ledger_markdown / Evidence Explorer.  Raising the 8%
 figure by weakening verifiers is out of scope; the report must explain the
 gate instead of hiding recovered facts.
 """
@@ -29,7 +29,7 @@ from threat_report_agent.prompts import PromptRegistry
 from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
     build_report_document,
-    document_to_markdown,
+    render_ledger_markdown,
 )
 
 
@@ -192,7 +192,7 @@ def test_official_dll_report_is_analyst_prose_not_a_ledger() -> None:
 
     document = _dll_like_document()
     official = render_official_markdown(document)
-    ledger = document_to_markdown(document)
+    ledger = render_ledger_markdown(document)
 
     assert ANALYST_CONCLUSION_HEADING in official
     assert "0x1800011c0" in official
@@ -371,7 +371,7 @@ def test_seed_map_stays_in_the_ledger_not_the_official_report() -> None:
         relations=[], gates=[], model_calls=[], selected_modules=["static_triage"],
     )
     official = render_official_markdown(document)
-    ledger = document_to_markdown(document)
+    ledger = render_ledger_markdown(document)
     assert "Investigation Seed Map" not in official
     assert "Investigation Seed Map" in ledger
     assert "Which module is resolved" in ledger

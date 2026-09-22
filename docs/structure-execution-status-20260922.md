@@ -1,14 +1,14 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 31 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 32 条，本文件只汇总。
 
-- 本文档描述的树经核验于 HEAD `d563609e816d0664823ff4b626ffa10115aaedfe`（本轮改动在该提交之上，与本文件一并提交）
+- 本文档描述的树经核验于 HEAD `b33ebeb68d19554dcea97e76744b517d0e1ae7f1`（本轮改动在该提交之上，与本文件一并提交）
 - **structure_status：`IN_PROGRESS`**
 - **capability_status：`UNVERIFIED`**
 
 ## 一、为什么不是 READY / ACCEPTED
 
-Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phase 0 and Phase 1 are complete. Phase 2 has EIGHT packages in place with 24 moved paths, the report package is now COMPLETE (4 of 4 modules) and BOTH recorded import cycles are retired with an empty allowlist. Phase 2 is still NOT complete: P2-R's step-5 retirement of the tests-only `document_to_markdown` exit, the 7 investigation siblings that need their own edge analysis, and P2-TK (`task/`) remain. Phases 3-5 have not started. The deployed images DO equal the tree - 108 files x 8 services, missing=0 differing=0 container-only=0, with 36 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient.
+Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phase 0 and Phase 1 are complete. Phase 2 has EIGHT packages in place with 24 moved paths, report/ is COMPLETE including plan 7.3 step 5, and BOTH recorded import cycles are retired with an empty allowlist. Phase 2 is still NOT complete: the 7 investigation siblings (starting with `investigation_protocol.py`, which must also resolve the recorded `_function_call_names` duplication) and P2-TK (`task/`) remain. Phases 3-5 have not started. The deployed images DO equal the tree - 108 files x 8 services, missing=0 differing=0 container-only=0, with 36 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient.
 
 `capability_status` is a different axis: the Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) were not touched by this plan's execution. `structure_status=READY` must never imply `capability_status=ACCEPTED`.
 
@@ -18,14 +18,14 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 |---|---|
 | phase_0 | COMPLETE (P0.1-P0.6, plus repairs P0.3-r2/r3 and P0.5-r2/r3) |
 | phase_1 | COMPLETE (P1.1-P1.4, plus repairs P1.1-r2 and P1.3-r3) |
-| phase_2 | IN PROGRESS - 8 packages in place, and report/ is COMPLETE (4 of 4 modules); remaining: P2-R step 5 (retire the tests-only `document_to_markdown` exit), the 7 investigation siblings (`investigation_protocol.py` + 6) which must also resolve the `_function_call_names` duplication, and P2-TK task |
+| phase_2 | IN PROGRESS - 8 packages in place; report/ is COMPLETE (4 of 4 modules and plan 7.3 step 5); remaining: the 7 investigation siblings (`investigation_protocol.py` + 6), which must also resolve the recorded `_function_call_names` duplication, and P2-TK task |
 | phase_3 | NOT STARTED (split AnalysisService) |
 | phase_4 | NOT STARTED (remove shims) |
 | phase_5 | NOT STARTED (re-verification; the DSH suite has never been run in this session) |
 
 ## 三、机械条件（P5.1）
 
-108 files x 8 services, missing=0 differing=0 container-only=0, and the import smoke imports 36 enumerated modules in every container (35 before P2-R), with all 11 containers running
+108 files x 8 services, missing=0 differing=0 container-only=0, and the import smoke imports 36 enumerated modules in every container, with all 11 containers running
 
 四道门禁在 HEAD 上全部通过：结构 diff、导入图 `--strict`、行为探针（含 item 8「移动模块同一性」）、部署 `--strict --import-smoke`。全量 pytest 的失败**节点集合**与 P0.2 基线一致。
 
@@ -50,6 +50,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 - P2-M
 - P2-R.1
 - P2-R.2-5
+- P2-R.5
 - P2-R.reporting
 - P2-R.small-modules
 - P2-S.1
@@ -68,12 +69,11 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 
 ## 六、后继者必须先做的事
 
-1. BOTH plan conflicts are RESOLVED and recorded (`docs/plan-conflict-resolutions-20260922.md`), and BOTH import cycles are retired with `known_cycles` EMPTY. Nothing is blocked on the user.
-2. finish P2-R: retire the tests-only `document_to_markdown` exit in its own step (measured at 9 test files / 78 references). `tests/test_report_structure_contract.py` pins its current state and says the pin must be INVERTED deliberately, not deleted.
-3. then the 7 investigation siblings, starting with `investigation_protocol.py`. That step must ALSO resolve the recorded `_function_call_names` duplication, because it is the first step allowed to edit both `investigation_protocol.py` and `report/reporting.py` (the policy entry says so).
-4. then P2-TK (`task/`)
-5. DECIDE `tool_authoring`: it has no production importer today (only `tests/test_tool_authoring.py`).
-6. then P3-P5, and run the DSH suite separately - pytest passing must not be used to offset it
+1. BOTH plan conflicts are RESOLVED and recorded (`docs/plan-conflict-resolutions-20260922.md`), BOTH import cycles are retired with `known_cycles` EMPTY, and P2-R is now COMPLETE. Nothing is blocked on the user.
+2. next: the 7 investigation siblings, starting with `investigation_protocol.py`. That step must ALSO resolve the recorded `_function_call_names` duplication, because it is the first step allowed to edit both `investigation_protocol.py` and `report/reporting.py` (the policy entry says so).
+3. then P2-TK (`task/`)
+4. DECIDE `tool_authoring`: it has no production importer today (only `tests/test_tool_authoring.py`).
+5. then P3-P5, and run the DSH suite separately - pytest passing must not be used to offset it
 
 ## 七、已记录、但**不得**在结构步骤里修的行为缺陷
 

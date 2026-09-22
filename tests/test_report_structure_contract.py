@@ -31,6 +31,7 @@ Fixing either changes report text, which P1.4 and P2-R forbid inside a structura
 from __future__ import annotations
 
 import ast
+import importlib
 import inspect
 import sys
 from pathlib import Path
@@ -277,7 +278,7 @@ def test_no_second_copy_of_the_composer_exists_under_report() -> None:
 # The two small report modules that followed the same recipe
 # ------------------------------------------------------------------------------------------------------------
 MOVED_MODULES = {
-    "reporting": ("build_report_document", "REPORT_MODULES", "document_to_markdown"),
+    "reporting": ("build_report_document", "REPORT_MODULES", "render_ledger_markdown"),
     "report_verification": ("verify_report_correctness", "corrections_summary", "correctness_summary"),
     "gold_output_bar": (),
 }
@@ -317,49 +318,42 @@ def test_the_small_report_modules_moved_with_the_same_recipe() -> None:
             assert forbidden not in text, f"{name} imports its own old path"
 
 
-def test_the_document_to_markdown_test_exit_is_still_present_and_still_tests_only() -> None:
-    """Plan 7.3 step 5 defers this on purpose, and this pins the deferral so it cannot happen by accident.
+def test_the_document_to_markdown_test_exit_has_been_retired() -> None:
+    """P2-R step 5 is DONE, and this pin is INVERTED deliberately in the commit that did it - as it instructed.
 
-    `document_to_markdown` is a second path to official markdown that only TESTS use. Plan 7.3 requires retiring it
-    in its own step, because the rule it protects is "one Report Revision, one official markdown producer", and
-    deleting it changes the test surface (measured at 9 test files / 78 references) rather than the structure.
+    MEASURED before the retirement (`.scratch/p2r5-branch-split.py`, `.scratch/p2r5_legacy_plugin.py`):
+    `document_to_markdown` had ZERO production callers and two branches - a V3 projection and a ~300-line pre-V3
+    renderer. 49 tests depended on the projection and 7 exercised the pre-V3 renderer, each of whose assertions the
+    projection also satisfies under a clearer label, so retiring it lost nothing.
 
-    So: it must still exist right now, it must still be reachable through the shim after the move, and it must NOT
-    have a production caller. When the retirement step happens, this test is inverted deliberately in that commit.
+    What must hold now: the retired name is GONE as code, and the ledger projection is reachable under the explicit
+    name that says which artifact it produces.
     """
     import importlib
 
-    old = importlib.import_module("threat_report_agent.reporting")
-    new = importlib.import_module("threat_report_agent.report.reporting")
-    assert callable(old.document_to_markdown), (
-        "`document_to_markdown` is gone; if the P2-R step-5 retirement was performed, invert this test and record "
-        "it in that step's checkpoint rather than deleting the pin"
+    reporting = importlib.import_module("threat_report_agent.report.reporting")
+    assert not hasattr(reporting, "document_to_markdown"), (
+        "the retired test exit is back; plan 7.3 step 5 removed it so that it could not be mistaken for a second "
+        "official markdown producer"
     )
-    assert old.document_to_markdown is new.document_to_markdown
+    assert callable(reporting.render_ledger_markdown), "the ledger projection must stay reachable"
 
-    production_callers: list[str] = []
-    for path in sorted(PACKAGE.rglob("*.py")):
-        if "__pycache__" in path.parts or path.name == "reporting.py":
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-        # AST, not a text search: MEASURED - the first version of this check flagged `report/__init__.py`, which
-        # only MENTIONS the name in its docstring. A docstring is an `ast.Constant`, so it is invisible here.
-        for node in ast.walk(tree):
-            found = (
-                isinstance(node, ast.Name) and node.id == "document_to_markdown"
-            ) or (
-                isinstance(node, ast.Attribute) and node.attr == "document_to_markdown"
-            ) or (
-                isinstance(node, (ast.Import, ast.ImportFrom))
-                and any(alias.name == "document_to_markdown" for alias in node.names)
-            )
-            if found:
-                production_callers.append(f"{path.relative_to(PACKAGE).as_posix()}:{node.lineno}")
-                break
-    assert not production_callers, (
-        f"`document_to_markdown` now has production caller(s) {production_callers}; plan 7.3 requires that the "
-        "official markdown has exactly ONE producer, so wiring this second exit into production is a behaviour "
-        "change, not a structural one"
+
+def test_the_official_markdown_producer_is_unique() -> None:
+    """Plan 7.3's success criterion, stated positively so a SECOND body producer also fails this."""
+    producers = [
+        path.name
+        for path in sorted((PACKAGE / "report").glob("*.py"))
+        if "def compose_official_markdown" in path.read_text(encoding="utf-8", errors="replace")
+    ]
+    assert producers == ["analyst_report.py"], (
+        f"the official markdown producer is defined in {producers}; plan 7.3 requires exactly one"
+    )
+    analyst = importlib.import_module("threat_report_agent.report.analyst_report")
+    reporting = importlib.import_module("threat_report_agent.report.reporting")
+    assert callable(analyst.compose_official_markdown)
+    assert not hasattr(reporting, "compose_official_markdown"), (
+        "the ledger module now also composes the official body; there must be one producer"
     )
 
 

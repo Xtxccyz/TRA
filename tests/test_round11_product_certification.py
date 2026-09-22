@@ -8,9 +8,10 @@ from threat_report_agent.product_certification import (
     supported_artifact_matrix,
     validate_corpus_split,
 )
+from threat_report_agent.report.analyst_report import compose_official_markdown
 from threat_report_agent.report.reporting import (
     REPORT_V3_REQUIRED_SECTIONS,
-    document_to_markdown,
+    render_ledger_markdown,
     report_v3_quality_violations,
 )
 
@@ -194,6 +195,17 @@ def test_report_v3_contract_survives_module_projection() -> None:
 
 
 def test_report_projection_preserves_static_boundary_statement() -> None:
+    """The static boundary must be stated on the path the reader actually gets.
+
+    MEASURED at the P2-R step-5 retirement (`.scratch/p2r5-boundary-statement.py`): this test used to assert the
+    module SUMMARY sentence `"No sample code was executed during this review."`, which appeared ONLY in the pre-V3
+    renderer that the retirement deleted. Neither surviving producer prints module summaries - and production never
+    called that renderer, so the requirement was pinned on dead code.
+
+    The live requirement is not lost: the OFFICIAL body states the boundary in its own banner, and that banner had
+    NO test at all before this change. So this now pins the live wording (a stronger, load-bearing assertion) and
+    separately keeps the ledger's boundary SECTION, instead of the retired renderer's phrasing.
+    """
     document = {
         "case_id": "case-1",
         "task_id": "task-1",
@@ -208,8 +220,17 @@ def test_report_projection_preserves_static_boundary_statement() -> None:
             }
         ],
     }
-    rendered = document_to_markdown(document)
-    assert "No sample code was executed during this review." in rendered
+
+    official = compose_official_markdown(document)
+    assert "This is not sandbox/dynamic analysis (full sample execution)." in official, (
+        "the official body no longer states that the analysis was not full sample execution; that is the "
+        "analyst-facing static boundary and it is what this test now pins"
+    )
+
+    ledger = render_ledger_markdown(document)
+    assert "Unknowns / Static Boundaries" in ledger, (
+        "the ledger projection dropped the static-boundary section entirely"
+    )
 
 
 def test_report_v3_projection_is_analyst_facing_and_not_an_evidence_dump() -> None:
@@ -241,7 +262,7 @@ def test_report_v3_projection_is_analyst_facing_and_not_an_evidence_dump() -> No
         ],
         "trace": {"evidence_ids": [f"e{i}" for i in range(100)], "claim_ids": ["c1"], "tool_run_ids": ["t1"]},
     }
-    rendered = document_to_markdown(document)
+    rendered = render_ledger_markdown(document)
     assert "## 3. Key Static Findings" in rendered
     assert "A buffer is prepared" in rendered
     assert "5000" not in rendered

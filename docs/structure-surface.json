@@ -44,7 +44,7 @@
     "prompts/triage-system-v1.md": "28820d17a605ca71"
   },
   "report_schema": {
-    "count": 39,
+    "count": 35,
     "headings": [
       "# 静态分析报告",
       "## 1. Executive Assessment",
@@ -64,17 +64,13 @@
       "## 完整 Imports",
       "## 完整 Strings",
       "### Analysis Traceability",
-      "### Analyst Assessment",
       "### Behavior Overview",
       "### Candidate Mechanisms",
       "### Evidence-backed Behavior Relations",
       "### Finding",
       "### Function-Level Semantic Recovery",
       "### IOC / 指标速查",
-      "### Investigation Seed Map",
-      "### Investigation Timeline",
       "### Model-Synthesized Candidates",
-      "### Security Finding",
       "### Static API Argument Recovery",
       "### Static Abstract Execution Prediction",
       "### Static Decode Result",

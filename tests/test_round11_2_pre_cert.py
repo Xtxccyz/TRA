@@ -1,5 +1,5 @@
 from threat_report_agent.product_certification import analysis_coverage, semantic_flow_metrics
-from threat_report_agent.report.reporting import document_to_markdown
+from threat_report_agent.report.reporting import render_ledger_markdown
 
 
 def _closed_mechanism() -> dict[str, object]:
@@ -65,7 +65,7 @@ def test_analysis_coverage_exposes_flow_contract_without_changing_score_dimensio
 
 
 def test_report_distinguishes_task_outcome_from_analysis_class() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "report_version": "3.0",
             "report_sections": ["Executive Assessment"],

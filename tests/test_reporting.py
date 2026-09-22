@@ -5,7 +5,7 @@ from threat_report_agent.report.reporting import (
     build_report_document,
     build_observed_mechanism_projections,
     build_decode_result_projections,
-    document_to_markdown,
+    render_ledger_markdown,
     markdown_to_docx,
     report_analytical_violations,
     report_one_round_readiness_violations,
@@ -85,7 +85,7 @@ def test_assessment_normalizes_preformatted_mechanism_locator_once() -> None:
 
 
 def test_v3_markdown_uses_semantic_flow_coverage_as_source_of_truth() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "report_version": "3.0",
             "report_sections": ["Executive Assessment"],
@@ -157,7 +157,7 @@ def test_report_projects_seed_map_evidence_from_any_module_and_renders_details()
     assert seed_row["clusters"][0]["hypotheses"]
     assert seed_row["clusters"][0]["evidence_ids"] == ["e-api", "e-xref"]
 
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Investigation Seed Map" in markdown
     assert "2 clusters" in markdown
     assert "Which module is resolved" in markdown
@@ -205,7 +205,7 @@ def test_report_renders_function_semantic_summary_as_analysis_not_field_dump() -
         relations=[], gates=[], model_calls=[], selected_modules=["static_triage"],
     )
 
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Function-Level Semantic Recovery" in markdown
     assert "CreateProcessW @ 0x40100a [execution]" in markdown
     assert "0x08000000 [constant]" in markdown
@@ -213,7 +213,7 @@ def test_report_renders_function_semantic_summary_as_analysis_not_field_dump() -
 
 
 def test_official_markdown_title_does_not_assume_malice() -> None:
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "report_version": "3.0",
         "report_sections": [],
         "case_id": "case-benign",
@@ -228,7 +228,7 @@ def test_official_markdown_title_does_not_assume_malice() -> None:
 
 
 def test_report_omits_navigation_call_noise_but_keeps_semantic_calls() -> None:
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "case_id": "case-call-noise",
         "task_id": "task-call-noise",
         "analysis_outcome": "PARTIAL",
@@ -259,12 +259,13 @@ def test_report_omits_navigation_call_noise_but_keeps_semantic_calls() -> None:
     assert "CreateProcessW @" in markdown
     assert "LAB_401010" not in markdown
     assert "DAT_401020" not in markdown
-    assert "omitted_low_information_calls: 2" in markdown
+    # The pre-V3 renderer spelled this label with underscores; the projection spells it out. Same fact.
+    assert "omitted low-information navigation calls: 2" in markdown
 
 
 def test_report_omits_legacy_label_calls_even_when_they_have_arguments() -> None:
     """Stale LAB/DAT rows cannot become visible calls through argument data."""
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "case_id": "case-call-label-args",
         "task_id": "task-call-label-args",
         "analysis_outcome": "PARTIAL",
@@ -301,12 +302,13 @@ def test_report_omits_legacy_label_calls_even_when_they_have_arguments() -> None
 
     assert "CreateProcessW @" in markdown
     assert "LAB_401010" not in markdown
-    assert "omitted_low_information_calls: 1" in markdown
+    # Label spelling follows the projection (was `omitted_low_information_calls`). Same fact.
+    assert "omitted low-information navigation calls: 1" in markdown
 
 
 def test_report_omits_unresolved_internal_targets_but_keeps_parameter_clues() -> None:
     """Unresolved internal dispatch labels stay in the ledger, not call lists."""
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "case_id": "case-internal-targets",
         "task_id": "task-internal-targets",
         "analysis_outcome": "PARTIAL",
@@ -364,13 +366,15 @@ def test_report_omits_unresolved_internal_targets_but_keeps_parameter_clues() ->
     assert "PTR_FUN_402000" not in markdown
     assert "PTR_PTR_403000" not in markdown
     assert "omitted_unresolved_internal_calls: 3" in markdown
-    assert '"0x401200" [constant]' in markdown
-    assert '"cmd.exe" [string]' in markdown
+    # The projection renders recovered values unquoted; the pre-V3 renderer quoted them. Same fact.
+    assert "0x401200 [constant]" in markdown
+    # The projection renders recovered values unquoted (was `"cmd.exe" [string]` in the pre-V3 renderer).
+    assert "cmd.exe [string]" in markdown
 
 
 def test_report_deduplicates_api_aliases_at_same_callsite() -> None:
     """Imported and pointer/case aliases describe one static callsite."""
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "case_id": "case-api-aliases",
         "task_id": "task-api-aliases",
         "analysis_outcome": "PARTIAL",
@@ -402,7 +406,7 @@ def test_report_deduplicates_api_aliases_at_same_callsite() -> None:
 
 def test_report_compacts_unresolved_register_arguments_and_keeps_recovered_values() -> None:
     """Unknown ABI slots are summarized instead of rendered as field noise."""
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "case_id": "case-unknown-args",
         "task_id": "task-unknown-args",
         "analysis_outcome": "PARTIAL",
@@ -455,10 +459,10 @@ def test_report_compacts_unresolved_register_arguments_and_keeps_recovered_value
     assert "arg1 (RBP): RBP [unknown]" not in markdown
     assert "arg0: RBX [unknown]" not in markdown
     assert "arg1: RBP [unknown]" not in markdown
-    assert "unresolved_argument_slots: 3" in markdown
+    # The pre-V3 spelling of this label is gone with that renderer; the line below asserts the same fact.
     assert "unresolved argument slots: 3" in markdown
-    assert 'arg3 (RCX): "cmd.exe" [string]' in markdown
-    assert 'arg3: "cmd.exe" [string]' in markdown
+    assert "arg3 (RCX): cmd.exe [string]" in markdown
+    assert "arg3: cmd.exe [string]" in markdown
 
 
 def test_report_compacts_unresolved_register_slots_in_v3_projection() -> None:
@@ -495,7 +499,7 @@ def test_report_compacts_unresolved_register_slots_in_v3_projection() -> None:
         }],
     }
 
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
 
     assert "0x08000000 [constant]" in markdown
     assert "unresolved argument slots: 2" in markdown
@@ -503,7 +507,8 @@ def test_report_compacts_unresolved_register_slots_in_v3_projection() -> None:
     assert "arg2: None [unknown]" not in markdown
 
 
-def test_legacy_report_compacts_unresolved_argument_rows() -> None:
+def test_ledger_report_compacts_unresolved_argument_rows() -> None:
+    """A pre-V3 document is now rendered by the ledger projection, which is the only remaining renderer."""
     document = {
         "case_id": "case-legacy",
         "task_id": "task-legacy",
@@ -529,10 +534,11 @@ def test_legacy_report_compacts_unresolved_argument_rows() -> None:
         }],
     }
 
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
 
     assert "0x80000" in markdown and "[constant]" in markdown
-    assert "- unresolved_argument_slots: 1" in markdown
+    # Label spelling follows the projection (was `unresolved_argument_slots`). Same fact.
+    assert "- unresolved argument slots: 1" in markdown
     assert "arg0 (RBX): RBX [unknown]" not in markdown
 
 
@@ -786,7 +792,7 @@ def test_large_evidence_sets_keep_full_trace_with_bounded_report_rows() -> None:
     assert modules["evidence_ledger"]["rows"][0]["count"] == 1_000
     assert len(document["trace"]["evidence_ids"]) == 1_000
 
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert len(markdown) < 100_000
     assert markdown_to_docx(markdown).startswith(b"PK")
 
@@ -838,7 +844,7 @@ def test_report_puts_evidence_backed_assessment_before_raw_evidence() -> None:
     assert summary_row["findings"][1]["finding"].startswith("sample references")
     assert summary_row["findings"][1]["evidence_samples"][0]["value"] == {"name": "VirtualAlloc"}
     assert modules["static_triage"]["rows"][0]["type"] == "analytical_claim"
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Static assessment:" in markdown
     assert "sample references VirtualAlloc" in markdown
 
@@ -1118,7 +1124,7 @@ def test_report_projects_observed_static_chains_into_analyst_mechanisms() -> Non
     assert "CreateFileA" in chain["transformation_or_control"][0]
     assert "GetProcAddress" in chain["transformation_or_control"][0]
     assert chain["status"] == "CANDIDATE"
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "FUN_14000a2c0" in markdown
     assert "xor_loop_candidate" in markdown
     assert "decoded output not observed" in markdown
@@ -1574,7 +1580,7 @@ def test_generic_dynamic_resolution_does_not_claim_full_completeness() -> None:
 
 def test_report_projects_decode_result_with_verification_and_consumer() -> None:
     """A recovered decode must be visible as an analyst result, not a raw row."""
-    from threat_report_agent.report.reporting import build_report_document, document_to_markdown
+    from threat_report_agent.report.reporting import build_report_document, render_ledger_markdown
 
     evidence = SimpleNamespace(
         id="decode-result-1", artifact_id="artifact-1", tool_run_id="tool-1",
@@ -1621,7 +1627,7 @@ def test_report_projects_decode_result_with_verification_and_consumer() -> None:
     assert row["consumer_status"] == "LINKED_STATIC"
     assert row["consumer_evidence_ids"] == ["consumer-1"]
     assert row["decoded_preview"] == "https://example.invalid/config"
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Static Decode Result" in markdown
     assert "VERIFIED_STATIC_DATA" in markdown
     assert "LoadLibraryW" in markdown
@@ -1933,7 +1939,7 @@ def test_persist_how_unique_thread_claim_survives_resolver_flood_in_markdown() -
         mechanisms=[],
         selected_modules=["executive_summary", "static_triage"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "0x14000a100" in markdown
     assert "CreateThread" in markdown
     assert "lpStartAddress" in markdown
@@ -2039,7 +2045,7 @@ def test_persist_how_process_claim_survives_resolver_flood_in_markdown() -> None
         mechanisms=[],
         selected_modules=["executive_summary", "static_triage"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "FoxitPDFReader.exe" in markdown
     assert "0x000f4240" in markdown
     assert "CreateProcessW" in markdown
@@ -2145,7 +2151,7 @@ def test_executive_how_leads_with_process_command_not_decoded_url() -> None:
         mechanisms=[],
         selected_modules=["executive_summary", "static_triage"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assessment = markdown.split("## 1. Executive Assessment", 1)[1].split("## 2.", 1)[0]
     how_line = next(line for line in assessment.splitlines() if "How:" in line)
     foxit_at = how_line.find("FoxitPDFReader.exe")
@@ -2256,7 +2262,7 @@ def test_executive_how_keeps_persist_process_not_shellexecute_dump() -> None:
         mechanisms=[],
         selected_modules=["executive_summary", "static_triage"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assessment = markdown.split("## 1. Executive Assessment", 1)[1].split("## 2.", 1)[0]
     how_line = next(line for line in assessment.splitlines() if line.startswith("What:") or "How:" in line)
     how_block = assessment.split("How:", 1)[-1].split("Key unknowns:", 1)[0]
@@ -2376,7 +2382,7 @@ def test_executive_how_leads_with_process_command_not_ppid() -> None:
         mechanisms=[],
         selected_modules=["executive_summary", "static_triage"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assessment = markdown.split("## 1. Executive Assessment", 1)[1].split("## 2.", 1)[0]
     how_line = next(line for line in assessment.splitlines() if "How:" in line)
     foxit_at = how_line.find("FoxitPDFReader.exe")
@@ -2497,7 +2503,7 @@ def test_executive_how_drops_fun_dump_after_persist_process() -> None:
         mechanisms=[],
         selected_modules=["executive_summary", "static_triage"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assessment = markdown.split("## 1. Executive Assessment", 1)[1].split("## 2.", 1)[0]
     how_line = next(line for line in assessment.splitlines() if "How:" in line)
     assert "FoxitPDFReader.exe" in how_line
@@ -2623,7 +2629,7 @@ def test_executive_how_keeps_persist_command_when_semantic_decompile_exists() ->
         mechanisms=[],
         selected_modules=["executive_summary", "static_triage"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assessment = markdown.split("## 1. Executive Assessment", 1)[1].split("## 2.", 1)[0]
     how_line = next(line for line in assessment.splitlines() if "How:" in line)
     foxit_at = how_line.find("FoxitPDFReader.exe")
@@ -2757,7 +2763,7 @@ def test_behavior_overview_ranks_process_how_ahead_of_named_api_claim_flood() ->
         mechanisms=[],
         selected_modules=["executive_summary", "static_triage"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     overview = markdown.split("### Behavior Overview", 1)[-1].split("## 3.", 1)[0]
     assert "FoxitPDFReader.exe" in overview
     assert "CreateProcessW" in overview
@@ -2794,13 +2800,13 @@ def test_production_assessment_does_not_join_independent_function_paths() -> Non
     assessment_summary = document["modules"][0]["rows"][0]["summary"]
     assert "Interpretation:" in assessment_summary
     assert "loader path" in assessment_summary
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "未恢复出跨函数有序因果链" in markdown
     assert "FUN_0x1000" in markdown and "FUN_0x2000" in markdown
 
 
 def test_v3_markdown_exposes_static_execution_boundary_pipeline_and_empty_model_state() -> None:
-    markdown = document_to_markdown(
+    markdown = render_ledger_markdown(
         {
             "report_version": "3.0",
             "report_sections": [
@@ -2894,7 +2900,7 @@ def test_report_renders_attack_technique_identifiers_as_compact_findings() -> No
         )],
         relations=[], gates=[], model_calls=[], selected_modules=["behavior_attack"],
     )
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "T1140" in markdown
     assert "Deobfuscate/Decode Files or Information" in markdown
     behavior_rows = document["modules"][0]["rows"]
@@ -2977,7 +2983,7 @@ def test_report_renders_static_abstract_execution_prediction() -> None:
     row = next(item for item in document["modules"][0]["rows"] if item.get("type") == "static_simulation_prediction")
     assert row["runtime_observed"] is False
     assert row["mechanism_candidates"][0]["kind"] == "memory_loader"
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Static Abstract Execution Prediction" in markdown
     assert "VirtualAlloc" in markdown
 
@@ -3074,7 +3080,7 @@ def test_static_attack_candidates_use_typed_evidence_kind_for_decode_mapping() -
 
 
 def test_v3_markdown_renders_ioc_classification_and_provenance() -> None:
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "report_version": "3.0",
         "report_sections": [
             "Executive Assessment", "Artifact Summary", "Key Static Findings",
@@ -3104,7 +3110,7 @@ def test_v3_markdown_renders_ioc_classification_and_provenance() -> None:
 
 def test_v3_markdown_turns_high_signal_candidates_into_concrete_static_findings() -> None:
     """Analyst-facing reports explain a recovered path instead of naming a type."""
-    markdown = document_to_markdown({
+    markdown = render_ledger_markdown({
         "report_version": "3.0",
         "report_sections": [
             "Executive Assessment", "Artifact Summary", "Key Static Findings",
@@ -3233,7 +3239,7 @@ def test_one_round_readiness_stamped_on_partial_document() -> None:
     readiness = document["analysis_quality"]["one_round_readiness"]
     assert "complete" in readiness
     assert isinstance(readiness["violations"], list)
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "FoxitPDFReader.exe" in markdown
     assert document["analysis_quality"]["one_round_readiness"]["violations"] == (
         report_one_round_readiness_violations(document, markdown)
@@ -3490,7 +3496,7 @@ def test_v3_markdown_omits_unknown_empty_runtime_phase_shells() -> None:
             }
         ],
     }
-    markdown = document_to_markdown(document)
+    markdown = render_ledger_markdown(document)
     assert "Phase 1 — startup / loader" in markdown
     assert "Phase 5 — process creation / PPID" in markdown
     assert "Phase 2 — environment / anti-analysis" not in markdown
