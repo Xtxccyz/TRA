@@ -1,14 +1,14 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 42 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 43 条，本文件只汇总。
 
-- 本文档描述的树经核验于 HEAD `af1f6c242dce9f320b1454a6069c8dcf539c901a`（本轮改动在该提交之上，与本文件一并提交）
+- 本文档描述的树经核验于 HEAD `1a4c4776e7803ba5340cf0dfb9c3bd64cdf19a41`（本轮改动在该提交之上，与本文件一并提交）
 - **structure_status：`IN_PROGRESS`**
 - **capability_status：`UNVERIFIED`**
 
 ## 一、为什么不是 READY / ACCEPTED
 
-Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phase 0, Phase 1 and Phase 2 are COMPLETE (nine packages, 34 moved paths, report/ finished including plan 7.3 step 5, all seven investigation siblings moved, all three task modules moved, the duplicate-implementation list empty, the cycle allowlist empty, one of two legacy-path imports gone). PHASE 3 HAS STARTED: P3.1 is complete - the facade's public contract is stated in `AnalysisService`'s docstring and pinned by a contract test that needs no private member - but P3.2 (TaskRunner), P3.3 (InvestigationCoordinator), P3.4 (ReportRevisionWriter), P3.5 (EmulationCoordinator), P3.6 (WorkbenchQueryReader) and P3.7 (move the test surface off private/`getsource`) have not started, nor have Phases 4 and 5. The deployed images DO equal the tree - 119 files x 8 services, missing=0 differing=0 container-only=0, with 47 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient.
+Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phase 0, Phase 1 and Phase 2 are COMPLETE (nine packages, 34 moved paths, report/ finished, all seven investigation siblings moved, all three task modules moved, duplicate list empty, cycle allowlist empty). PHASE 3 IS IN PROGRESS: P3.1 (facade contract stated and pinned) and P3.2a (the failure/limitation projection seam extracted, 410-line candidate narrowed to the 5 pure functions that are actually bounded) are complete; P3.2's remaining extraction, P3.3 (InvestigationCoordinator), P3.4 (ReportRevisionWriter), P3.5 (EmulationCoordinator), P3.6 (WorkbenchQueryReader) and P3.7 (test surface off private/`getsource`) have NOT started, nor have Phases 4 and 5. The deployed images DO equal the tree - 120 files x 8 services, missing=0 differing=0 container-only=0, with 48 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient.
 
 `capability_status` is a different axis: the Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) were not touched by this plan's execution. `structure_status=READY` must never imply `capability_status=ACCEPTED`.
 
@@ -19,13 +19,13 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 | phase_0 | COMPLETE (P0.1-P0.6, plus repairs P0.3-r2/r3 and P0.5-r2/r3) |
 | phase_1 | COMPLETE (P1.1-P1.4, plus repairs P1.1-r2 and P1.3-r3) |
 | phase_2 | COMPLETE - 9 packages, 34 moved paths, report/ complete, 7 investigation siblings moved, 3 task modules moved, duplicate list empty, cycle allowlist empty |
-| phase_3 | IN PROGRESS - P3.1 COMPLETE (facade contract stated in the docstring and pinned by a public-only contract test); P3.2-P3.7 NOT STARTED |
+| phase_3 | IN PROGRESS - P3.1 and P3.2a COMPLETE; P3.2's remaining instance-method projection, P3.3-P3.7 NOT STARTED. Plan P3.2 needs a designed collaborator before `_record_analysis_failure` and `_is_task_cancelled` can move (they take `self`), which is the 'go back to P1 interface design' path rather than a mechanical cut. |
 | phase_4 | NOT STARTED (remove shims, one checkpoint each, then converge the root package's exports) |
 | phase_5 | NOT STARTED (re-verification; the DSH suite has never been run in this session) |
 
 ## 三、机械条件（P5.1）
 
-119 files x 8 services, missing=0 differing=0 container-only=0, and the import smoke imports 47 enumerated modules in every container, with all 11 containers running
+120 files x 8 services, missing=0 differing=0 container-only=0, and the import smoke imports 48 enumerated modules in every container (47 before P3.2a), with all 11 containers running
 
 四道门禁在 HEAD 上全部通过：结构 diff、导入图 `--strict`、行为探针（含 item 8「移动模块同一性」）、部署 `--strict --import-smoke`。全量 pytest 的失败**节点集合**与 P0.2 基线一致。
 
@@ -70,6 +70,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 - P2-V.7
 - P2-V.8
 - P3.1
+- P3.2a
 
 ## 五、审计历史
 
@@ -80,9 +81,9 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 ## 六、后继者必须先做的事
 
 1. Nothing is blocked on the user. Three recorded items await DECISIONS (each frozen by a test so it fails loudly instead of drifting): (a) the `facts -> investigation` edge created by P2-V.8; (b) `tool_authoring` has no production importer; (c) `turn_lifecycle` has no production importer.
-2. next: P3.2 - extract `TaskRunner` into `task/task_runner.py` with a one-line delegation left behind, moving task creation, lifecycle, budget, cancellation and failure/limitation projection. Plan P3.2's success criterion is that `TaskRunner` imports no HTTP/DSH, that the old facade call and the new public interface return the SAME state, and that the structural move loses no limitation - and the known model-disable / failure-branch limitation gap must stay explicitly recorded in `known_behavior_gaps` rather than being quietly fixed or quietly dropped by the move.
-3. run the contract test from P3.1 after EVERY P3 sub-step: it is the cheap check that the facade is still constructible and still serves the four stable operation groups.
-4. then P3.3-P3.7, P4 (delete the shims one checkpoint at a time) and P5 (images must equal HEAD; the DSH suite must run SEPARATELY; `structure_status` and `capability_status` must stay separate axes).
+2. next in Phase 3, in this order: (1) finish P3.2 by DESIGNING the collaborator the two instance-method projections need, rather than pulling a 163-member closure; (2) P3.3 InvestigationCoordinator - the same seam analysis applies, and `.scratch/p32-seam-analysis.py` is the reusable instrument; (3) P3.4 ReportRevisionWriter, whose success criterion is that every official body/chat/page/export still reads the same revision; (4) P3.5 EmulationCoordinator; (5) P3.6 WorkbenchQueryReader; (6) P3.7 move the test surface off private methods and `getsource` onto behaviour.
+3. run `tests/test_service_facade_contract.py` after EVERY P3 sub-step - it is the cheap check that the facade is still constructible and still serves the four stable operation groups.
+4. then P4 (delete the shims, one checkpoint each) and P5 (images must equal HEAD; the DSH suite runs SEPARATELY and may not be offset by pytest; `structure_status` and `capability_status` stay separate axes).
 
 ## 七、已记录、但**不得**在结构步骤里修的行为缺陷
 
