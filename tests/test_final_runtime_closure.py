@@ -18,7 +18,7 @@ from threat_report_agent.models import (
     ToolRun,
 )
 from threat_report_agent.service import AnalysisService
-from threat_report_agent.turn_lifecycle import LongTurnLifecycle
+from threat_report_agent.task.turn_lifecycle import LongTurnLifecycle
 
 
 def _service(test_settings) -> tuple[AnalysisService, Database]:

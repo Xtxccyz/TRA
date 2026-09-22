@@ -160,7 +160,7 @@ from threat_report_agent.investigation.investigation_protocol import (
     tool_authoring_required_ticket,
 )
 from threat_report_agent.investigation.persist_how import PersistHow
-from threat_report_agent.analysis_task_orchestration import (
+from threat_report_agent.task.analysis_task_orchestration import (
     HOW_SEED_CATEGORIES,
     LOOP_PATH_BUDGET_DEFER,
     LOOP_PATH_PERSIST_BOUNDARY,
@@ -338,7 +338,7 @@ from threat_report_agent.analysis_trace import (
     build_mechanism_effectiveness_traces,
 )
 from threat_report_agent.runtime_contracts import classify_failure, retry_decision
-from threat_report_agent.status import (
+from threat_report_agent.task.status import (
     AnalysisOutcome,
     TaskLifecycle,
     ToolRunStatus,

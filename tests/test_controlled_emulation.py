@@ -1236,7 +1236,7 @@ def test_placeholder_simulation_does_not_cover_a_start_routine() -> None:
 
 def test_analysis_dispatches_isolated_emu_then_continues_investigation() -> None:
     """Kunglao DISPATCH then continue: emu is not a tail job after saturation."""
-    from threat_report_agent.analysis_task_orchestration import (
+    from threat_report_agent.task.analysis_task_orchestration import (
         continue_investigation_after_action,
         run_analysis_task_investigation,
         run_emulation_informed_investigation,
@@ -1260,7 +1260,7 @@ def test_analysis_dispatches_isolated_emu_then_continues_investigation() -> None
 
 def test_saturated_investigation_dispatches_emu_before_deferred_tail() -> None:
     """Coverage placeholders must not be finalized UNKNOWN before the worker runs."""
-    from threat_report_agent.analysis_task_orchestration import run_saturated_investigation
+    from threat_report_agent.task.analysis_task_orchestration import run_saturated_investigation
 
     source = inspect.getsource(run_saturated_investigation)
     coverage = source.index('ledger_phase="coverage"')

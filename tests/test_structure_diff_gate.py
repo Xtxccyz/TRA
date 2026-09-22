@@ -100,6 +100,26 @@ def test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_know
     assert narrow["violations"] == []
 
 
+def _root_implementation_to_move(copy: Path) -> Path:
+    """Pick a root module that is STILL a real implementation, so the fixture survives later moves.
+
+    MEASURED at P2-TK: this fixture used to hard-code `status.py`, which by then had already been moved into `task/`,
+    so `(copy / "task").mkdir()` raised FileExistsError and the follow-up `shutil.move` would have clobbered the real
+    file. The subject of the test is "a PURE MOVE passes the surface gate", which has nothing to do with which module
+    happens to be at the root, so it now discovers one.
+    """
+    for candidate in sorted(copy.glob("*.py")):
+        if candidate.name == "__init__.py":
+            continue
+        text = candidate.read_text(encoding="utf-8", errors="replace")
+        if "sys.modules[__name__] = _real" in text:
+            continue  # already a compatibility shim
+        if "def " not in text and "class " not in text:
+            continue
+        return candidate
+    raise AssertionError("no root implementation module is left to move; update this fixture deliberately")
+
+
 def test_a_pure_move_passes_the_surface_gate(tmp_path) -> None:
     """P1.4's "纯重命名/移动通过", measured HERE and not only in the gitignored can-fail harness.
 
@@ -113,13 +133,17 @@ def test_a_pure_move_passes_the_surface_gate(tmp_path) -> None:
     real = ROOT / "src" / "threat_report_agent"
     copy = tmp_path / "threat_report_agent"
     shutil.copytree(real, copy, ignore=shutil.ignore_patterns("__pycache__"))
-    (copy / "task").mkdir()
-    (copy / "task" / "__init__.py").write_text("", encoding="utf-8")
-    shutil.move(str(copy / "status.py"), str(copy / "task" / "status.py"))
-    (copy / "status.py").write_text(
-        '"""Compatibility shim left by the move; the implementation is threat_report_agent.task.status."""\n'
+
+    victim = _root_implementation_to_move(copy)
+    # A package name that does NOT exist in the tree, so the fixture cannot collide with a real package.
+    probe = copy / "probe_pkg"
+    probe.mkdir(exist_ok=True)
+    (probe / "__init__.py").write_text("", encoding="utf-8")
+    shutil.move(str(victim), str(probe / victim.name))
+    victim.write_text(
+        '"""Compatibility shim left by the move; the implementation is threat_report_agent.probe_pkg."""\n'
         "import sys\n"
-        "from threat_report_agent.task import status as _real\n"
+        f"from threat_report_agent.probe_pkg import {victim.stem} as _real\n"
         "sys.modules[__name__] = _real\n",
         encoding="utf-8",
     )
@@ -150,9 +174,18 @@ def test_a_vanished_state_vocabulary_is_a_problem_not_an_absence(tmp_path) -> No
     copy = tmp_path / "threat_report_agent"
     shutil.copytree(real, copy, ignore=shutil.ignore_patterns("__pycache__"))
     # Remove every definition of one vocabulary, leaving the rest of the tree intact.
-    status = copy / "status.py"
-    status.write_text(
-        status.read_text(encoding="utf-8").replace("class ClaimStatus(StrEnum):", "class ClaimStatusRenamed(StrEnum):"),
+    #
+    # MEASURED at P2-TK: this fixture used to edit `<root>/status.py`, which by then was a compatibility SHIM (the
+    # implementation had moved into `task/`), so the replacement changed nothing and the guard under test was never
+    # exercised - the test failed loudly rather than passing vacuously, which is why it is written this way now:
+    # find the file that actually DEFINES the vocabulary instead of assuming where it lives.
+    marker = "class ClaimStatus(StrEnum):"
+    defining = [path for path in sorted(copy.rglob("*.py"))
+                if marker in path.read_text(encoding="utf-8", errors="replace")]
+    assert len(defining) == 1, f"expected exactly one definition of the vocabulary, found {defining}"
+    definition = defining[0]
+    definition.write_text(
+        definition.read_text(encoding="utf-8").replace(marker, "class ClaimStatusRenamed(StrEnum):"),
         encoding="utf-8",
     )
     module.set_source(str(copy))

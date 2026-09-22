@@ -29,7 +29,7 @@ from __future__ import annotations
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.models import AnalysisTask
 from threat_report_agent.service import AnalysisRunOrphaned
-from threat_report_agent.status import AnalysisOutcome, TaskLifecycle, transition_task
+from threat_report_agent.task.status import AnalysisOutcome, TaskLifecycle, transition_task
 
 
 def _service(test_settings):  # noqa: ANN001, ANN202

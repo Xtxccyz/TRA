@@ -15,7 +15,7 @@ from threat_report_agent.policy import PolicyRegistry
 from threat_report_agent.prompts import PromptRegistry
 from threat_report_agent.orchestration import StaticInvestigationOrchestrator
 from threat_report_agent.orchestration import DeterministicSeedRanker, QuestionCentricContextBuilder
-from threat_report_agent.status import (
+from threat_report_agent.task.status import (
     AnalysisOutcome,
     ClaimStatus,
     InvalidStateTransition,

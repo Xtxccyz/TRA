@@ -1,14 +1,14 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 40 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 41 条，本文件只汇总。
 
-- 本文档描述的树经核验于 HEAD `ddf88814fdd75a7abe2e30a452ebba4603c9fd0a`（本轮改动在该提交之上，与本文件一并提交）
+- 本文档描述的树经核验于 HEAD `b75f188b20c1efc3d24a6812cf0a1cf076d05eaa`（本轮改动在该提交之上，与本文件一并提交）
 - **structure_status：`IN_PROGRESS`**
 - **capability_status：`UNVERIFIED`**
 
 ## 一、为什么不是 READY / ACCEPTED
 
-Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phase 0 and Phase 1 are complete. Phase 2 has EIGHT packages in place with 31 moved paths, report/ is COMPLETE, plan 7.9's seven investigation siblings are ALL moved, the ONE recorded duplicate implementation is resolved, BOTH recorded import cycles are retired with an empty allowlist, and one of the two recorded legacy-path imports is gone. Phase 2 is still NOT complete: P2-TK (`task/`) remains. Phases 3-5 have not started. The deployed images DO equal the tree - 115 files x 8 services, missing=0 differing=0 container-only=0, with 43 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient.
+Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. PHASE 2 IS NOW COMPLETE: nine packages are in place (facts, report, model, tools, intake, static, emulation, investigation, task) with 34 moved paths; report/ is complete including plan 7.3 step 5; plan 7.9's seven investigation siblings are all moved; plan 7.10's three task modules are moved; the ONE recorded duplicate implementation is resolved; BOTH recorded import cycles are retired with an empty allowlist; and one of the two recorded legacy-path imports is gone. PHASES 3, 4 AND 5 HAVE NOT STARTED - splitting `AnalysisService` (P3.1-P3.7) is the next work and it is the high-risk phase, then removing the shims (P4.1-P4.4) and the final re-verification including the DSH suite (P5.1-P5.5). The deployed images DO equal the tree - 119 files x 8 services, missing=0 differing=0 container-only=0, with 47 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient.
 
 `capability_status` is a different axis: the Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) were not touched by this plan's execution. `structure_status=READY` must never imply `capability_status=ACCEPTED`.
 
@@ -18,14 +18,14 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 |---|---|
 | phase_0 | COMPLETE (P0.1-P0.6, plus repairs P0.3-r2/r3 and P0.5-r2/r3) |
 | phase_1 | COMPLETE (P1.1-P1.4, plus repairs P1.1-r2 and P1.3-r3) |
-| phase_2 | IN PROGRESS - 8 packages in place; report/ COMPLETE; plan 7.9's 7 investigation siblings ALL moved; duplicates NONE recorded and NONE measured; `legacy_path_imports` down to 1 (`service.py`'s old `dataflow` import, deliberately left to its own step); P2-TK (`task/`) remains |
-| phase_3 | NOT STARTED (split AnalysisService) |
-| phase_4 | NOT STARTED (remove shims) |
+| phase_2 | COMPLETE - 9 packages, 34 moved paths, report/ complete, 7 investigation siblings moved, 3 task modules moved, duplicate list empty, cycle allowlist empty |
+| phase_3 | NOT STARTED (split AnalysisService: P3.1 facade contract, P3.2 TaskRunner, P3.3 InvestigationCoordinator, P3.4 ReportRevisionWriter, P3.5 EmulationCoordinator, P3.6 WorkbenchQueryReader, P3.7 move the test surface off private/`getsource` onto behaviour) |
+| phase_4 | NOT STARTED (remove shims, one checkpoint each, then converge the root package's exports) |
 | phase_5 | NOT STARTED (re-verification; the DSH suite has never been run in this session) |
 
 ## 三、机械条件（P5.1）
 
-115 files x 8 services, missing=0 differing=0 container-only=0, and the import smoke imports 43 enumerated modules in every container (42 before P2-V.8), with all 11 containers running
+119 files x 8 services, missing=0 differing=0 container-only=0, and the import smoke imports 47 enumerated modules in every container (43 before P2-TK), with all 11 containers running
 
 四道门禁在 HEAD 上全部通过：结构 diff、导入图 `--strict`、行为探针（含 item 8「移动模块同一性」）、部署 `--strict --import-smoke`。全量 pytest 的失败**节点集合**与 P0.2 基线一致。
 
@@ -58,6 +58,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 - P2-S.6-8
 - P2-T
 - P2-T.0
+- P2-TK
 - P2-V
 - P2-V.0
 - P2-V.1
@@ -77,11 +78,10 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 
 ## 六、后继者必须先做的事
 
-1. BOTH plan conflicts are RESOLVED and recorded, BOTH import cycles are retired with `known_cycles` EMPTY, the duplicate list is EMPTY, P2-R is COMPLETE, and plan 7.9's seven investigation siblings are ALL moved. Nothing is blocked on the user.
-2. DECIDE the recorded architectural question: `facts/dataflow.py` and `facts/thread_start.py` now import from `investigation`. Either declare `facts -> investigation` forbidden and move the pure, dependency-free `semantic_predicates` DOWN into `facts/`, or accept the edge; the measurement and both options are in `phase_2.investigation_siblings.architectural_observation_recorded_not_unilaterally_fixed`.
-3. next: P2-TK (`task/`) - the last Phase 2 item - through the same measured recipe (`.scratch/p2v2-sim-sibling.py <module>` works for `task/` too).
-4. DECIDE `tool_authoring`: it has no production importer today (only `tests/test_tool_authoring.py`).
-5. then P3-P5, and run the DSH suite separately - pytest passing must not be used to offset it
+1. PHASE 2 IS COMPLETE and nothing is blocked on the user. Three recorded items await DECISIONS rather than work: (a) the `facts -> investigation` edge created by P2-V.8 (either forbid it and move the pure helper down into `facts/`, or accept it); (b) `tool_authoring` has no production importer; (c) `turn_lifecycle` has no production importer. Each is frozen by a test so it fails loudly rather than drifting.
+2. next: PHASE 3, starting with P3.1 - define the facade's PUBLIC contract before splitting anything, per plan section 8. `AnalysisService` is ~29,000 lines with a live HTTP path; plan 8's principle is 'split by responsibility and seam, not by line count', and P3.2-P3.6 each end with `AnalysisService` still constructible by the existing HTTP path.
+3. then P4 (delete the shims one checkpoint at a time) and P5 (re-verification: the images must equal HEAD, the DSH suite must be run SEPARATELY, and `structure_status` / `capability_status` must stay separate axes).
+4. the `service.py` old-path `dataflow` import is the last recorded `legacy_path_imports` entry; it belongs to whichever step touches `service.py` deliberately, not to a move step.
 
 ## 七、已记录、但**不得**在结构步骤里修的行为缺陷
 

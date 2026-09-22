@@ -27,7 +27,7 @@ from threat_report_agent.models import (
 )
 from threat_report_agent.service import AnalysisService
 from threat_report_agent.static_analysis import recover_static_xor_configs
-from threat_report_agent.status import EvidenceNature
+from threat_report_agent.task.status import EvidenceNature
 
 
 def _evidence(

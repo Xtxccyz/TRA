@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from threat_report_agent.analysis_task_orchestration import (
+from threat_report_agent.task.analysis_task_orchestration import (
     PERSIST_SKIP_TRACE_ERROR,
     action_is_model_or_human,
     continue_investigation_after_action,
@@ -267,7 +267,7 @@ class _PersistMint:
         proposed_actions: tuple[object, ...] = (),
         historical_attempts: int = 0,
     ):
-        from threat_report_agent.analysis_task_orchestration import resolve_persist_how_skip
+        from threat_report_agent.task.analysis_task_orchestration import resolve_persist_how_skip
 
         return resolve_persist_how_skip(
             playbook=playbook,
@@ -286,7 +286,7 @@ class _PersistMint:
 
 
 def test_persist_how_ready_skips_mining_when_playbook_is_present() -> None:
-    from threat_report_agent.analysis_task_orchestration import PERSIST_HOW_READY
+    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_READY
 
     mint = _PersistMint()
     mint.ready = SimpleNamespace(gate=SimpleNamespace(missing=()))
@@ -298,7 +298,7 @@ def test_persist_how_ready_skips_mining_when_playbook_is_present() -> None:
 
 
 def test_persist_how_does_not_call_seed_without_playbook() -> None:
-    from threat_report_agent.analysis_task_orchestration import PERSIST_HOW_MINE
+    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_MINE
 
     mint = _PersistMint()
     mint.ready = SimpleNamespace(gate=SimpleNamespace(missing=()))
@@ -309,7 +309,7 @@ def test_persist_how_does_not_call_seed_without_playbook() -> None:
 
 
 def test_unique_thread_persist_runs_before_supporting_skip() -> None:
-    from threat_report_agent.analysis_task_orchestration import PERSIST_HOW_READY
+    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_READY
 
     mint = _PersistMint()
     mint.unique = SimpleNamespace(gate=SimpleNamespace(missing=()))
@@ -321,7 +321,7 @@ def test_unique_thread_persist_runs_before_supporting_skip() -> None:
 
 
 def test_supporting_keyword_seed_skips_trace_when_unique_thread_absent() -> None:
-    from threat_report_agent.analysis_task_orchestration import PERSIST_HOW_BOUNDARY
+    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_BOUNDARY
 
     mint = _PersistMint()
     decision = mint.resolve(playbook=None, cluster_category="entrypoint")
@@ -330,7 +330,7 @@ def test_supporting_keyword_seed_skips_trace_when_unique_thread_absent() -> None
 
 
 def test_model_origin_and_recovery_gaps_cancel_persist_ready() -> None:
-    from threat_report_agent.analysis_task_orchestration import PERSIST_HOW_MINE
+    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_MINE
     from threat_report_agent.investigation import ActionSpec, ActionType
 
     mint = _PersistMint()
@@ -355,7 +355,7 @@ def test_model_origin_and_recovery_gaps_cancel_persist_ready() -> None:
 
 
 def test_dead_letter_attempts_force_static_boundary() -> None:
-    from threat_report_agent.analysis_task_orchestration import (
+    from threat_report_agent.task.analysis_task_orchestration import (
         PERSIST_HOW_BOUNDARY,
         PERSIST_HOW_MINE,
         SLOT_DEAD_LETTER_ATTEMPTS,
@@ -377,7 +377,7 @@ def test_dead_letter_attempts_force_static_boundary() -> None:
 def test_investigation_loop_resolves_persist_how_before_budget_or_planner() -> None:
     import inspect
 
-    from threat_report_agent.analysis_task_orchestration import (
+    from threat_report_agent.task.analysis_task_orchestration import (
         LOOP_PATH_BUDGET_DEFER,
         LOOP_PATH_PERSIST_BOUNDARY,
         LOOP_PATH_PERSIST_READY,
@@ -411,7 +411,7 @@ def test_persist_how_is_not_ready_while_recoverable_gaps_remain() -> None:
 
     只有 missing 为空（真正没有待恢复槽）才允许 READY。
     """
-    from threat_report_agent.analysis_task_orchestration import PERSIST_HOW_MINE, PERSIST_HOW_READY
+    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_MINE, PERSIST_HOW_READY
 
     for gap in (
         "consumer",
@@ -432,7 +432,7 @@ def test_persist_how_is_not_ready_while_recoverable_gaps_remain() -> None:
 
 def test_persist_how_ready_still_allowed_when_no_recoverable_gap() -> None:
     """G0 §4.3：无缺口的 TRACE 仍可取消，避免聊天要求「再深入」时刷无关动作。"""
-    from threat_report_agent.analysis_task_orchestration import PERSIST_HOW_READY
+    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_READY
 
     mint = _PersistMint()
     mint.ready = SimpleNamespace(gate=SimpleNamespace(missing=()))

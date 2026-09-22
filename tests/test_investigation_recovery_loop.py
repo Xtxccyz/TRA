@@ -264,7 +264,7 @@ def test_persist_skip_keeps_argument_trace_and_emulate() -> None:
 def test_gap_driven_rounds_are_not_skipped_only_because_dsh_owns_chat() -> None:
     import inspect
 
-    from threat_report_agent.analysis_task_orchestration import (
+    from threat_report_agent.task.analysis_task_orchestration import (
         run_emulation_informed_investigation,
     )
 
