@@ -6,7 +6,7 @@ import re
 from typing import Iterable, Mapping
 
 from threat_report_agent.facts.dataflow import addresses_alias, parse_operand_address
-from threat_report_agent.investigation import recovered_thread_start_address
+from threat_report_agent.facts.thread_start import recovered_thread_start_address
 from threat_report_agent.static.static_analysis import (
     pe_slice_at_rva,
     recover_static_xor_configs,

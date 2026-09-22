@@ -1643,92 +1643,13 @@ _CALL_GRAPH_FAMILY = frozenset(
 )
 
 
-_THREAD_START_ARG_INDEX = {
-    "createthread": 2,
-    "createthreadex": 2,
-    "createremotethread": 3,
-    "createremotethreadex": 3,
-    "tpallocwork": 1,
-    "createthreadpoolwait": 1,
-    "createthreadpooltimer": 1,
-    "addvectoredexceptionhandler": 1,
-    "queueuserapc": 0,
-    "createtimerqueuetimer": 2,
-}
-_CODE_ADDRESS_RE = re.compile(r"^(?:0x)?[0-9a-f]{4,16}$", re.I)
-_CODE_SYMBOL_RE = re.compile(r"^(?:FUN_|sub_|thunk_)[0-9a-fA-F]+$")
-
-
-def canonical_code_address(raw: object) -> str | None:
-    """Return a hex or FUN_/sub_ identity; skip memory operands and UNKNOWN."""
-    text = str(raw or "").strip().strip(",")
-    if not text or text.casefold() in {"unknown", "n/a", "none"}:
-        return None
-    folded = text.casefold()
-    if "[" in text or "ptr" in folded:
-        return None
-    if _CODE_ADDRESS_RE.fullmatch(text):
-        try:
-            return hex(int(text, 16))
-        except ValueError:
-            return None
-    if _CODE_SYMBOL_RE.fullmatch(text):
-        return text
-    return None
-
-
-def _thread_api_from_value(value: Mapping[str, object]) -> str:
-    for key in ("api", "api_name", "target_name", "target_function"):
-        text = str(value.get(key) or "").strip()
-        if text:
-            return normalize_api_symbol(text)
-    return ""
-
-
-def recovered_thread_argument(
-    value: Mapping[str, object],
-    *,
-    index: int,
-    names: tuple[str, ...] = (),
-    require_code_address: bool = False,
-) -> str | None:
-    """Read one resolved x64 argument from an api_argument_trace payload."""
-    args = value.get("arguments")
-    if not isinstance(args, (list, tuple)):
-        named = str(value.get("lpStartAddress") or value.get("start_routine") or value.get("start_address") or "")
-        if require_code_address:
-            return canonical_code_address(named)
-        return named.strip() or None
-    for item in args:
-        if not isinstance(item, Mapping) or not item.get("resolved"):
-            continue
-        name = str(item.get("name") or "").casefold()
-        matched = item.get("index") == index or (
-            bool(names) and any(token in name for token in names)
-        )
-        if not matched:
-            continue
-        raw = item.get("value")
-        if require_code_address:
-            return canonical_code_address(raw)
-        text = str(raw or "").strip()
-        if text and text.casefold() not in {"unknown", "n/a", "none"}:
-            return canonical_code_address(raw) or text
-    return None
-
-
-def recovered_thread_start_address(value: Mapping[str, object]) -> str | None:
-    """lpStartAddress/callback for same-process thread APIs, else None."""
-    api = _thread_api_from_value(value)
-    index = _THREAD_START_ARG_INDEX.get(api)
-    if index is None:
-        return None
-    return recovered_thread_argument(
-        value,
-        index=index,
-        names=("lpstartaddress", "startaddress", "callback", "pfnapc", "start_routine"),
-        require_code_address=True,
-    )
+from threat_report_agent.facts.thread_start import (
+    _THREAD_START_ARG_INDEX,
+    _thread_api_from_value,
+    canonical_code_address,
+    recovered_thread_argument,
+    recovered_thread_start_address,
+)  # the predicate group moved to facts/; investigation.py still uses these five
 
 
 def recovered_thread_parameter(value: Mapping[str, object]) -> str | None:

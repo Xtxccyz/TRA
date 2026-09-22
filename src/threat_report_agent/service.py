@@ -152,9 +152,9 @@ from threat_report_agent.investigation import (
     apply_emulation_reverification,
     recovery_actions_for_gap,
     normalize_target_selector,
-    recovered_thread_start_address,
     CATALOG_SELECTOR_KEYS,
 )
+from threat_report_agent.facts.thread_start import recovered_thread_start_address
 from threat_report_agent.investigation_protocol import (
     fill_protocol,
     tool_authoring_required_ticket,
