@@ -11,7 +11,7 @@ from threat_report_agent.config import Settings
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
 from threat_report_agent.service import AnalysisService
-from threat_report_agent.tool_execution import run_static_worker
+from threat_report_agent.control_activities import run_static_worker
 
 
 def build_parser() -> argparse.ArgumentParser:

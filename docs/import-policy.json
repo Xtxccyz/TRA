@@ -6,13 +6,8 @@
     "runtime_edges": 150,
     "cycles": 2
   },
-  "known_cycles": [
-    [
-      "service",
-      "tool_execution"
-    ]
-  ],
-  "_known_cycles_note": "The first cycle was `controlled_emulation <-> emulation_plan <-> investigation <-> static_analysis`. IT NO LONGER EXISTS and the entry was retired in round 78: P2-V.0 moved the thread-start predicate group into `facts/thread_start.py`, which removed the `static_analysis -> investigation` leg - the whole reason that leg existed was one predicate borrowed from the investigation layer. The gate reported the cycle count falling from 2 to 1 and this entry becoming stale; retiring it is the deliberate follow-through, not a loosening. The remaining entry `service <-> tool_execution` is the one the plan's P3 work unwinds.",
+  "known_cycles": [],
+  "_known_cycles_note": "The first cycle was `controlled_emulation <-> emulation_plan <-> investigation <-> static_analysis`. IT NO LONGER EXISTS and the entry was retired in round 78: P2-V.0 moved the thread-start predicate group into `facts/thread_start.py`, which removed the `static_analysis -> investigation` leg - the whole reason that leg existed was one predicate borrowed from the investigation layer. The gate reported the cycle count falling from 2 to 1 and this entry becoming stale; retiring it is the deliberate follow-through, not a loosening.\n\n(2) BOTH cycles are now retired and the allowlist is EMPTY, which is the state the plan wants: the module graph has no cycles at all.\n\n`service <-> tool_execution` was retired by P2-T.0. MEASURED: `tool_execution.py` had NO module-level package imports at all - the reverse leg was two FUNCTION-LEVEL `from threat_report_agent.service import AnalysisService` statements inside `StaticToolActivities.expire_model_payloads` and `.seal_daily_audit`, which the gate sees because it walks every AST node. Plan 7.5 requires the cycle to be unwound before the tool layer moves into `tools/`, and its failure clause forbids carrying it into the new package. A port could not do it: the composition root that would inject the port (`run_static_worker`) lived in the same module, so injecting the service from there would still be a `tools -> service` dependency. P2-T.0 therefore SEPARATED the two planes: the retention and audit-seal activities, their two workflows, their two schedules and the worker composition root moved into `src/threat_report_agent/control_activities.py`, leaving `control_activities -> service -> tool_execution` and `control_activities -> tool_execution`, with no path back from the tool layer. The gate reported the count falling from 1 to 0.\n\nAn allowlist entry that permits a cycle which no longer exists cannot notice that cycle returning, so it is removed rather than kept as documentation. `tests/test_control_plane_contract.py` pins the replacement: the tool module must have no service reference at any nesting depth, the registered activity names per worker role must be unchanged, and both workflows must dispatch the same activity names.",
   "forbidden_edges": [
     [
       "dataflow",

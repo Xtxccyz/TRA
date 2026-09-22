@@ -27,16 +27,18 @@ from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob, Tool
 from threat_report_agent.service import AnalysisService
 from threat_report_agent.config import Settings
 from threat_report_agent.intake import PackageEntry
+from threat_report_agent.control_activities import (
+    DailyAuditSealWorkflow,
+    ModelPayloadCleanupWorkflow,
+    ensure_model_payload_cleanup_schedule,
+)
 from threat_report_agent.tool_execution import (
     StaticToolActivities,
     StaticToolRunWorkflow,
-    ModelPayloadCleanupWorkflow,
-    DailyAuditSealWorkflow,
     ToolRunRequest,
     ToolRunResult,
     ToolRunStorageAccess,
     TemporalToolExecutor,
-    ensure_model_payload_cleanup_schedule,
     intake_entries_from_payload,
     static_result_from_payload,
     client_result_timeout_seconds,
@@ -56,9 +58,11 @@ def test_daily_audit_workflow_defaults_to_previous_utc_day(monkeypatch) -> None:
             captured.update({"name": name, "payload": payload})
             return payload
 
-    import threat_report_agent.tool_execution as tool_execution
+    # P2-T.0: `DailyAuditSealWorkflow` is control-plane code and now lives in `control_activities`, so the patch
+    # must target THAT module's globals - patching `tool_execution` would no longer affect the workflow's lookup.
+    import threat_report_agent.control_activities as control_activities
 
-    monkeypatch.setattr(tool_execution, "workflow", FakeWorkflow)
+    monkeypatch.setattr(control_activities, "workflow", FakeWorkflow)
     result = asyncio.run(DailyAuditSealWorkflow().run({"actor": "test"}))
     assert result["utc_day"] == "2026-08-26"
     assert captured["name"] == "seal_daily_audit"

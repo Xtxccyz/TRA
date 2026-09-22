@@ -106,10 +106,22 @@ SMOKE_PACKAGES: tuple[str, ...] = plan_packages()
 #: Always smoked, whether or not the package has modules yet.
 SMOKE_ALWAYS: tuple[str, ...] = ("threat_report_agent.facts",)
 
+#: ROOT-level modules that a container's entry point imports, so they need an explicit entry: `plan_packages()`
+#: only covers package DIRECTORIES, and a new root module is therefore invisible to that enumeration.
+#:
+#: MEASURED GAP this closes (P2-T.0): `control_activities.py` was created as a root module and crash-looped the
+#: control worker with `NameError: name 'StaticToolRunWorkflow' is not defined`. The hash gate found it as
+#: `control-worker: NOT RUNNING`, while the import smoke stayed silent - it never imported the new module at all.
+SMOKE_MODULES: tuple[str, ...] = (
+    "threat_report_agent.control_activities",
+    "threat_report_agent.tool_execution",
+    "threat_report_agent.cli",
+)
+
 
 def smoke_modules() -> tuple[str, ...]:
-    """Every module inside the plan's new packages, as dotted names, plus the fixed entries."""
-    names = list(SMOKE_ALWAYS)
+    """Every module inside the plan's new packages, plus the fixed and root-level entries."""
+    names = [*SMOKE_ALWAYS, *SMOKE_MODULES]
     for package in SMOKE_PACKAGES:
         directory = SOURCE / package
         if not directory.is_dir():
