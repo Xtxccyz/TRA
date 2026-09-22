@@ -214,7 +214,7 @@ from threat_report_agent.investigation.mechanism_completeness import (
     mechanism_completeness_score,
     mechanism_is_critical_ready,
 )
-from threat_report_agent.mechanism_ready import inspect_mechanism_ready
+from threat_report_agent.investigation.mechanism_ready import inspect_mechanism_ready
 from threat_report_agent.deep_analysis_quality import no_new_evidence_autopsy
 from threat_report_agent.static.pma_static_plan import static_analysis_plan_snapshot
 from threat_report_agent.report.report_verification import (

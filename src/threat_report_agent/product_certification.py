@@ -429,7 +429,7 @@ def semantic_flow_metrics(mechanisms: Iterable[Mapping[str, object]]) -> dict[st
     instruction labels are intentionally ignored here.
     """
     from threat_report_agent.investigation.mechanism_completeness import has_semantic_value
-    from threat_report_agent.mechanism_ready import inspect_mechanism_ready
+    from threat_report_agent.investigation.mechanism_ready import inspect_mechanism_ready
 
     eligible = 0
     participating = 0
@@ -488,7 +488,7 @@ def mechanism_coverage_metrics(
     as verified when only one mechanism is closed overstates coverage,
     especially for PE samples with large candidate sets.
     """
-    from threat_report_agent.mechanism_ready import inspect_mechanism_ready
+    from threat_report_agent.investigation.mechanism_ready import inspect_mechanism_ready
 
     rows = [
         row

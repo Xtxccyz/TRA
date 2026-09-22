@@ -25,7 +25,7 @@ from threat_report_agent.investigation.investigation_protocol import (
     is_empty_marker,
     tool_authoring_required_entries,
 )
-from threat_report_agent.mechanism_ready import inspect_mechanism_ready
+from threat_report_agent.investigation.mechanism_ready import inspect_mechanism_ready
 from threat_report_agent.product_certification import repair_static_runtime_wording
 from threat_report_agent.product_certification import static_wording_violations
 from threat_report_agent.report.reporting import (

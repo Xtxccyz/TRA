@@ -16,7 +16,7 @@ from threat_report_agent.investigation.mechanism_completeness import (
     has_semantic_value,
     mechanism_completeness_score,
 )
-from threat_report_agent.mechanism_ready import inspect_mechanism_ready
+from threat_report_agent.investigation.mechanism_ready import inspect_mechanism_ready
 
 
 _STRONG_LABELS = (

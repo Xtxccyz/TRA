@@ -332,6 +332,10 @@
     {
       "old": "mechanism_completeness",
       "new": "investigation.mechanism_completeness"
+    },
+    {
+      "old": "mechanism_ready",
+      "new": "investigation.mechanism_ready"
     }
   ],
   "_moved_paths_public_path_unchanged_note": "The last entry is a MODULE -> PACKAGE move: `threat_report_agent.investigation` was a module and is now the package whose implementation is `investigation/investigation.py`. Its PUBLIC dotted path did not change, so `public_path_unchanged: true` tells scripts/check-structure-diff.py's old-path rule to SKIP it (production importers of `threat_report_agent.investigation` are correct, not legacy - there is nothing to migrate), while scripts/check-import-graph.py still uses the entry to normalise `investigation.investigation` back to `investigation`, so the recorded 4-module cycle keeps matching instead of reporting as NEW.",

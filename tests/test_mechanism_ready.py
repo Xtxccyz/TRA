@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from threat_report_agent.investigation.mechanism_completeness import mechanism_is_critical_ready
-from threat_report_agent.mechanism_ready import inspect_mechanism_ready
+from threat_report_agent.investigation.mechanism_ready import inspect_mechanism_ready
 
 
 def _closed_row(**overrides: object) -> dict[str, object]:
