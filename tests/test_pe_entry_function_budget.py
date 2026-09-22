@@ -2247,7 +2247,7 @@ def test_persist_unique_thread_seed_closes_without_trace() -> None:
 
 def test_unique_thread_seed_rows_exclude_process_how() -> None:
     """Kunglao leftover remainder: Unique OS protocol must not inherit Foxit command."""
-    from threat_report_agent.investigation_protocol import fill_protocol
+    from threat_report_agent.investigation.investigation_protocol import fill_protocol
 
     thread = Evidence(
         id="trace-thread",

@@ -23,7 +23,7 @@ from threat_report_agent.analyst_report import (
     render_official_markdown,
     render_stop_kinds,
 )
-from threat_report_agent.investigation_protocol import (
+from threat_report_agent.investigation.investigation_protocol import (
     TOOL_AUTHORING_REQUIRED_MARKER,
     TOOL_AUTHORING_UNRESOLVED_MARKER,
     tool_authoring_required_entries,

@@ -127,7 +127,8 @@ def test_the_function_call_names_helper_has_exactly_one_implementation() -> None
     could regress silently. MEASURED at the consolidation: both copies were byte-identical (name-normalised body
     hash 0c5ca4fb1ca89f71), the canonical home is `investigation_protocol.py` because
     `investigation_protocol -> reporting` is a FORBIDDEN edge while `reporting -> investigation_protocol` already
-    existed, and nothing was reimplemented - the survivor is byte-identical to both HEAD copies.
+    existed, and nothing was reimplemented - the survivor is byte-identical to both HEAD copies. P2-V.2 then moved
+    that module into `investigation/`, so the file lives there now while the canonical identity is unchanged.
     """
     import json
 
@@ -139,12 +140,12 @@ def test_the_function_call_names_helper_has_exactly_one_implementation() -> None
         for node in tree.body:
             if isinstance(node, ast.FunctionDef) and node.name in {"function_call_names", "_function_call_names"}:
                 defined_in.append(path.relative_to(PACKAGE).as_posix())
-    assert defined_in == ["investigation_protocol.py"], (
+    assert defined_in == ["investigation/investigation_protocol.py"], (
         f"the helper is defined in {defined_in}; plan 3.2 allows exactly ONE canonical implementation, and it must "
         "live in investigation_protocol.py because the reverse direction is a forbidden edge"
     )
 
-    protocol = importlib.import_module("threat_report_agent.investigation_protocol")
+    protocol = importlib.import_module("threat_report_agent.investigation.investigation_protocol")
     assert callable(protocol.function_call_names), "the canonical helper must be public now that it is imported"
     reporting = importlib.import_module("threat_report_agent.report.reporting")
     assert reporting.function_call_names is protocol.function_call_names, (

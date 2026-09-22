@@ -20,7 +20,7 @@ from typing import Iterable, Mapping, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from threat_report_agent.behavior_catalog import BehaviorCatalog
-from threat_report_agent.investigation_protocol import (
+from threat_report_agent.investigation.investigation_protocol import (
     TOOL_AUTHORING_REQUIRED_MARKER,
     is_empty_marker,
     tool_authoring_required_entries,

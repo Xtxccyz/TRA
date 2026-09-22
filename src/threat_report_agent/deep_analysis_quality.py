@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 import re
 
-from threat_report_agent.investigation_protocol import s4_closed_has_audit_trail
+from threat_report_agent.investigation.investigation_protocol import s4_closed_has_audit_trail
 from threat_report_agent.mechanism_completeness import (
     has_semantic_value,
     mechanism_completeness_score,

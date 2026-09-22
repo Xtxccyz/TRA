@@ -45,7 +45,7 @@ from threat_report_agent.facts.dataflow import (
     is_named_decode_consumer_api,
     is_process_execution_api,
 )
-from threat_report_agent.investigation_protocol import (
+from threat_report_agent.investigation.investigation_protocol import (
     fill_protocol,
     may_record_static_boundary,
     s_ladder,

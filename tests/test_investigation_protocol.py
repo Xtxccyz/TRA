@@ -1,5 +1,5 @@
 from threat_report_agent.investigation import ActionSpec, ActionType, InvestigationLoopDriver
-from threat_report_agent.investigation_protocol import (
+from threat_report_agent.investigation.investigation_protocol import (
     fill_protocol,
     is_empty_marker,
     may_record_static_boundary,

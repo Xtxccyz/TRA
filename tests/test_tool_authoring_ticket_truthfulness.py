@@ -17,7 +17,7 @@ A ticket that tells the reader a capability is missing when it executed is worse
 """
 from __future__ import annotations
 
-from threat_report_agent.investigation_protocol import (
+from threat_report_agent.investigation.investigation_protocol import (
     TOOL_AUTHORING_REQUIRED_MARKER,
     tool_authoring_required_entries,
     tool_authoring_required_ticket,

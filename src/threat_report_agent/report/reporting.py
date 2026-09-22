@@ -30,7 +30,7 @@ from threat_report_agent.mechanism_completeness import (
     mechanism_is_critical_ready,
 )
 from threat_report_agent.deep_analysis_quality import apply_adversarial_downgrades, deep_analysis_metrics
-from threat_report_agent.investigation_protocol import (
+from threat_report_agent.investigation.investigation_protocol import (
     TEN_QUESTION_SLOTS,
     fill_protocol,
     function_call_names,

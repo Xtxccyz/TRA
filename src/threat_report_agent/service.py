@@ -155,7 +155,7 @@ from threat_report_agent.investigation import (
     CATALOG_SELECTOR_KEYS,
 )
 from threat_report_agent.facts.thread_start import recovered_thread_start_address
-from threat_report_agent.investigation_protocol import (
+from threat_report_agent.investigation.investigation_protocol import (
     fill_protocol,
     tool_authoring_required_ticket,
 )

@@ -28,7 +28,7 @@ from threat_report_agent.investigation import (
     InvestigationLoopDriver,
     recovered_thread_start_address,
 )
-from threat_report_agent.investigation_protocol import fill_protocol
+from threat_report_agent.investigation.investigation_protocol import fill_protocol
 from threat_report_agent.models import (
     AnalysisTask,
     Artifact,
