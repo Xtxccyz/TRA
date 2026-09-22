@@ -151,7 +151,23 @@ def unicorn_granted_windows_for_worker(
     *,
     max_windows: int = 4,
 ) -> tuple[dict[str, object], ...]:
-    """Serialize Unicorn snippets for the isolated worker. Skip Speakeasy full-PE."""
+    """Serialize Unicorn snippets for the isolated worker. Skip Speakeasy full-PE.
+
+    CALLER CONTRACT - the skip is NOT reported. Every window whose simulator is not `unicorn` is dropped by
+    the filter below, and the caller receives a shorter tuple with no way to tell "there were only Unicorn
+    windows" from "non-Unicorn windows were dropped". That is deliberate here (this function's job is the
+    Unicorn grant payload) but it means a caller wanting the full-PE window MUST plan it separately - which is
+    what `tool_execution.py` does, prepending it as an incremental window outside the grant budget. Calling
+    this function and assuming it returns every window silently loses the others. Recorded as a known latent
+    trap in `.scratch/finding-suppression-point-1-latent.md`; reporting the skip needs a signature change.
+
+    PROVENANCE of `max_windows` (G2): the value 4 is NOT derived from a measurement. It mirrors the per-run
+    execution budget in `tool_execution.py` (`execution_budget = 4`), which is itself the pre-existing literal
+    on that path, and it is a legacy default that no production caller relies on - `service.py` calls this
+    function without passing `max_windows`, so the effective bound today is whatever the caller passes, not
+    this default. Stated here rather than left looking authoritative; deriving it from a measurement is open
+    work, and G4 forbids quietly changing it in the meantime.
+    """
     output: list[dict[str, object]] = []
     for window in windows or ():
         if not isinstance(window, Mapping):
