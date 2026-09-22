@@ -23697,6 +23697,41 @@ class AnalysisService:
             # The audit write must never be the reason a report fails to publish.
             pass
 
+    @staticmethod
+    def _merge_operational_limitations(document: dict[str, object], task: object) -> None:
+        """Merge the TASK's own limitations into the document key the renderer actually reads.
+
+        `document["analyst_report_limitations"]` is a two-endpoint channel: ONE writer
+        (`_overlay_analyst_report_plan`) and ONE reader (`analyst_report.py`, via `_verification_note` and
+        `_operational_limitation_lines`). That writer previously only ever saw the MODEL's self-reported
+        limitations, while the pipeline's operational limitations live on the TASK row (`models.py:75`).
+        MEASURED consequence: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the
+        database holds 7 TIMED_OUT tool runs, 2 CANCELLED tool runs and 49 cancelled tasks - and a truncation
+        notice written into `task.limitations` reached no reader at all.
+
+        Kept separate from the `if parsed.limitations:` branch at the call site: gating the merge on the MODEL
+        having spoken would reproduce the same absence-as-clean-result shape one level removed, because a run
+        with operational failures and a silent model would still render nothing.
+
+        ENTRIES ARE LABELLED. A `[pipeline]` prefix lets a reader tell a PIPELINE limitation from a MODEL-stated
+        one; without it the model's silence is indistinguishable from the pipeline's failure, which is the very
+        confusion that let a failed run read as a clean one.
+
+        NO NEW CAP is introduced: the task's list is produced by the pipeline and is already bounded, and a
+        `[:N]` here would be a fresh unannounced truncation of the kind this report forbids.
+        """
+        operational = [
+            str(item).strip() for item in (getattr(task, "limitations", None) or []) if str(item).strip()
+        ]
+        if not operational:
+            return
+        merged = list(document.get("analyst_report_limitations") or [])
+        for item in operational:
+            labelled = item if item.startswith("[pipeline]") else f"[pipeline] {item}"
+            if labelled not in merged:
+                merged.append(labelled)
+        document["analyst_report_limitations"] = merged
+
     def _overlay_analyst_report_plan(
         self,
         task: AnalysisTask,
@@ -23865,35 +23900,10 @@ class AnalysisService:
                 document["analyst_report_limitations"] = [
                     str(item)[:400] for item in parsed.limitations[:16]
                 ]
-            # OPERATIONAL limitations must reach the reader too, and until now they could not.
-            #
-            # `[analyst_report_limitations]` is a two-endpoint channel: ONE writer (here) and ONE reader
-            # (`analyst_report.py:4651`). This writer only ever saw the MODEL's self-reported limitations, while
-            # the pipeline's own operational limitations live on the TASK row (`models.py:75`). MEASURED
-            # consequence: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the
-            # database holds 7 TIMED_OUT tool runs, 2 CANCELLED tool runs and 49 cancelled tasks - and a
-            # truncation notice written into `task.limitations` reached no reader at all.
-            #
-            # Deliberately OUTSIDE the `if parsed.limitations:` branch above. Gating this merge on the MODEL
-            # having spoken would reproduce the same absence-as-clean-result shape one level removed: a run
-            # with operational failures and a silent model would still render nothing. That is precisely how
-            # the earlier attempt at this failed - it wrote to a sink that no renderer reads.
-            #
-            # No new cap is introduced: the task's list is produced by the pipeline and is already bounded, and
-            # adding a `[:N]` here would be a fresh unannounced truncation of the kind this report forbids.
-            operational = [
-                str(item).strip() for item in (task.limitations or []) if str(item).strip()
-            ]
-            if operational:
-                merged = list(document.get("analyst_report_limitations") or [])
-                for item in operational:
-                    # Provenance prefix, so a reader can tell a PIPELINE limitation from a MODEL-stated one.
-                    # Without it the model's silence is indistinguishable from the pipeline's failure - the
-                    # very confusion that let a failed run read as a clean one.
-                    labelled = item if item.startswith("[pipeline]") else f"[pipeline] {item}"
-                    if labelled not in merged:
-                        merged.append(labelled)
-                document["analyst_report_limitations"] = merged
+            # OPERATIONAL limitations must reach the reader too; see `_merge_operational_limitations`, which
+            # owns the reasoning and is unit-tested directly because this function's upstream branches cannot be
+            # driven in isolation.
+            self._merge_operational_limitations(document, task)
             if parsed.slots:
                 # MODEL SLOT PROPOSALS ARE VERIFIED AT PERSISTENCE TIME, NOT AT RENDER TIME.
                 #
