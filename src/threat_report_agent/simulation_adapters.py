@@ -1157,6 +1157,19 @@ def _speakeasy_stop(entry: list[object], *, instruction_budget: int) -> tuple[st
     Returns `(status, stop_reason, detail)`; `detail` names the blocking symbol when the emulator
     reported an error, so callers can publish it instead of a bare status code.
     """
+    if not entry:
+        # An EMPTY report is an emulator-side fault, NEVER a completed run. MEASURED (adversarial defect
+        # audit): when Speakeasy crashes inside its own unmapped-memory handler (the ctypes-swallowed
+        # `get_peb_ldr` AttributeError) it returns a report with no `entry_points`, and the fall-through below
+        # returned `SUCCEEDED / END_ADDRESS`, so the result was published as
+        # `speakeasy status=SUCCEEDED stop=END_ADDRESS` with nature `EMULATION_OBSERVED`.
+        #
+        # The damage is not only the false label: `is_real_simulation_value` then reports "a real simulation
+        # landed" to the CONTROLLED_EMULATE gate, which SUPPRESSES the retry that would have recovered real
+        # evidence. Absence converted into a clean result, and it costs the evidence that would have replaced
+        # it. Evidence this was reachable: ids d8482e84-307a-40db-bf01-24484dd3e4df, 5658b631-f652-4b9a-91fe-
+        # 337e35e57eae (task 87da6bd0-12fc-40ca-8d86-a7b0665d559e) carry `api_count: 0` with `limitations: []`.
+        return "FAILED", "EMULATOR_NO_REPORT", "Speakeasy reported no entry points"
     ret_vals: list[object] = []
     errors: list[object] = []
     counts: list[int] = []
