@@ -73,14 +73,35 @@ DEFAULT_SERVICES = (
     "ghidra-worker",
 )
 
+def plan_packages() -> tuple[str, ...]:
+    """The packages the structural plan has created, ENUMERATED from disk.
+
+    The rule, so it is checkable rather than a matter of memory: a child directory of the package root is a plan
+    package when it holds an `__init__.py` AND at least one other `.py` file. That excludes the DATA directories,
+    which have no `__init__.py` (`prompts/`, `policies/`, `knowledge/`, `assets/`, `ghidra_scripts/`) and so are
+    covered by the file manifest instead.
+
+    MEASURED GAP this closes (P2-M): until round 79 this was a hand-written tuple of six names. `model/` was moved
+    into place and NOT added to it, so `--import-smoke` would have reported `import smoke OK` while never importing
+    a single model module - the same "lagged the packages the plan created" defect the comment below used to
+    describe, one level up. Deriving the list means a package created by a later step (P2-T `tools/`, P2-TK
+    `task/`) is smoked the moment it exists.
+    """
+    packages = []
+    for directory in sorted(SOURCE.iterdir()):
+        if not directory.is_dir() or directory.name == "__pycache__":
+            continue
+        if not (directory / "__init__.py").is_file():
+            continue
+        if not any(p.name != "__init__.py" for p in directory.glob("*.py")):
+            continue
+        packages.append(directory.name)
+    return tuple(packages)
+
+
 #: Modules imported in every container by --import-smoke. These are the packages the structural plan created; a
-#: container that cannot import one is running a stale image.
-#:
-#: MEASURED GAP this closes: until round 73 the list was edited by hand once per moved module, so it lagged the
-#: packages the plan created (`report/` was added only after an audit noticed, `static/` would have needed another
-#: edit). It is now ENUMERATED from disk exactly like the manifest: every module under the plan's new packages is
-#: smoked, so a new module needs no edit here. See `smoke_modules()`.
-SMOKE_PACKAGES: tuple[str, ...] = ("facts", "report", "static", "emulation", "intake", "investigation")
+#: container that cannot import one is running a stale image. Derived, never hand-edited - see `plan_packages()`.
+SMOKE_PACKAGES: tuple[str, ...] = plan_packages()
 
 #: Always smoked, whether or not the package has modules yet.
 SMOKE_ALWAYS: tuple[str, ...] = ("threat_report_agent.facts",)

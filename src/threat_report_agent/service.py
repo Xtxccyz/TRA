@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 from sqlalchemy import String, case, cast, func, insert, or_, select
 from sqlalchemy.orm import Session, object_session
 
-from threat_report_agent.agents import (
+from threat_report_agent.model.agents import (
     FunctionEvidenceCandidate,
     StaticAnalysisAgent,
     TriageAgent,
@@ -92,7 +92,7 @@ from threat_report_agent.static.evidence_recovery import (
 )
 from threat_report_agent.static.evidence_index import evidence_search_keys
 from threat_report_agent.policy import PolicyRegistry
-from threat_report_agent.prompts import PromptRegistry
+from threat_report_agent.model.prompts import PromptRegistry
 from threat_report_agent.models import (
     AnalysisSnapshot,
     AnalysisTask,
@@ -201,7 +201,7 @@ from threat_report_agent.report.analyst_report import (
     stamp_official_report_chrome,
     verify_model_slot_proposals,
 )
-from threat_report_agent.model_gateway import (
+from threat_report_agent.model.model_gateway import (
     AtomicClaimDraft,
     AtomicClaimEnvelope,
     DynamicPlanAction,
@@ -332,7 +332,7 @@ from threat_report_agent.tool_execution import (
     static_result_from_payload,
 )
 from threat_report_agent.validation import validate_claim_evidence
-from threat_report_agent.agent_runtime import AgentRuntime
+from threat_report_agent.model.agent_runtime import AgentRuntime
 from threat_report_agent.analysis_trace import (
     build_analysis_trace,
     build_mechanism_effectiveness_traces,

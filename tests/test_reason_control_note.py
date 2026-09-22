@@ -33,6 +33,26 @@ def test_a_non_qwen_provider_cannot_honour_disable_reasoning() -> None:
     assert ModelGateway._is_qwen_reasoning_provider(QWEN) is True
 
 
+def _gateway_source() -> str:
+    """The gateway implementation's source, resolved through the import system rather than by file path.
+
+    MEASURED (P2-M): this file used to read `src/threat_report_agent/model_gateway.py` by path. When the module
+    moved to `threat_report_agent/model/model_gateway.py` the old path became a compatibility shim, so these
+    assertions silently started reading five lines of shim text and failed with "the note is not initialised at
+    all" - a message that pointed at the implementation, not at the reading method. Resolving through the import
+    system follows the module wherever it moves; the guard below makes a future move fail HERE, loudly, instead
+    of somewhere confusing.
+    """
+    import threat_report_agent.model_gateway as gateway_module
+
+    source = Path(gateway_module.__file__).read_text(encoding="utf-8")
+    assert "Compatibility shim" not in source, (
+        "these assertions are reading a compatibility shim at "
+        f"{gateway_module.__file__}, not the gateway implementation"
+    )
+    return source
+
+
 def test_the_note_names_the_control_that_was_dropped() -> None:
     """The note's CONTENT must say which control and why, or it cannot be acted on.
 
@@ -40,9 +60,7 @@ def test_the_note_names_the_control_that_was_dropped() -> None:
     live transport to exercise. That is a weaker check than a behavioural one - stated plainly rather than
     dressed up: it proves the wording exists, not that it fired.
     """
-    source = (Path(__file__).resolve().parents[1] / "src/threat_report_agent/model_gateway.py").read_text(
-        encoding="utf-8"
-    )
+    source = _gateway_source()
     assert "disable_reasoning was requested" in source
     assert "only implements it for Qwen-compatible" in source
     assert "reasoning ENABLED" in source, "the note must state the request went out with reasoning ON"
@@ -50,9 +68,7 @@ def test_the_note_names_the_control_that_was_dropped() -> None:
 
 def test_the_note_is_attached_to_the_failure_record() -> None:
     """A note that is built but never recorded is exactly the silent drop it was written to end."""
-    source = (Path(__file__).resolve().parents[1] / "src/threat_report_agent/model_gateway.py").read_text(
-        encoding="utf-8"
-    )
+    source = _gateway_source()
     assert "reason_control_note" in source
     # It must be concatenated into `error_detail`, i.e. used rather than merely assigned.
     assert "if reason_control_note else error_detail" in source, (
@@ -66,9 +82,7 @@ def test_the_note_is_bound_on_every_branch() -> None:
     MEASURED: the first version of this code did exactly that and it was caught by reading, not by a test -
     which is why the test now exists.
     """
-    source = (Path(__file__).resolve().parents[1] / "src/threat_report_agent/model_gateway.py").read_text(
-        encoding="utf-8"
-    )
+    source = _gateway_source()
     assert 'reason_control_note = ""' in source, "the note is not initialised at all"
     initialise_at = source.index('reason_control_note = ""')
     branch_at = source.index("if disable_reasoning and self._is_qwen_reasoning_provider")

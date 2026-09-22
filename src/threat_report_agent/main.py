@@ -48,7 +48,7 @@ from threat_report_agent.reporting import (
     markdown_to_docx,
     markdown_to_pdf,
 )
-from threat_report_agent.model_gateway import model_provider_family, supported_provider_contracts
+from threat_report_agent.model.model_gateway import model_provider_family, supported_provider_contracts
 from threat_report_agent.service import AnalysisService, ContextMismatchError
 
 

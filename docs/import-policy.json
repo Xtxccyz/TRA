@@ -293,10 +293,26 @@
       "old": "investigation",
       "new": "investigation.investigation",
       "public_path_unchanged": true
+    },
+    {
+      "old": "prompts",
+      "new": "model.prompts"
+    },
+    {
+      "old": "agent_runtime",
+      "new": "model.agent_runtime"
+    },
+    {
+      "old": "agents",
+      "new": "model.agents"
+    },
+    {
+      "old": "model_gateway",
+      "new": "model.model_gateway"
     }
   ],
   "_moved_paths_public_path_unchanged_note": "The last entry is a MODULE -> PACKAGE move: `threat_report_agent.investigation` was a module and is now the package whose implementation is `investigation/investigation.py`. Its PUBLIC dotted path did not change, so `public_path_unchanged: true` tells scripts/check-structure-diff.py's old-path rule to SKIP it (production importers of `threat_report_agent.investigation` are correct, not legacy - there is nothing to migrate), while scripts/check-import-graph.py still uses the entry to normalise `investigation.investigation` back to `investigation`, so the recorded 4-module cycle keeps matching instead of reporting as NEW.",
-  "_moved_paths_note": "The canonical rename map, and the SINGLE SOURCE for it: scripts/check-import-graph.py normalises module names through it and scripts/check-structure-diff.py derives its old-path rule from it. WHY IT EXISTS (MEASURED in round 74): moving `static_analysis.py` into `static/` made the recorded cycle `controlled_emulation <-> emulation_plan <-> investigation <-> static_analysis` report as NEW, because the graph now spells the member `static.static_analysis` while the allowlist spells it `static_analysis`. The cycle did not change; only one member's name did. Normalising through this map is the fix, and it means the rest of P2 and all of P4 need no policy edit per move. Before this map existed the same information was duplicated in a constant inside check-structure-diff.py, which had to be hand-edited on every move.",
+  "_moved_paths_note": "The canonical rename map, and the SINGLE SOURCE for it: scripts/check-import-graph.py normalises module names through it and scripts/check-structure-diff.py derives its old-path rule from it. WHY IT EXISTS (MEASURED in round 74): moving `static_analysis.py` into `static/` made the recorded cycle `controlled_emulation <-> emulation_plan <-> investigation <-> static_analysis` report as NEW, because the graph now spells the member `static.static_analysis` while the allowlist spells it `static_analysis`. The cycle did not change; only one member's name did. Normalising through this map is the fix, and it means the rest of P2 and all of P4 need no policy edit per move. Before this map existed the same information was duplicated in a constant inside check-structure-diff.py, which had to be hand-edited on every move. Round 79 added the four model-layer modules (prompts, agent_runtime, agents, model_gateway) after P2-M moved them; like the static and emulation entries their registered old-path importer count is ZERO because production moved first.",
   "known_duplicate_implementations": [
     {
       "name": "_function_call_names",
