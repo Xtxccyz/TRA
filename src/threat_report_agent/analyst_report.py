@@ -4563,6 +4563,11 @@ def _repair_unrecovered_creation_flags(
     return repaired, repaired != raw
 
 
+#: Shared by the renderer and the compose gate so the two cannot drift (G2/G3). The gate uses it to reject a
+#: draft that silently drops the pipeline's own limitations.
+OPERATIONAL_LIMITATIONS_HEADING = "**运行过程中的限制（与样本行为无关）：**"
+
+
 def _operational_limitation_lines(document: Mapping[str, object]) -> list[str]:
     """Limitations the PIPELINE reported, rendered independently of mechanism bookkeeping.
 
@@ -4595,7 +4600,7 @@ def _operational_limitation_lines(document: Mapping[str, object]) -> list[str]:
         operational.append(text)
     if not operational:
         return []
-    lines = ["**运行过程中的限制（与样本行为无关）：**", ""]
+    lines = [OPERATIONAL_LIMITATIONS_HEADING, ""]
     lines.extend(f"- {item}" for item in operational)
     lines.append("")
     return lines
@@ -6102,6 +6107,23 @@ def compose_gate_violations(draft: str, fragments: str) -> list[str]:
     novel(_COMPOSE_IPV4_RE, "endpoint")
     novel(_COMPOSE_IMAGE_RE, "process image")
     novel(_CREATION_FLAGS_RE, "creation flags", group=1)
+
+    # A draft that silently drops the pipeline's OWN limitations is a false negative about a fact the fragments
+    # carry: the reader would lose the one statement saying the pipeline had a problem (a truncation, a
+    # cancellation, a timed-out tool run). This is the same class the gate already rejects - "否认片段里确实
+    # 存在的事实" - applied to the operational block.
+    #
+    # WHY IT MATTERS AT THE GATE and not by post-processing the draft: MEASURED, the published body IS the
+    # draft whenever it clears this gate (`publish_composed_markdown` returns the candidate, 6212-6214), and
+    # the publisher passes one (`service.py:24107`, `draft=document.get("analyst_report_draft")`). So anything
+    # rendered only into the deterministic fragments reaches a reader ONLY on the fallback path - and revision
+    # `414cb724`'s published body contains zero occurrences of `限制`/`limitation`, which is what a published
+    # draft looks like. Rejecting the draft here makes the omission FAIL THE GATE and publish the deterministic
+    # body instead, rather than depending on the draft having been written correctly.
+    if OPERATIONAL_LIMITATIONS_HEADING in source and OPERATIONAL_LIMITATIONS_HEADING not in text:
+        violations.append(
+            "draft omits the pipeline's operational limitations, which the composed fragments carry"
+        )
     # CANDIDATE/UNKNOWN must not be restated as established fact.
     if "CANDIDATE" in source.upper() or "UNKNOWN(" in source.upper():
         folded = text.casefold()
