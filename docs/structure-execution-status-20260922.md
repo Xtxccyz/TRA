@@ -1,14 +1,14 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 41 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 42 条，本文件只汇总。
 
-- 本文档描述的树经核验于 HEAD `b75f188b20c1efc3d24a6812cf0a1cf076d05eaa`（本轮改动在该提交之上，与本文件一并提交）
+- 本文档描述的树经核验于 HEAD `af1f6c242dce9f320b1454a6069c8dcf539c901a`（本轮改动在该提交之上，与本文件一并提交）
 - **structure_status：`IN_PROGRESS`**
 - **capability_status：`UNVERIFIED`**
 
 ## 一、为什么不是 READY / ACCEPTED
 
-Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. PHASE 2 IS NOW COMPLETE: nine packages are in place (facts, report, model, tools, intake, static, emulation, investigation, task) with 34 moved paths; report/ is complete including plan 7.3 step 5; plan 7.9's seven investigation siblings are all moved; plan 7.10's three task modules are moved; the ONE recorded duplicate implementation is resolved; BOTH recorded import cycles are retired with an empty allowlist; and one of the two recorded legacy-path imports is gone. PHASES 3, 4 AND 5 HAVE NOT STARTED - splitting `AnalysisService` (P3.1-P3.7) is the next work and it is the high-risk phase, then removing the shims (P4.1-P4.4) and the final re-verification including the DSH suite (P5.1-P5.5). The deployed images DO equal the tree - 119 files x 8 services, missing=0 differing=0 container-only=0, with 47 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient.
+Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phase 0, Phase 1 and Phase 2 are COMPLETE (nine packages, 34 moved paths, report/ finished including plan 7.3 step 5, all seven investigation siblings moved, all three task modules moved, the duplicate-implementation list empty, the cycle allowlist empty, one of two legacy-path imports gone). PHASE 3 HAS STARTED: P3.1 is complete - the facade's public contract is stated in `AnalysisService`'s docstring and pinned by a contract test that needs no private member - but P3.2 (TaskRunner), P3.3 (InvestigationCoordinator), P3.4 (ReportRevisionWriter), P3.5 (EmulationCoordinator), P3.6 (WorkbenchQueryReader) and P3.7 (move the test surface off private/`getsource`) have not started, nor have Phases 4 and 5. The deployed images DO equal the tree - 119 files x 8 services, missing=0 differing=0 container-only=0, with 47 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient.
 
 `capability_status` is a different axis: the Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) were not touched by this plan's execution. `structure_status=READY` must never imply `capability_status=ACCEPTED`.
 
@@ -19,13 +19,13 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 | phase_0 | COMPLETE (P0.1-P0.6, plus repairs P0.3-r2/r3 and P0.5-r2/r3) |
 | phase_1 | COMPLETE (P1.1-P1.4, plus repairs P1.1-r2 and P1.3-r3) |
 | phase_2 | COMPLETE - 9 packages, 34 moved paths, report/ complete, 7 investigation siblings moved, 3 task modules moved, duplicate list empty, cycle allowlist empty |
-| phase_3 | NOT STARTED (split AnalysisService: P3.1 facade contract, P3.2 TaskRunner, P3.3 InvestigationCoordinator, P3.4 ReportRevisionWriter, P3.5 EmulationCoordinator, P3.6 WorkbenchQueryReader, P3.7 move the test surface off private/`getsource` onto behaviour) |
+| phase_3 | IN PROGRESS - P3.1 COMPLETE (facade contract stated in the docstring and pinned by a public-only contract test); P3.2-P3.7 NOT STARTED |
 | phase_4 | NOT STARTED (remove shims, one checkpoint each, then converge the root package's exports) |
 | phase_5 | NOT STARTED (re-verification; the DSH suite has never been run in this session) |
 
 ## 三、机械条件（P5.1）
 
-119 files x 8 services, missing=0 differing=0 container-only=0, and the import smoke imports 47 enumerated modules in every container (43 before P2-TK), with all 11 containers running
+119 files x 8 services, missing=0 differing=0 container-only=0, and the import smoke imports 47 enumerated modules in every container, with all 11 containers running
 
 四道门禁在 HEAD 上全部通过：结构 diff、导入图 `--strict`、行为探针（含 item 8「移动模块同一性」）、部署 `--strict --import-smoke`。全量 pytest 的失败**节点集合**与 P0.2 基线一致。
 
@@ -69,6 +69,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 - P2-V.6
 - P2-V.7
 - P2-V.8
+- P3.1
 
 ## 五、审计历史
 
@@ -78,10 +79,10 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 
 ## 六、后继者必须先做的事
 
-1. PHASE 2 IS COMPLETE and nothing is blocked on the user. Three recorded items await DECISIONS rather than work: (a) the `facts -> investigation` edge created by P2-V.8 (either forbid it and move the pure helper down into `facts/`, or accept it); (b) `tool_authoring` has no production importer; (c) `turn_lifecycle` has no production importer. Each is frozen by a test so it fails loudly rather than drifting.
-2. next: PHASE 3, starting with P3.1 - define the facade's PUBLIC contract before splitting anything, per plan section 8. `AnalysisService` is ~29,000 lines with a live HTTP path; plan 8's principle is 'split by responsibility and seam, not by line count', and P3.2-P3.6 each end with `AnalysisService` still constructible by the existing HTTP path.
-3. then P4 (delete the shims one checkpoint at a time) and P5 (re-verification: the images must equal HEAD, the DSH suite must be run SEPARATELY, and `structure_status` / `capability_status` must stay separate axes).
-4. the `service.py` old-path `dataflow` import is the last recorded `legacy_path_imports` entry; it belongs to whichever step touches `service.py` deliberately, not to a move step.
+1. Nothing is blocked on the user. Three recorded items await DECISIONS (each frozen by a test so it fails loudly instead of drifting): (a) the `facts -> investigation` edge created by P2-V.8; (b) `tool_authoring` has no production importer; (c) `turn_lifecycle` has no production importer.
+2. next: P3.2 - extract `TaskRunner` into `task/task_runner.py` with a one-line delegation left behind, moving task creation, lifecycle, budget, cancellation and failure/limitation projection. Plan P3.2's success criterion is that `TaskRunner` imports no HTTP/DSH, that the old facade call and the new public interface return the SAME state, and that the structural move loses no limitation - and the known model-disable / failure-branch limitation gap must stay explicitly recorded in `known_behavior_gaps` rather than being quietly fixed or quietly dropped by the move.
+3. run the contract test from P3.1 after EVERY P3 sub-step: it is the cheap check that the facade is still constructible and still serves the four stable operation groups.
+4. then P3.3-P3.7, P4 (delete the shims one checkpoint at a time) and P5 (images must equal HEAD; the DSH suite must run SEPARATELY; `structure_status` and `capability_status` must stay separate axes).
 
 ## 七、已记录、但**不得**在结构步骤里修的行为缺陷
 

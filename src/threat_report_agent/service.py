@@ -1199,6 +1199,31 @@ REFERENCE_ISOLATED_FACT_LIBRARY = FactLibrary(
 
 
 class AnalysisService:
+    """The compatibility FACADE: dependency assembly plus the stable operations callers may rely on.
+
+    PUBLIC CONTRACT (plan section 8, step P3.1). This class is the boundary between the HTTP adapter (`main.py`) and
+    everything behind it, and it has exactly two responsibilities:
+
+      1. **dependency assembly** - settings, `Database` and the content store are injected here and nowhere else;
+      2. **stable operations**, of which there are four groups:
+         * START an Analysis Task - `create_case`, `analyze_submission`, `analyze_directory`;
+         * READ status - `task_view`;
+         * READ a Report Revision - `get_report_revision` (the id comes from
+           `task_view(...)["authoritative_report_revision_id"]);
+         * an AUTHORISED workbench query - `get_evidence`, `workbench_submit_action`.
+
+    `tests/test_service_facade_contract.py` exercises those four groups end-to-end through public members only, and
+    checks that BOTH halves of the boundary hold: the contract test itself reaches no private member, and `main.py`
+    reaches none either.
+
+    WHAT THIS DOCSTRING IS FOR during Phase 3: the class is being split by RESPONSIBILITY AND SEAM, not by line count,
+    and each sub-step (P3.2 `TaskRunner`, P3.3 `InvestigationCoordinator`, P3.4 `ReportRevisionWriter`, P3.5
+    `EmulationCoordinator`, P3.6 `WorkbenchQueryReader`) must end with this facade **still constructible by the
+    existing HTTP path** and still serving the four groups above. MEASURED when this contract was written: 352
+    methods, 76 public and 276 private, in a 29,640-line module; the 276 private methods are expected to keep working
+    by delegation for now (plan P3.1's failure clause forbids deleting them first).
+    """
+
     SNAPSHOT_SCHEMA_VERSION = "2.0"
     THREAT_CONTEXT_PROTOCOL = "v3"
     THREAT_TOOL_CONTRACT_VERSION = "threat-tools-v4"
