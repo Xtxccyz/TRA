@@ -191,7 +191,7 @@ from threat_report_agent.investigation_ledger import (
     status_from_thread_state,
     terminate_item,
 )
-from threat_report_agent.analyst_report import (
+from threat_report_agent.report.analyst_report import (
     AnalystReportPlanEnvelope,
     compact_analyst_context,
     compose_official_markdown,
@@ -29450,7 +29450,7 @@ class AnalysisService:
         :meth:`workbench_write_report_file` keeps its file write authoritative
         and reports the rejection as data.
         """
-        from threat_report_agent.analyst_report import (
+        from threat_report_agent.report.analyst_report import (
             compose_gate_violations,
             compose_official_markdown,
             unprovenanced_fact_tokens,

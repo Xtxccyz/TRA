@@ -1,31 +1,24 @@
-"""P2-R step 1 contract: `_mechanism_catalog_id` has exactly ONE definition, and the resolution is unchanged.
+"""P2-R contract: the report composition module lives in `report/`, is ONE module object, and has no duplicate
+definition.
 
-The plan's P2-R order is explicit about its first step:
+Two steps are pinned here.
 
-    1. 先删除 `analyst_report.py` 中被后定义覆盖的重复 `_mechanism_catalog_id`，用锁定测试证明解析结果不变。
+P2-R step 1 (plan 7.3): delete the `_mechanism_catalog_id` that a later definition shadowed, and prove the
+resolution is unchanged. MEASURED before the deletion (`.scratch/probe-p2r-mechanism-id.py`): the name was defined
+at lines 1147 and 2247; the 1147 body read row fields and consulted `registry.by_id`, the 2247 body takes a SCALAR
+and consults `registry.resolve_or_unknown`. Python binds the LAST definition, so `co_firstlineno` was 2247 and the
+first body was unreachable - deleting it is behaviour-preserving BY CONSTRUCTION.
 
-MEASURED before the deletion (`.scratch/probe-p2r-mechanism-id.py`): the name was defined at lines 1147 and 2247.
-The 1147 body read `row["catalog_id"] / ["mechanism_type"] / ["verifier_id"] / ["dimension"]` and consulted
-`registry.by_id`; the 2247 body takes a SCALAR and consults `registry.resolve_or_unknown`. Python binds the LAST
-definition at import time, so the first was unreachable - `co_firstlineno` was measured as 2247 while both
-definitions existed. Deleting it is therefore behaviour-preserving BY CONSTRUCTION, and this file pins that:
+P2-R steps 2-5 (plan 7.1): move the SAME implementation into `report/analyst_report.py` and leave a
+`sys.modules` shim at the old path. The moved file is byte-identical (sha256 checked by the move script), so the
+two paths are two names for one module object - not a re-export and not a second implementation.
 
-  * there is one definition, and it is the scalar one;
-  * the surviving object resolves exactly what it resolved before the deletion.
-
-WHAT THE MEASUREMENT ALSO FOUND, RECORDED AND NOT FIXED HERE: two call sites pass a MAPPING to that scalar
-function. Measured, a mapping resolves to `""` (the string form of the dict matches no alias), while
-`row.get("catalog_id")` resolves correctly. The consequences are:
-
-  * `_topic_status` (analyst_report.py:1203) evaluates `_mechanism_ready(item) and _mechanism_catalog_id(item,
-    catalog) == catalog_id`, i.e. `"" == catalog_id`, which is False for every non-empty catalog id - so the
-    `"recovered"` branch at 1202-1206 can never fire from a ready mechanism;
-  * `_mechanism_label` (analyst_report.py:1160-1161) always receives `""`, so a label falls back to the raw
-    `mechanism_type` instead of the catalog title.
-
-FIXING EITHER CHANGES REPORT TEXT, which P1.4 and P2-R both forbid inside a structural step ("正文 SHA 改变时先
-回滚本步结构变更"). It is recorded as a known behaviour gap with its step, and the last test below asserts the gap
-is STILL exactly that - so closing it must be deliberate rather than accidental.
+WHAT THE STEP-1 MEASUREMENT ALSO FOUND, RECORDED AND NOT FIXED: two call sites pass a MAPPING to the scalar
+function. Measured, a mapping resolves to `""` while `row.get("catalog_id")` resolves correctly. So
+`_topic_status`'s `"recovered"` branch (see `_topic_status`, around line 1202 of the moved file) evaluates
+`"" == catalog_id` and can never fire for a non-empty catalog id, and `_mechanism_label` loses the catalog title.
+Fixing either changes report text, which P1.4 and P2-R forbid inside a structural step ("正文 SHA 改变时先回滚本步
+结构变更"). The last test asserts the gap is still exactly that, so closing it must be deliberate.
 
     python -m pytest -q tests/test_report_structure_contract.py
 """
@@ -40,15 +33,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from threat_report_agent import analyst_report  # noqa: E402
 from threat_report_agent.behavior_catalog import BehaviorCatalog  # noqa: E402
+from threat_report_agent.report import analyst_report as moved_report  # noqa: E402
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "threat_report_agent"
+#: The implementation, which after P2-R steps 2-5 is INSIDE the package.
+IMPLEMENTATION = PACKAGE / "report" / "analyst_report.py"
+#: The old path, which is now a shim.
+SHIM = PACKAGE / "analyst_report.py"
+
+
+def _implementation_tree() -> ast.Module:
+    return ast.parse(IMPLEMENTATION.read_text(encoding="utf-8", errors="replace"))
 
 
 def _definitions(name: str) -> list[int]:
-    tree = ast.parse((PACKAGE / "analyst_report.py").read_text(encoding="utf-8", errors="replace"))
-    return [node.lineno for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name]
+    return [node.lineno for node in _implementation_tree().body
+            if isinstance(node, ast.FunctionDef) and node.name == name]
 
 
+# ------------------------------------------------------------------------------------------------------------
+# P2-R step 1
+# ------------------------------------------------------------------------------------------------------------
 def test_the_shadowed_definition_is_gone_and_exactly_one_remains() -> None:
     definitions = _definitions("_mechanism_catalog_id")
     assert len(definitions) == 1, (
@@ -72,7 +77,6 @@ def test_the_resolution_is_unchanged_by_the_deletion() -> None:
         scalar  value="file-operations"                  -> "file-operations"
         mapping value={"catalog_id": "file-operations"}  -> ""
         scalar  value=row.get("catalog_id")              -> "file-operations"
-    The first and third are what a correct call site gets; the second is the defect recorded below.
     """
     registry = BehaviorCatalog()
     catalog_id = next(iter(analyst_report.CATALOG_TITLES_ZH))
@@ -87,11 +91,8 @@ def test_the_resolution_is_unchanged_by_the_deletion() -> None:
 def test_the_mapping_call_sites_are_still_the_recorded_gap() -> None:
     """Pins the RECORDED DEFECT, so closing it cannot happen by accident inside a structural step.
 
-    Measured: a Mapping resolves to "" while its extracted scalar resolves correctly. Two live call sites pass the
-    Mapping (`analyst_report.py:1161` inside `_mechanism_label`, and `analyst_report.py:1203` inside
-    `_topic_status`), which is why the `"recovered"` branch cannot fire and a mechanism label loses its catalog
-    title. When a behaviour work item fixes this, THIS TEST MUST BE INVERTED DELIBERATELY in the same commit, and
-    the report body SHA must be re-frozen.
+    When a behaviour work item fixes this, THIS TEST MUST BE INVERTED DELIBERATELY in the same commit, and the
+    report body SHA must be re-frozen.
     """
     registry = BehaviorCatalog()
     catalog_id = next(iter(analyst_report.CATALOG_TITLES_ZH))
@@ -102,15 +103,12 @@ def test_the_mapping_call_sites_are_still_the_recorded_gap() -> None:
         "re-freeze the body SHA deliberately instead of deleting it"
     )
 
-    source = (PACKAGE / "analyst_report.py").read_text(encoding="utf-8", errors="replace")
-    tree = ast.parse(source)
     # A MAPPING call site passes a bare row/item NAME. MEASURED reason for exactly this filter: the first version
-    # also counted `_mechanism_catalog_id(row.get(key), registry)` at line 2385, because `row.get(...)` is a Call
-    # and not an Attribute - but `.get(...)` returns a SCALAR, which is the form that works. Only a bare Name can
-    # be the mapping that resolves to "".
+    # also counted `_mechanism_catalog_id(row.get(key), registry)`, because `row.get(...)` is a Call and not an
+    # Attribute - but `.get(...)` returns a SCALAR, which is the form that works.
     mapping_call_sites = [
         node.lineno
-        for node in ast.walk(tree)
+        for node in ast.walk(_implementation_tree())
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "_mechanism_catalog_id"
@@ -119,5 +117,73 @@ def test_the_mapping_call_sites_are_still_the_recorded_gap() -> None:
     ]
     assert mapping_call_sites == [1161, 1203], (
         f"expected the two recorded mapping call sites [1161, 1203], measured {mapping_call_sites}; if one was "
-        "fixed or moved, this record and the known_behaviour_gap entry must be updated deliberately"
+        "fixed or moved, this record and the known_behavior_gap entry must be updated deliberately"
     )
+
+
+# ------------------------------------------------------------------------------------------------------------
+# P2-R steps 2-5 (the move)
+# ------------------------------------------------------------------------------------------------------------
+def test_the_module_is_one_object_behind_two_paths() -> None:
+    """Plan 7.1 step 4: a `sys.modules` shim, so the old path IS the new module rather than a re-export."""
+    assert analyst_report is moved_report, (
+        "the old path and the new path are different module objects; the shim must rebind sys.modules, not "
+        "re-export names"
+    )
+    assert analyst_report.__file__ == moved_report.__file__
+
+
+def test_the_official_composer_is_the_same_function_behind_both_paths() -> None:
+    """Plan 7.1 step 6: function identity, not 'both paths have a function of that name'."""
+    assert analyst_report.compose_official_markdown is moved_report.compose_official_markdown
+    assert analyst_report.compose_gate_violations is moved_report.compose_gate_violations
+    # PRIVATE names must survive too: the report tests and `service.py` reach several of them.
+    assert analyst_report._mechanism_catalog_id is moved_report._mechanism_catalog_id
+    assert analyst_report.OPERATIONAL_LIMITATIONS_HEADING is moved_report.OPERATIONAL_LIMITATIONS_HEADING
+
+
+def test_the_old_path_is_a_shim_and_not_a_second_implementation() -> None:
+    """A 500-byte shim cannot be a second implementation, and this pins that it stays one."""
+    source = SHIM.read_text(encoding="utf-8", errors="replace")
+    tree = ast.parse(source)
+    definitions = [
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]
+    assert not definitions, (
+        f"the old path defines {definitions}; it must be a shim, and a definition there would be a second "
+        "canonical implementation (plan 3.2)"
+    )
+    assert len(source.encode("utf-8")) < 1500, "the old path grew beyond a shim"
+    assert "sys.modules[__name__] = _real" in source
+    # The implementation itself must not reference the old path, or the move would have left a cycle.
+    implementation = IMPLEMENTATION.read_text(encoding="utf-8", errors="replace")
+    for forbidden in ("from threat_report_agent.analyst_report import",
+                      "from threat_report_agent import analyst_report",
+                      'import_module("threat_report_agent.analyst_report'):
+        assert forbidden not in implementation, (
+            f"the moved implementation still references the old path via {forbidden!r}; plan 7.1 step 4 forbids "
+            "the new implementation importing the old path"
+        )
+
+
+def test_no_production_module_imports_the_old_path() -> None:
+    """Plan 7.1 step 5: production callers move to the new path FIRST.
+
+    Only `service.py` imported this module (measured by the step-1 inventory), and both of its import sites now use
+    `threat_report_agent.report.analyst_report`. The shim exists for the old path's own compatibility, not to keep
+    a production caller on it.
+    """
+    offenders: list[str] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in path.parts or path == SHIM:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if (
+            "from threat_report_agent.analyst_report import" in text
+            or "from threat_report_agent import analyst_report" in text
+            or 'import_module("threat_report_agent.analyst_report' in text
+        ):
+            offenders.append(path.relative_to(PACKAGE).as_posix())
+    assert not offenders, f"production modules still import the moved module by its old path: {offenders}"
