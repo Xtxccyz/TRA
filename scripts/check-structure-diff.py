@@ -11,11 +11,15 @@ TWO GATES, ONE SCRIPT, because the plan puts both on this file:
                  with what they are, because P1.3's success criterion is that a PURE MOVE PASSES; a NEW instance
                  fails. That is the same discipline P0.4 used for cycles and for `persist_how -> reporting`.
 
-  `--surface`    P1.4. Compares six behaviour surfaces against `docs/structure-surface.json`:
-                   report schema, validator thresholds, state enums, prompt semantics, budget constants,
-                   sample execution strategy. MEASURED BY STATIC EXTRACTION KEYED BY SYMBOL NAME, never by file
-                   path, so a pure move or rename passes - which is the other half of P1.4's success criterion.
-                   `--record-surface` writes the file deliberately; a normal run only compares.
+  `--surface`    P1.4. Compares EIGHT recorded readings against `docs/structure-surface.json`: the six surfaces
+                 the plan names (report schema, validator thresholds, state enums, prompt semantics, budget
+                 constants, sample execution strategy) plus the compose gate's verdicts on the negative fixtures
+                 and a recorded count of test-side `getsource` calls. MEASURED BY STATIC EXTRACTION KEYED BY
+                 SYMBOL NAME - with ONE deliberate exception, `prompt_semantics`, which is keyed by file path
+                 because a prompt's location is part of how it is loaded - so a pure move or rename passes, which
+                 is the other half of P1.4's success criterion.
+                 `--record-surface` writes the file deliberately and REFUSES to record an empty surface; a normal
+                 run only compares.
 
   `--fixtures`   P1.4's negative controls, run against the real compose gate. Three deliberate behaviour changes
                  the plan names MUST be rejected: UNKNOWN -> CANDIDATE, a deleted limitation, a relaxed compose
@@ -27,6 +31,11 @@ TWO GATES, ONE SCRIPT, because the plan puts both on this file:
 WHY NOT A UNIFIED DIFF OF TWO REVISIONS: a git diff of the source would flag every whitespace and import
 reordering, and a diff of rendered output would need a database. The surfaces above are the things the plan
 enumerates, and each is a value a structural step has no reason to touch.
+
+    `--source DIR` points the extraction at another copy of the package instead of `src/`, which is how the
+                 can-fail harness measures a mutated copy. NOTE: only the extraction moves. `POLICY_PATH` and
+                 `SURFACE_PATH` stay the REPOSITORY's files, because a copy must be compared against the recorded
+                 baseline and the recorded policy - comparing a copy against itself would prove nothing.
 
 Usage:
 
@@ -206,18 +215,32 @@ def private_reach() -> dict[str, int]:
 # P1.3 rule 4 - an unregistered import of an already-moved path
 # ------------------------------------------------------------------------------------------------------------
 def legacy_path_imports() -> list[dict[str, str]]:
+    """Every import of a path that already moved, INCLUDING relative and alias forms.
+
+    MEASURED BLIND SPOT this closes: the first version required `node.level == 0`, so `from . import dataflow` -
+    a legal spelling inside the package, and the cheapest way to keep using a moved path - produced no finding at
+    all. It also missed `from threat_report_agent import dataflow`, where the old name is the ALIAS rather than
+    the module. Both are resolved here against the importing module's own package.
+    """
     found: set[tuple[str, str]] = set()
+
+    def resolve(node: ast.ImportFrom, module: str) -> str:
+        if not node.level:
+            return node.module or ""
+        parts = module.split(".")
+        keep = len(parts) - node.level
+        base = ".".join(parts[:keep]) if keep > 0 else ""
+        return f"{base}.{node.module}" if node.module else base
+
     for path in production_files():
         module = module_name(path)
         for node in ast.walk(parse(path)):
             if isinstance(node, ast.ImportFrom):
-                names = [alias.name for alias in node.names]
-                if node.level == 0 and node.module:
-                    for old in LEGACY_PATHS:
-                        if node.module == f"{PACKAGE}.{old}" or f"{PACKAGE}.{old}" in {
-                            f"{node.module}.{alias}" for alias in names
-                        }:
-                            found.add((old, module))
+                resolved = resolve(node, module)
+                candidates = {resolved} | {f"{resolved}.{alias.name}" for alias in node.names}
+                for old in LEGACY_PATHS:
+                    if f"{PACKAGE}.{old}" in candidates:
+                        found.add((old, module))
             elif isinstance(node, ast.Import):
                 for old in LEGACY_PATHS:
                     if any(alias.name == f"{PACKAGE}.{old}" for alias in node.names):
@@ -228,18 +251,64 @@ def legacy_path_imports() -> list[dict[str, str]]:
 # ------------------------------------------------------------------------------------------------------------
 # P1.4 - the six behaviour surfaces, extracted by SYMBOL so a move is not a change
 # ------------------------------------------------------------------------------------------------------------
+def _docstring_nodes(tree: ast.Module) -> set[int]:
+    """The `id()` of every docstring constant, so the report-schema scan can skip prose.
+
+    MEASURED why: scanning ALL string constants included docstring lines that merely look like headings (the
+    sample contained `## 2.`), so a docstring edit would read as a report-schema change. False failures in a gate
+    that blocks commits are as damaging as false passes.
+    """
+    skip: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", [])
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                if isinstance(body[0].value.value, str):
+                    skip.add(id(body[0].value))
+    return skip
+
+
 def surface_report_schema() -> dict[str, object]:
-    """Every markdown heading literal in the package, sorted. The rendered document is frozen byte-for-byte by
-    `scripts/structure_behavior_probe.py` item 1; this is the move-proof half."""
+    """Every markdown heading literal in the package, sorted, DOCSTRINGS EXCLUDED. The rendered document is frozen
+    byte-for-byte by `scripts/structure_behavior_probe.py` item 1; this is the move-proof half."""
     headings: set[str] = set()
     for path in production_files():
-        for node in ast.walk(parse(path)):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                for line in node.value.splitlines():
-                    stripped = line.strip()
-                    if re.match(r"^#{1,3} \S", stripped):
-                        headings.add(stripped)
+        tree = parse(path)
+        skip = _docstring_nodes(tree)
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+                continue
+            if id(node) in skip:
+                continue
+            for line in node.value.splitlines():
+                stripped = line.strip()
+                # A heading is at least 8 characters and ENDS IN A WORD. MEASURED artifact this removes: the spec
+                # review found `## 2.` frozen in the surface - the split delimiter in `reporting.py`'s
+                # `.split("## 2.", 1)`, not a heading at all.
+                if re.match(r"^#{1,3} \S", stripped) and len(stripped) >= 8 and stripped[-1].isalnum():
+                    headings.add(stripped)
     return {"headings": sorted(headings), "count": len(headings)}
+
+
+def _walk_top_level(tree: ast.Module) -> list[ast.stmt]:
+    """Module-level statements, descending through `if`/`try` bodies.
+
+    MEASURED GAP this closes (found by the standards review of this commit): reading only `tree.body` meant that
+    wrapping a vocabulary in `if TYPE_CHECKING:` or `try: ... except ImportError:` dropped it from the surface -
+    so the surface would read "no change" while the enum had disappeared. That is precisely the
+    absence-read-as-clean-result failure this repository keeps producing.
+    """
+    out: list[ast.stmt] = []
+    pending = list(tree.body)
+    while pending:
+        node = pending.pop(0)
+        out.append(node)
+        if isinstance(node, (ast.If, ast.Try)):
+            pending.extend(getattr(node, "body", []))
+            pending.extend(getattr(node, "orelse", []))
+            for handler in getattr(node, "handlers", []):
+                pending.extend(handler.body)
+    return out
 
 
 def surface_state_enums() -> dict[str, object]:
@@ -250,7 +319,7 @@ def surface_state_enums() -> dict[str, object]:
     """
     found: dict[str, list[str]] = defaultdict(list)
     for path in production_files():
-        for node in parse(path).body:
+        for node in _walk_top_level(parse(path)):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id in STATE_SYMBOLS:
@@ -271,30 +340,54 @@ def surface_state_enums() -> dict[str, object]:
 
 
 def surface_prompt_semantics() -> dict[str, str]:
-    """sha256 of every prompt and policy text file. Keyed by PATH on purpose: a prompt's location is part of how
-    it is loaded, so moving one is a visible change rather than a silent one."""
+    """sha256 of every prompt and policy text file, LINE-ENDING NORMALISED. Keyed by PATH on purpose: a prompt's
+    location is part of how it is loaded, so moving one is a visible change rather than a silent one.
+
+    WHY THE NORMALISATION IS NOT OPTIONAL (measured by the standards review of this commit): the repository has no
+    `.gitattributes` and `core.autocrlf=true`, so a fresh clone or a clean `git worktree` materialises these text
+    files with CRLF while this working tree has LF. Hashing raw bytes therefore made the gate FAIL ON A CLEAN
+    CHECKOUT - six files "changed" that nobody had touched - while passing here. A gate that only passes in the
+    tree that recorded it is worse than no gate, because it looks green in exactly the case it was tested.
+    """
     out: dict[str, str] = {}
     for path in sorted(SOURCE.rglob("*")):
         if not path.is_file() or "__pycache__" in path.parts:
             continue
         if path.parent.name in {"prompts", "policies"}:
-            out[path.relative_to(SOURCE).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+            normalised = path.read_bytes().replace(b"\r\n", b"\n")
+            out[path.relative_to(SOURCE).as_posix()] = hashlib.sha256(normalised).hexdigest()[:16]
     return out
+
+
+class_field_collisions: list[str] = []
 
 
 def class_field_defaults(class_name: str, pattern: str) -> dict[str, str]:
     """Annotated class fields whose DEFAULT matters, as source text. Works for a dataclass and for a pydantic
-    model alike, and does not need the class to be importable - so a move cannot break it."""
+    model alike, and does not need the class to be importable - so a move cannot break it.
+
+    A name defined by TWO classes in different modules is recorded as a collision and the value becomes a sorted
+    list. MEASURED why: the first version wrote `out[name] = ...` per module, so the last module silently won and
+    an edit to the LOSING definition would have been invisible.
+    """
     matcher = re.compile(pattern)
-    out: dict[str, str] = {}
+    collected: dict[str, list[str]] = defaultdict(list)
     for path in production_files():
-        for node in parse(path).body:
+        for node in _walk_top_level(parse(path)):
             if not (isinstance(node, ast.ClassDef) and node.name == class_name):
                 continue
             for stmt in node.body:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if matcher.search(stmt.target.id):
-                        out[stmt.target.id] = ast.unparse(stmt.value) if stmt.value is not None else "<required>"
+                        collected[stmt.target.id].append(
+                            ast.unparse(stmt.value) if stmt.value is not None else "<required>"
+                        )
+    out: dict[str, str] = {}
+    for name, values in collected.items():
+        unique = sorted(set(values))
+        out[name] = unique[0] if len(unique) == 1 else json.dumps(unique, ensure_ascii=False)
+        if len(unique) > 1:
+            class_field_collisions.append(f"{class_name}.{name} -> {unique}")
     return out
 
 
@@ -311,11 +404,17 @@ def surface_sample_execution_strategy() -> dict[str, object]:
     }
 
 
-def surface_validator_thresholds() -> dict[str, str]:
+def surface_validator_thresholds() -> dict[str, object]:
+    """Constants whose NAME looks like a threshold, keyed by name with collisions kept.
+
+    FUNCTION-LOCAL assignments are included. MEASURED gap the spec review of this commit found: reading only
+    module-level statements missed nine function-local names matching this same filter, and a validator's real
+    clamp is as often a local default argument or a local constant as a module constant.
+    """
     matcher = re.compile(r"(?i)(THRESHOLD|_MIN_|_MAX|TOLERANCE|_RATIO|_LIMIT|MIN_CHARS|_CHARS)")
-    out: dict[str, str] = {}
+    collected: dict[str, list[str]] = defaultdict(list)
     for path in production_files():
-        for node in parse(path).body:
+        for node in ast.walk(parse(path)):
             targets: list[str] = []
             value: ast.expr | None = None
             if isinstance(node, ast.Assign):
@@ -324,10 +423,22 @@ def surface_validator_thresholds() -> dict[str, str]:
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 targets = [node.target.id]
                 value = node.value
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # A default argument is a threshold too (`def f(max_chars: int = 200)`), and it is invisible to a
+                # body-only scan.
+                for default, arg in zip(node.args.defaults, node.args.args[-len(node.args.defaults):] or []):
+                    if matcher.search(arg.arg):
+                        collected[arg.arg].append(ast.unparse(default))
             for name in targets:
                 if matcher.search(name) and value is not None:
-                    out[name] = ast.unparse(value)
-    return out
+                    collected[name].append(ast.unparse(value))
+    # Same reasoning as class_field_defaults: two modules may legitimately define the same constant name, and
+    # letting the last one win would hide an edit to the other.
+    return {
+        name: sorted(set(values))[0] if len(set(values)) == 1
+        else json.dumps(sorted(set(values)), ensure_ascii=False)
+        for name, values in sorted(collected.items())
+    }
 
 
 def surface_test_getsource_count() -> dict[str, object]:
@@ -372,6 +483,32 @@ def compute_surfaces() -> dict[str, object]:
     }
     surfaces["test_getsource_count"] = surface_test_getsource_count()
     return surfaces
+
+
+def compute_surfaces_resilient() -> dict[str, object]:
+    """`compute_surfaces` with the one surface that IMPORTS the package made non-fatal.
+
+    MEASURED why: the fixture verdicts need `analyst_report`, so a structural edit that breaks an import (e.g.
+    renaming a class many modules import) made the whole gate CRASH - which reports as a traceback and hides the
+    five surfaces that could still have been compared. The extraction failure is recorded as a value instead, so
+    it becomes an ordinary CHANGED problem with a readable line.
+    """
+    try:
+        return compute_surfaces()
+    except Exception as exc:  # noqa: BLE001 - the point is to convert any import failure into a reading
+        surfaces = {
+            "report_schema": surface_report_schema(),
+            "validator_thresholds": surface_validator_thresholds(),
+            "state_enums": surface_state_enums(),
+            "prompt_semantics": surface_prompt_semantics(),
+            "budget_constants": surface_budget_constants(),
+            "sample_execution_strategy": surface_sample_execution_strategy(),
+            "test_getsource_count": surface_test_getsource_count(),
+        }
+        surfaces["compose_gate_fixture_verdicts"] = {
+            "extraction_failed": f"{type(exc).__name__}: {str(exc)[:200]}"
+        }
+        return surfaces
 
 
 # ------------------------------------------------------------------------------------------------------------
@@ -447,35 +584,67 @@ def fixture_verdicts() -> dict[str, object]:
 # ------------------------------------------------------------------------------------------------------------
 # main
 # ------------------------------------------------------------------------------------------------------------
-def structure_findings() -> tuple[list[str], dict[str, object]]:
+def structure_findings() -> tuple[list[str], dict[str, object], list[str]]:
+    """Returns (blocking problems, detail, stale-allowlist notes).
+
+    A STALE ENTRY IS NOT A FAILURE. MEASURED why this distinction matters: the first version compared the private
+    reach count for exact equality, so DELETING one of the two recorded occurrences - an improvement, and the
+    direction every later step moves in - would have failed the gate. The gate must block regressions (a new
+    expression, or the same expression appearing MORE times), and merely REPORT that the allowlist has become
+    stale, so the record is updated deliberately instead of the rule being loosened.
+    """
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8")) if POLICY_PATH.is_file() else {}
     problems: list[str] = []
+    stale: list[str] = []
 
     ok, detail = reverse_dependency_check()
     if not ok:
         problems.append(f"new reverse dependency: {detail}")
 
     known_duplicates = {
-        (str(item["name"]), tuple(sorted(item["modules"])))
+        (str(item["name"]), str(item.get("body_sha256", "")), tuple(sorted(item["modules"])))
         for item in policy.get("known_duplicate_implementations", [])
     }
     duplicates = duplicate_implementations()
     new_duplicates = [
         key for key, modules in duplicates.items()
-        if (key.split("::")[0], tuple(modules)) not in known_duplicates
+        if (key.split("::")[0], key.split("::")[1], tuple(modules)) not in known_duplicates
     ]
     problems.extend(f"duplicate canonical implementation: {key} in {duplicates[key]}" for key in new_duplicates)
+    # The recorded BODY HASH is gated too, not only the module pair. MEASURED gap the standards review found: with
+    # only (name, modules) recorded, both copies could be rewritten identically - or one of them changed so the
+    # pair stopped being measured at all - and the entry silently stopped meaning anything. A stale entry is
+    # REPORTED (never a failure): removing a duplication is an improvement, and the record is then updated
+    # deliberately.
+    for name, body_hash, modules in sorted(known_duplicates):
+        measured = {key for key in duplicates if key.startswith(f"{name}::")}
+        if not measured:
+            stale.append(f"duplicate record {name} [{body_hash}] is no longer measured in the tree")
+        elif f"{name}::{body_hash}" not in measured:
+            stale.append(
+                f"duplicate record {name} [{body_hash}] no longer matches: the tree now has "
+                f"{sorted(measured)} - update the record deliberately"
+            )
 
     known_reach = {
         (str(item["module"]), str(item["expr"])): int(item.get("count", 1))
         for item in policy.get("known_private_reach", [])
     }
     reach = private_reach()
-    new_reach = [
-        key for key, count in reach.items()
-        if known_reach.get(tuple(key.split("::", 1))) != count  # type: ignore[arg-type]
-    ]
-    problems.extend(f"private reach in a production file: {key} (x{reach[key]})" for key in new_reach)
+    new_reach: list[str] = []
+    for key, count in reach.items():
+        module, _, expr = key.partition("::")
+        recorded = known_reach.get((module, expr))
+        if recorded is None:
+            new_reach.append(key)
+        elif count > recorded:
+            new_reach.append(f"{key} (recorded {recorded}, now {count})")
+        elif count < recorded:
+            stale.append(f"private reach record {key} says {recorded}, tree has {count}")
+    problems.extend(f"private reach in a production file: {key}" for key in new_reach)
+    for (module, expr), recorded in known_reach.items():
+        if not any(key.startswith(f"{module}::{expr}") for key in reach):
+            stale.append(f"private reach record {module}::{expr} no longer exists (was {recorded})")
 
     known_legacy = {
         (str(item["old"]), str(item["importer"])) for item in policy.get("legacy_path_imports", [])
@@ -487,6 +656,9 @@ def structure_findings() -> tuple[list[str], dict[str, object]]:
         f"(canonical is {item['new']})"
         for item in new_legacy
     )
+    current_legacy = {(item["old"], item["importer"]) for item in legacy}
+    for old, importer in sorted(known_legacy - current_legacy):
+        stale.append(f"legacy-import record {importer} -> {old} is no longer in the tree")
 
     return problems, {
         "reverse_dependency_ok": ok,
@@ -497,11 +669,26 @@ def structure_findings() -> tuple[list[str], dict[str, object]]:
         "private_reach_new": new_reach,
         "legacy_imports_total": len(legacy),
         "legacy_imports_new": [f"{item['importer']}->{item['old']}" for item in new_legacy],
-    }
+    }, stale
 
 
 def surface_findings() -> tuple[list[str], dict[str, object]]:
-    current = compute_surfaces()
+    current = compute_surfaces_resilient()
+    problems: list[str] = []
+    # PRESENCE IS PART OF THE CONTRACT. Equality alone is not enough: if a vocabulary stops being extracted, the
+    # surface silently SHRINKS and a reader sees "no change" for the one thing P1.4 exists to protect. Reviewing
+    # this commit found exactly that hole (a symbol wrapped in `try:` or `if TYPE_CHECKING:` disappeared).
+    missing_symbols = [name for name in STATE_SYMBOLS if name not in current.get("state_enums", {})]
+    if missing_symbols:
+        problems.append(
+            f"state_enums no longer extracts {missing_symbols}; an absent vocabulary must never read as unchanged"
+        )
+    if not current.get("prompt_semantics"):
+        problems.append("prompt_semantics extracted nothing, so a prompt edit could not be seen")
+    if not current.get("report_schema", {}).get("headings"):
+        # MEASURED hole in the first guard: it tested `not value`, and `{"headings": [], "count": 0}` is a
+        # non-empty dict - so a filter that removed EVERY heading would have been recorded as a healthy surface.
+        problems.append("report_schema extracted no headings, so the report schema is not being measured")
     if not SURFACE_PATH.is_file():
         return ["no docs/structure-surface.json; run --record-surface deliberately"], current
     recorded = json.loads(SURFACE_PATH.read_text(encoding="utf-8"))
@@ -552,19 +739,39 @@ def main() -> int:
     problems: list[str] = []
 
     if args.structure or args.all:
-        found, detail = structure_findings()
+        found, detail, stale = structure_findings()
         print("P1.3 STRUCTURE")
         for key, value in detail.items():
             print(f"  {key:28} {value}")
+        for item in stale:
+            print(f"  [stale record, not a failure] {item}")
         problems.extend(found)
 
     if args.record_surface:
-        current = compute_surfaces()
+        current = compute_surfaces_resilient()
+        empty = [
+            name for name, value in current.items()
+            if not value and name != "compose_gate_fixture_verdicts"
+        ]
+        if not current.get("report_schema", {}).get("headings"):
+            empty.append("report_schema (no headings extracted)")
+        if any(isinstance(value, dict) and "extraction_failed" in value for value in current.values()):
+            empty.append("compose_gate_fixture_verdicts (the compose gate could not be imported)")
+        if empty:
+            # A surface that extracted NOTHING must not be recorded as "no change": that is the failure mode this
+            # repository keeps producing (absence read as a clean result). MEASURED: renaming `Settings`, or
+            # emptying STATE_SYMBOLS, would otherwise have frozen an empty surface silently.
+            print(f"\nREFUSING to record: these surfaces extracted nothing: {empty}")
+            print("An empty surface cannot detect the change it exists for. Fix the extraction first.")
+            return 2
         SURFACE_PATH.write_text(
             json.dumps(current, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         print(f"\nrecorded surfaces -> {SURFACE_PATH.relative_to(ROOT)}")
         print_surface(current)
+        if class_field_collisions:
+            for item in sorted(set(class_field_collisions)):
+                print(f"  [note] field name defined by two classes with different defaults: {item}")
         return 0
 
     if args.surface or args.all:

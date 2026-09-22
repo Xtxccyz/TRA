@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -95,6 +96,73 @@ def test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_know
     assert narrow["violations"] == []
 
 
+def test_a_pure_move_passes_the_surface_gate(tmp_path) -> None:
+    """P1.4's "纯重命名/移动通过", measured HERE and not only in the gitignored can-fail harness.
+
+    WHY THIS TEST EXISTS IN THE TRACKED SUITE (a standards review of this commit raised it): the end-to-end
+    can-fail evidence for "a pure move passes" lived only in `.scratch/check-structure-diff-canfail.py`, which is
+    gitignored - the same "a gate nobody re-runs" failure mode this repository already recorded once. This is the
+    cheap half: copy the package, move one module into a new sub-package, leave a `sys.modules` shim exactly as
+    plan section 7.1 step 4 prescribes, and require every surface to be byte-identical.
+    """
+    module = load_gate_module()
+    real = ROOT / "src" / "threat_report_agent"
+    copy = tmp_path / "threat_report_agent"
+    shutil.copytree(real, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    (copy / "task").mkdir()
+    (copy / "task" / "__init__.py").write_text("", encoding="utf-8")
+    shutil.move(str(copy / "status.py"), str(copy / "task" / "status.py"))
+    (copy / "status.py").write_text(
+        '"""Compatibility shim left by the move; the implementation is threat_report_agent.task.status."""\n'
+        "import sys\n"
+        "from threat_report_agent.task import status as _real\n"
+        "sys.modules[__name__] = _real\n",
+        encoding="utf-8",
+    )
+
+    recorded = json.loads(SURFACE.read_text(encoding="utf-8"))
+    module.set_source(str(copy))
+    try:
+        now = module.compute_surfaces_resilient()
+    finally:
+        module.set_source(str(real))
+
+    for key, value in recorded.items():
+        if key == "compose_gate_fixture_verdicts":
+            assert "extraction_failed" not in now[key], f"the gate could not be imported from the copy: {now[key]}"
+            continue
+        assert json.dumps(now[key], sort_keys=True, ensure_ascii=False) == json.dumps(
+            value, sort_keys=True, ensure_ascii=False
+        ), (
+            f"a PURE MOVE changed the surface {key}; the extraction is keyed by something that a move alters, so "
+            "P1.4's success criterion cannot hold"
+        )
+
+
+def test_a_vanished_state_vocabulary_is_a_problem_not_an_absence(tmp_path) -> None:
+    """The presence guard: a surface that stops extracting must not read as "no change"."""
+    module = load_gate_module()
+    real = ROOT / "src" / "threat_report_agent"
+    copy = tmp_path / "threat_report_agent"
+    shutil.copytree(real, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    # Remove every definition of one vocabulary, leaving the rest of the tree intact.
+    status = copy / "status.py"
+    status.write_text(
+        status.read_text(encoding="utf-8").replace("class ClaimStatus(StrEnum):", "class ClaimStatusRenamed(StrEnum):"),
+        encoding="utf-8",
+    )
+    module.set_source(str(copy))
+    try:
+        problems, current = module.surface_findings()
+    finally:
+        module.set_source(str(real))
+
+    assert "ClaimStatus" not in current["state_enums"], "the fixture did not remove the vocabulary"
+    assert any("ClaimStatus" in item for item in problems), (
+        f"a vanished state vocabulary produced no problem, so it would read as 'unchanged': {problems}"
+    )
+
+
 def test_the_policy_records_what_the_gate_measures() -> None:
     """An allowlist entry must say what it is. A bare identifier is how a recorded defect becomes an approval."""
     policy = json.loads(POLICY.read_text(encoding="utf-8"))
@@ -102,6 +170,10 @@ def test_the_policy_records_what_the_gate_measures() -> None:
         assert key in policy, f"{key} must be recorded, even when empty, so the gate has something to compare"
     for item in policy["known_duplicate_implementations"]:
         assert len(str(item.get("note", ""))) > 80, f"{item.get('name')} has no explanation"
+        assert item.get("body_sha256"), (
+            f"{item.get('name')} records no body hash, so the entry would keep passing after the duplication "
+            "disappeared or its body changed"
+        )
     for item in policy["known_private_reach"]:
         assert len(str(item.get("note", ""))) > 80, f"{item.get('expr')} has no explanation"
     for item in policy["legacy_path_imports"]:

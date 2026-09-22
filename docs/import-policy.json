@@ -72,11 +72,12 @@
   "known_duplicate_implementations": [
     {
       "name": "_function_call_names",
+      "body_sha256": "b2bbbaac53b5835a",
       "modules": [
         "threat_report_agent.investigation_protocol",
         "threat_report_agent.reporting"
       ],
-      "note": "MEASURED byte-identical body (docstring excluded) in two modules, i.e. two canonical implementations of one helper - the exact thing plan section 3.2 forbids. It is a genuine duplication, NOT a compatibility shim, and it is recorded rather than fixed because a structural step may not merge the two: choosing one of them changes which module a caller must import, which is a move, and the bodies must be compared for drift first. It must be resolved in the P2 move of report/ or investigation/, and this entry deleted in the same commit."
+      "note": "MEASURED byte-identical body (docstring excluded) in two modules, i.e. two canonical implementations of one helper - the exact thing plan section 3.2 forbids. It is a genuine duplication, NOT a compatibility shim, and it is recorded rather than fixed because a structural step may not merge the two: choosing one of them changes which module a caller must import, which is a move, and the bodies must be compared for drift first. It must be resolved in the P2 move of report/ or investigation/, and this entry deleted in the same commit. The recorded body_sha256 is GATED: if the duplication disappears or its body changes, the gate reports the record as stale rather than letting the entry quietly stop meaning anything."
     }
   ],
   "known_private_reach": [
