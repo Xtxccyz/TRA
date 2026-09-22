@@ -4018,6 +4018,12 @@ class AnalysisService:
             task.limitations = sorted(
                 set(limitations)
                 | set(self._completion_limitations(session, task.id, all_artifacts))
+                # Operational failures carry their own reason; without this a cancelled or timed-out tool run
+                # was indistinguishable from a run that simply produced less. Measured 0/551 revisions named
+                # `CANCELLED` or `TIMED_OUT` while the database held 7 timed-out and 2 cancelled tool runs.
+                # These now reach the reader through `_merge_operational_limitations` -> the document key ->
+                # `render_official_markdown`.
+                | set(self._failed_tool_run_limitations(session, task.id))
             )
             # Keep the legacy task outcome independent from semantic-quality
             # limitations.  A successful static pipeline may still be bounded
@@ -21017,6 +21023,35 @@ class AnalysisService:
                 limitations.append(
                     f"Required artifact was not successfully analyzed: {artifact.logical_path}."
                 )
+        return limitations
+
+    @staticmethod
+    def _failed_tool_run_limitations(session: Session, task_id: str) -> list[str]:
+        """Every tool run that did NOT succeed, carrying its OWN status and error.
+
+        MEASURED (adversarial audit): published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions
+        while the database holds 7 timed-out tool runs, 2 cancelled tool runs, 49 cancelled tasks and 217
+        FAILED emulator runs. `_completion_limitations` notices a missing success only for REQUIRED artifacts
+        and emits one generic sentence - "Required artifact was not successfully analyzed" - so the REASON was
+        discarded and a reader could not tell a cancellation from a timeout from a crashed activity. A run that
+        was cancelled and retried three times (measured in ghidra-worker's log) is indistinguishable from a run
+        that simply produced less.
+
+        Deliberately NOT capped: entries are deduplicated and the reason is an opaque short token, so repeats
+        collapse. Adding a `[:N]` here would be a fresh unannounced truncation of the kind this report forbids.
+        """
+        rows = session.execute(
+            select(ToolRun.tool_name, ToolRun.status, ToolRun.error)
+            .where(ToolRun.task_id == task_id, ToolRun.status != "SUCCEEDED")
+            .order_by(ToolRun.tool_name, ToolRun.status)
+        ).all()
+        limitations: list[str] = []
+        for tool_name, status, error in rows:
+            # "no error recorded" states what we HAVE, not a claim that none occurred.
+            reason = str(error or "").strip() or "no error recorded"
+            entry = f"Tool run {tool_name or 'unknown'} ended {status}: {reason}."
+            if entry not in limitations:
+                limitations.append(entry)
         return limitations
 
     @staticmethod
