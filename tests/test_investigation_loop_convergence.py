@@ -33,7 +33,7 @@ from threat_report_agent.investigation import (
     InvestigationLoopDriver,
     InvestigationThreadState,
 )
-from threat_report_agent.investigation_ledger import completion_allows_stop
+from threat_report_agent.investigation.investigation_ledger import completion_allows_stop
 from threat_report_agent.models import (
     AnalysisTask,
     Artifact,

@@ -1,6 +1,6 @@
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
-from threat_report_agent.investigation_ledger import (
+from threat_report_agent.investigation.investigation_ledger import (
     LEDGER_CLOSED,
     LEDGER_DEFERRED,
     LEDGER_OPEN,

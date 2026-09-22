@@ -13,7 +13,7 @@ from threat_report_agent.analysis_task_orchestration import (
     supersede_queued_trace_after_persist_skip,
 )
 from threat_report_agent.investigation import ActionSpec, ActionType
-from threat_report_agent.investigation_ledger import LEDGER_CLOSED, LEDGER_DEFERRED, LEDGER_OPEN
+from threat_report_agent.investigation.investigation_ledger import LEDGER_CLOSED, LEDGER_DEFERRED, LEDGER_OPEN
 
 
 class _PhaseRuntime:

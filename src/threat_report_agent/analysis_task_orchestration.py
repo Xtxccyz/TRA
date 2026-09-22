@@ -23,7 +23,7 @@ from types import SimpleNamespace
 from typing import Callable, Iterable, Mapping, Protocol
 
 from threat_report_agent.investigation import ActionSpec, ActionType, recovery_actions_for_gap
-from threat_report_agent.investigation_ledger import (
+from threat_report_agent.investigation.investigation_ledger import (
     completion_allows_stop,
     deferred_item_ids,
     open_item_ids,

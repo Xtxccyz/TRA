@@ -42,7 +42,7 @@ from threat_report_agent.investigation import (
     InvestigationLoopDriver,
     verify_mechanism,
 )
-from threat_report_agent.investigation_ledger import completion_allows_stop
+from threat_report_agent.investigation.investigation_ledger import completion_allows_stop
 from threat_report_agent.static_analysis import StaticFact
 
 
