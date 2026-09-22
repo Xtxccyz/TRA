@@ -123,7 +123,7 @@ class Database:
         every API/Worker startup behind the schema advisory lock, so process a
         bounded keyset page and commit it before fetching the next page.
         '''
-        from threat_report_agent.evidence_index import INDEXED_EVIDENCE_KINDS, evidence_search_keys
+        from threat_report_agent.static.evidence_index import INDEXED_EVIDENCE_KINDS, evidence_search_keys
         from threat_report_agent.models import Evidence, EvidenceSearchKey, new_id
 
         page_size = 256

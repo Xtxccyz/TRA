@@ -90,7 +90,7 @@ from threat_report_agent.evidence_recovery import (
     RetrievalRequest,
     canonical_action_key,
 )
-from threat_report_agent.evidence_index import evidence_search_keys
+from threat_report_agent.static.evidence_index import evidence_search_keys
 from threat_report_agent.policy import PolicyRegistry
 from threat_report_agent.prompts import PromptRegistry
 from threat_report_agent.models import (
@@ -262,7 +262,7 @@ from threat_report_agent.controlled_emulation import (
     post_static_emulation_needed,
     simulation_covers_request,
 )
-from threat_report_agent.static_simulation import StaticAbstractExecutor
+from threat_report_agent.static.static_simulation import StaticAbstractExecutor
 from threat_report_agent.static_analysis import (
     StaticFact,
     MAX_INSTRUCTION_WINDOW_ITEMS,
@@ -313,7 +313,7 @@ from threat_report_agent.semantic_predicates import (
     is_network_transport_call,
     normalize_api_symbol,
 )
-from threat_report_agent.function_similarity import (
+from threat_report_agent.static.function_similarity import (
     FingerprintRecord,
     FunctionSimilarityIndex,
     SimilarityQuery,

@@ -73,21 +73,33 @@ DEFAULT_SERVICES = (
     "ghidra-worker",
 )
 
-#: Imported in every container by --import-smoke. One entry per package the structural plan has created, so a
-#: container that cannot import a moved package is running a stale image.
+#: Modules imported in every container by --import-smoke. These are the packages the structural plan created; a
+#: container that cannot import one is running a stale image.
 #:
-#: MEASURED GAP this closes: until round 69 the list held only `threat_report_agent.facts`, so the gate proved
-#: nothing about `report/` even after three modules had moved into it - the identity of the moved report modules
-#: inside containers was verified by hand instead. A smoke list that lags the packages the plan creates is a gate
-#: that reports on the previous phase.
-SMOKE_MODULES: tuple[str, ...] = (
-    "threat_report_agent.facts",
-    "threat_report_agent.report.analyst_report",
-    "threat_report_agent.report.report_verification",
-    "threat_report_agent.report.gold_output_bar",
-    "threat_report_agent.intake",
-    "threat_report_agent.static.function_simhash",
-)
+#: MEASURED GAP this closes: until round 73 the list was edited by hand once per moved module, so it lagged the
+#: packages the plan created (`report/` was added only after an audit noticed, `static/` would have needed another
+#: edit). It is now ENUMERATED from disk exactly like the manifest: every module under the plan's new packages is
+#: smoked, so a new module needs no edit here. See `smoke_modules()`.
+SMOKE_PACKAGES: tuple[str, ...] = ("facts", "report", "static", "intake")
+
+#: Always smoked, whether or not the package has modules yet.
+SMOKE_ALWAYS: tuple[str, ...] = ("threat_report_agent.facts",)
+
+
+def smoke_modules() -> tuple[str, ...]:
+    """Every module inside the plan's new packages, as dotted names, plus the fixed entries."""
+    names = list(SMOKE_ALWAYS)
+    for package in SMOKE_PACKAGES:
+        directory = SOURCE / package
+        if not directory.is_dir():
+            continue
+        names.append(f"threat_report_agent.{package}")
+        for path in sorted(directory.rglob("*.py")):
+            if "__pycache__" in path.parts or path.name == "__init__.py":
+                continue
+            relative = path.relative_to(SOURCE).with_suffix("")
+            names.append("threat_report_agent." + ".".join(relative.parts))
+    return tuple(dict.fromkeys(names))
 
 
 def container_name(service: str) -> str:
@@ -193,10 +205,11 @@ def container_hashes(service: str, files: list[str], root: str) -> tuple[dict[st
 
 def import_smoke(service: str) -> tuple[bool, str]:
     """Every package the plan has created, in ONE exec, so the result names the module that failed."""
-    expression = "; ".join(f"import {name}" for name in SMOKE_MODULES)
+    modules = smoke_modules()
+    expression = "; ".join(f"import {name}" for name in modules)
     code, output = run(["docker", "exec", container_name(service), "python", "-c", expression])
     if code == 0:
-        return True, f"import smoke OK ({len(SMOKE_MODULES)} module(s))"
+        return True, f"import smoke OK ({len(modules)} module(s), enumerated)"
     return False, f"import smoke FAILED: {output.strip()[:200]}"
 
 

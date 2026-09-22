@@ -92,6 +92,10 @@ LEGACY_PATHS: dict[str, str] = {
     # P2-S grew from round 73. Its registered importer list is empty because production moved to the new path
     # first (plan 7.1 step 5), so any future old-path use of these fails immediately.
     "function_simhash": "static.function_simhash",
+    "evidence_index": "static.evidence_index",
+    "function_similarity": "static.function_similarity",
+    "literal_table": "static.literal_table",
+    "static_simulation": "static.static_simulation",
 }
 
 #: The state vocabularies a structural step must not edit, ON TOP of every enum class discovered automatically.

@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy import event
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, UOWTransaction, mapped_column
 
-from threat_report_agent.evidence_index import evidence_search_keys
+from threat_report_agent.static.evidence_index import evidence_search_keys
 
 
 def new_id() -> str:

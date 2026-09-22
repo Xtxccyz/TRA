@@ -30,7 +30,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import pytest  # noqa: E402
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "threat_report_agent"
-MOVED = {"function_simhash": ("hamming_distance", "fingerprint_mnemonics", "ALGORITHM")}
+#: module -> symbols whose IDENTITY must be the same through both paths. Names are read from the moved modules
+#: (`py .scratch/p2s-list-symbols.py`), never guessed: the first version of this file asserted a fingerprint was an
+#: int because I assumed the contract instead of reading it.
+MOVED = {
+    "function_simhash": ("hamming_distance", "fingerprint_mnemonics", "ALGORITHM"),
+    "evidence_index": ("canonical_selector", "evidence_search_keys", "INDEXED_EVIDENCE_KINDS"),
+    "function_similarity": ("FunctionSimilarityIndex", "SimilarityQuery", "hamming_distance"),
+    "literal_table": ("discover_hex_literal_table", "RecoveredScript", "AnchoredTableSet"),
+    "static_simulation": ("StaticAbstractExecutor", "SimulationTraceStep", "PathCondition"),
+}
 
 
 def load_gate_module():

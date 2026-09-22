@@ -17,7 +17,7 @@ from typing import Iterable, Mapping
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
-from threat_report_agent.evidence_index import canonical_selector, target_search_keys
+from threat_report_agent.static.evidence_index import canonical_selector, target_search_keys
 from threat_report_agent.models import Evidence, EvidenceSearchKey
 
 

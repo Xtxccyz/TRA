@@ -15,7 +15,7 @@ from pathlib import PurePosixPath
 
 from threat_report_agent.investigation import recovered_thread_start_address
 from threat_report_agent.decode_primitives import decrypt_candidates
-from threat_report_agent.literal_table import discover_hex_literal_table
+from threat_report_agent.static.literal_table import discover_hex_literal_table
 from threat_report_agent.static.function_simhash import fingerprint_mnemonics, hamming_distance
 from threat_report_agent.dataflow import catalog_return_branch_after_call, output_buffer_identity, is_projected_catalog_value
 from threat_report_agent.semantic_predicates import (
