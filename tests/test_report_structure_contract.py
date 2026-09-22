@@ -187,3 +187,62 @@ def test_no_production_module_imports_the_old_path() -> None:
         ):
             offenders.append(path.relative_to(PACKAGE).as_posix())
     assert not offenders, f"production modules still import the moved module by its old path: {offenders}"
+
+
+# ------------------------------------------------------------------------------------------------------------
+# The two small report modules that followed the same recipe
+# ------------------------------------------------------------------------------------------------------------
+MOVED_MODULES = {
+    "report_verification": ("verify_report_correctness", "corrections_summary", "correctness_summary"),
+    "gold_output_bar": (),
+}
+
+
+def test_the_small_report_modules_moved_with_the_same_recipe() -> None:
+    """Byte-identical move + `sys.modules` shim + one module object, for each remaining small module."""
+    for name, symbols in MOVED_MODULES.items():
+        implementation = PACKAGE / "report" / f"{name}.py"
+        shim = PACKAGE / f"{name}.py"
+        assert implementation.is_file(), f"{name} was not moved into report/"
+        assert shim.is_file(), f"the old path {name}.py is gone; the shim must stay until P4"
+
+        shim_source = shim.read_text(encoding="utf-8", errors="replace")
+        assert len(shim_source.encode("utf-8")) < 1500, f"{name}.py grew beyond a shim"
+        assert "sys.modules[__name__] = _real" in shim_source
+        shim_definitions = [
+            node.name
+            for node in ast.parse(shim_source).body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        ]
+        assert not shim_definitions, f"{name}.py defines {shim_definitions}; it must be a shim only"
+
+        # One module object behind two paths, by identity rather than by name.
+        import importlib
+
+        old = importlib.import_module(f"threat_report_agent.{name}")
+        new = importlib.import_module(f"threat_report_agent.report.{name}")
+        assert old is new, f"{name}: the two paths are different module objects"
+        for symbol in symbols:
+            assert getattr(old, symbol) is getattr(new, symbol), f"{name}.{symbol} is not the same object"
+
+        # The implementation must not import its own old path, or the move left a cycle behind.
+        text = implementation.read_text(encoding="utf-8", errors="replace")
+        for forbidden in (f"from threat_report_agent.{name} import",
+                          f"from threat_report_agent import {name}"):
+            assert forbidden not in text, f"{name} imports its own old path"
+
+
+def test_no_production_module_imports_the_small_modules_by_their_old_path() -> None:
+    offenders: list[str] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in path.parts or path.name in {f"{name}.py" for name in MOVED_MODULES}:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for name in MOVED_MODULES:
+            if (
+                f"from threat_report_agent.{name} import" in text
+                or f"from threat_report_agent import {name}" in text
+                or f'import_module("threat_report_agent.{name}' in text
+            ):
+                offenders.append(f"{path.relative_to(PACKAGE).as_posix()} -> {name}")
+    assert not offenders, f"production modules still import a moved module by its old path: {offenders}"

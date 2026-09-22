@@ -73,9 +73,19 @@ DEFAULT_SERVICES = (
     "ghidra-worker",
 )
 
-#: Imported in every container by --import-smoke. Chosen because they are the packages the structural plan
-#: creates; a container that cannot import them is running a stale image.
-SMOKE_MODULES = "threat_report_agent.facts"
+#: Imported in every container by --import-smoke. One entry per package the structural plan has created, so a
+#: container that cannot import a moved package is running a stale image.
+#:
+#: MEASURED GAP this closes: until round 69 the list held only `threat_report_agent.facts`, so the gate proved
+#: nothing about `report/` even after three modules had moved into it - the identity of the moved report modules
+#: inside containers was verified by hand instead. A smoke list that lags the packages the plan creates is a gate
+#: that reports on the previous phase.
+SMOKE_MODULES: tuple[str, ...] = (
+    "threat_report_agent.facts",
+    "threat_report_agent.report.analyst_report",
+    "threat_report_agent.report.report_verification",
+    "threat_report_agent.report.gold_output_bar",
+)
 
 
 def container_name(service: str) -> str:
@@ -180,10 +190,12 @@ def container_hashes(service: str, files: list[str], root: str) -> tuple[dict[st
 
 
 def import_smoke(service: str) -> tuple[bool, str]:
-    code, output = run(["docker", "exec", container_name(service), "python", "-c", f"import {SMOKE_MODULES}"])
+    """Every package the plan has created, in ONE exec, so the result names the module that failed."""
+    expression = "; ".join(f"import {name}" for name in SMOKE_MODULES)
+    code, output = run(["docker", "exec", container_name(service), "python", "-c", expression])
     if code == 0:
-        return True, f"import {SMOKE_MODULES} OK"
-    return False, f"import {SMOKE_MODULES} FAILED: {output.strip()[:200]}"
+        return True, f"import smoke OK ({len(SMOKE_MODULES)} module(s))"
+    return False, f"import smoke FAILED: {output.strip()[:200]}"
 
 
 def git_state() -> tuple[str, str]:

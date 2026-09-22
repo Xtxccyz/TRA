@@ -80,10 +80,15 @@ DUPLICATE_MIN_CHARS = 120
 
 #: Paths that have ALREADY moved, with the canonical module that now holds the implementation. A registered shim
 #: keeps the old path importable; the point of the rule is that the list of files still using the old path is
-#: explicit rather than discovered by grep during P4.
+#: explicit rather than discovered by grep during P4. The three report modules were added in round 69, when the
+#: move was verified: their registered importer count is ZERO, because production moved to the new path first
+#: (plan 7.1 step 5) - so any future old-path import of them fails immediately.
 LEGACY_PATHS: dict[str, str] = {
     "dataflow": "facts.dataflow",
     "decode_primitives": "facts.decode_primitives",
+    "analyst_report": "report.analyst_report",
+    "report_verification": "report.report_verification",
+    "gold_output_bar": "report.gold_output_bar",
 }
 
 #: The state vocabularies a structural step must not edit, ON TOP of every enum class discovered automatically.
