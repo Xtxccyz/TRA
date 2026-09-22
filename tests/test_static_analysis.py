@@ -1,7 +1,9 @@
 import io
+import struct
 import zipfile
 
 from threat_report_agent.static_analysis import (
+    analyze_xor_decode_window,
     derive_mechanism_facts,
     analyze_bytes,
     analyze_document,
@@ -9,8 +11,105 @@ from threat_report_agent.static_analysis import (
     extract_embedded_bytes,
     fingerprint_hamming_distance,
     function_fuzzy_fingerprint,
+    verify_xor_decode_candidate,
     StaticFact,
 )
+
+
+def test_x64_rip_relative_import_call_is_recovered_as_api_signal() -> None:
+    """PE32+ call sites must resolve their RIP-relative IAT slot."""
+    from threat_report_agent.static_analysis import _scan_x86_code
+
+    image_base = 0x140000000
+    section_rva = 0x1000
+    thunk_rva = 0x3000
+    call_address = image_base + section_rva
+    iat_address = image_base + thunk_rva
+    displacement = iat_address - (call_address + 6)
+    code = b"\xff\x15" + struct.pack("<i", displacement) + b"\xc3"
+
+    signals = _scan_x86_code(
+        code,
+        [{"name": ".text", "virtual_address": section_rva, "raw_offset": 0, "raw_size": len(code)}],
+        image_base,
+        [{"module": "KERNEL32.dll", "functions": ["CreateProcessW"], "thunk_rva": thunk_rva, "thunk_width": 8}],
+        is_64=True,
+    )
+
+    assert signals["architecture"] == "x86-64"
+    assert signals["api_calls"] == [{
+        "api": "KERNEL32.dll!CreateProcessW",
+        "address": section_rva,
+        "file_offset": 0,
+    }]
+
+
+def test_x64_relative_call_thunk_is_attributed_to_import() -> None:
+    """A local import thunk must preserve the caller RVA in the signal."""
+    from threat_report_agent.static_analysis import _scan_x86_code
+
+    image_base = 0x140000000
+    section_rva = 0x1000
+    thunk_rva = 0x3000
+    code = bytearray(b"\x90" * 0x50)
+    # jmp qword ptr [rip + disp32] at RVA 0x1020 -> IAT RVA 0x3000.
+    thunk_address = image_base + section_rva + 0x20
+    thunk_iat = image_base + thunk_rva
+    thunk_disp = thunk_iat - (thunk_address + 6)
+    code[0x20:0x26] = b"\xff\x25" + struct.pack("<i", thunk_disp)
+    # call rel32 at RVA 0x1040 -> local thunk at RVA 0x1020.
+    caller_address = image_base + section_rva + 0x40
+    code[0x40:0x45] = b"\xe8" + struct.pack("<i", thunk_address - (caller_address + 5))
+
+    signals = _scan_x86_code(
+        bytes(code),
+        [{"name": ".text", "virtual_address": section_rva, "raw_offset": 0, "raw_size": len(code)}],
+        image_base,
+        [{"module": "KERNEL32.dll", "functions": ["CreateProcessW"], "thunk_rva": thunk_rva, "thunk_width": 8}],
+        is_64=True,
+    )
+
+    assert any(
+        row["api"] == "KERNEL32.dll!CreateProcessW" and row["address"] == section_rva + 0x40
+        for row in signals["api_calls"]
+    )
+
+
+def test_long_compiler_path_is_not_reported_as_base64_payload() -> None:
+    result = analyze_bytes(
+        b"/rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library\\std\\src\\sys\\thread_local\\key\\windows.rs",
+        "sample.exe",
+    )
+    assert not any(fact.kind == "encoded_blob" for fact in result.facts)
+
+
+def test_xor_verification_exposes_reproducible_bytes_and_decoded_text() -> None:
+    plaintext = b"https://example.invalid/stage.exe\x00"
+    ciphertext = bytes(byte ^ ((3 + index * 7) & 0xFF) for index, byte in enumerate(plaintext))
+    candidate = {
+        "memory_addresses": [0],
+        "key_candidates": [3],
+        "key_steps": [7],
+        "consumer_candidates": ["CreateProcessW"],
+    }
+    result = verify_xor_decode_candidate(candidate, ciphertext, max_bytes=len(plaintext))
+    assert result["status"] == "VERIFIED_STATIC_DATA"
+    assert result["ciphertext_hex"] == ciphertext.hex()
+    assert "https://example.invalid/stage.exe" in result["decoded_text"]
+    assert result["verification_scope"]["source_file_offset"] == 0
+
+
+def test_xor_window_requires_non_zeroing_loop_transform() -> None:
+    rows = [
+        {"address": "0x100", "mnemonic": "MOV", "text": "MOV ECX, 3"},
+        {"address": "0x104", "mnemonic": "XOR", "text": "XOR AL, [ESI]"},
+        {"address": "0x105", "mnemonic": "XOR", "text": "XOR [ESI], AL"},
+        {"address": "0x106", "mnemonic": "ADD", "text": "ADD ECX, 7"},
+        {"address": "0x108", "mnemonic": "JNZ", "text": "JNZ 0x104"},
+    ]
+    result = analyze_xor_decode_window(rows)
+    assert result is not None
+    assert result["semantic_requirements"]["non_zeroing_transform"] is True
 
 
 def test_mechanism_derivation_builds_evidence_ready_chain_from_complementary_facts() -> None:
@@ -55,8 +154,16 @@ def test_mechanism_derivation_builds_evidence_ready_chain_from_complementary_fac
     derived = derive_mechanism_facts(facts, subject="sample.exe")
     kinds = {item.kind for item in derived}
 
-    assert {"resource_inventory", "mechanism_resource_payload", "mechanism_resource_extraction"} <= kinds
-    assert {"mechanism_decompression", "mechanism_memory_permission", "mechanism_service_query"} <= kinds
+    assert {
+        "resource_inventory",
+        "mechanism_resource_payload",
+        "mechanism_resource_extraction",
+    } <= kinds
+    assert {
+        "mechanism_decompression",
+        "mechanism_memory_permission",
+        "mechanism_service_query",
+    } <= kinds
     assert "pe_header_anomaly" in kinds
 
 
@@ -325,6 +432,13 @@ def test_plain_zip_is_not_promoted_to_ooxml_by_a_spoofed_extension() -> None:
 
     assert result.detected_type == "zip"
     assert result.summary["identity"]["mime_type"] == "application/zip"
+
+
+def test_7z_magic_is_classified_as_a_container() -> None:
+    result = analyze_bytes(b"\x37\x7a\xbc\xaf\x27\x1c" + b"\0" * 64, "payload.bin")
+
+    assert result.detected_type == "7z"
+    assert result.summary["identity"]["mime_type"] == "application/x-7z-compressed"
     assert result.summary["identity"]["type_source"] == "magic"
 
 

@@ -1,0 +1,1038 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/analysis_trace.py",
+      "type": "file",
+      "name": "analysis_trace.py",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "summary": "把一次分析运行投影成结构化、脱敏的分析过程视图：按 intake/triage/extraction/gate/completion 阶段组织可观察步骤，并把 Claim、Evidence、ToolRun 与机制有效性追踪串成来源链接。它只暴露可观察工作流与证据链接，绝不包含模型 prompt、原始响应、密钥或私有思维链。",
+      "tags": ["分析过程追踪", "脱敏投影", "可观测性", "证据链接"],
+      "complexity": "complex",
+      "languageNotes": "用 _PHASES 常量表把审计事件名映射到阶段，再以一组 _compact_* 函数做白名单式字段裁剪，是典型的「默认拒绝」脱敏写法。"
+    },
+    {
+      "id": "file:src/threat_report_agent/analyst_report.py",
+      "type": "file",
+      "name": "analyst_report.py",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "summary": "官方分析员 markdown 报告 overlay：依据行为目录、PMA 静态规则与本样本证据规划章节主题并渲染成一份恶意样本分析报告，渲染后再跑静态措辞合规检查。它刻意不追加执行摘要、种子图、覆盖字典、函数语义转储或 Evidence UUID（那些留在 V3 ledger / Evidence Explorer），CANDIDATE 机制只作已恢复静态事实叙述而不升级为 VERIFIED。",
+      "tags": ["报告渲染", "markdown", "质量门", "行为目录"],
+      "complexity": "complex",
+      "languageNotes": "模块内以大量单下划线辅助函数组织成「字段取值 → 语义判定 → 文本渲染」三段式管线，真正的对外 API 只有 plan_analyst_topics / apply_model_topic_plan / render_analyst_chapters / render_official_markdown 等少数几个。"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_trace.py:_safe_details",
+      "type": "function",
+      "name": "_safe_details",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "lineRange": [153, 163],
+      "summary": "过滤审计事件 details 中的敏感键，只放行可安全外显的字段。",
+      "tags": ["脱敏", "字段过滤", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_trace.py:_compact_hypothesis",
+      "type": "function",
+      "name": "_compact_hypothesis",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "lineRange": [183, 192],
+      "summary": "把一条调查假设压缩成 id、陈述、状态与证据 id 的精简记录。",
+      "tags": ["投影", "假设", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_trace.py:_compact_action",
+      "type": "function",
+      "name": "_compact_action",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "lineRange": [195, 242],
+      "summary": "把一次调查动作压缩成类型、目标、结果与证据锚点的可展示记录。",
+      "tags": ["投影", "调查动作", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_trace.py:_compact_model_call",
+      "type": "function",
+      "name": "_compact_model_call",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "lineRange": [245, 296],
+      "summary": "把模型调用压缩成用途、协议、耗时与结果摘要，剔除 prompt 与原始响应。",
+      "tags": ["脱敏", "模型调用", "投影"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_trace.py:build_mechanism_effectiveness_traces",
+      "type": "function",
+      "name": "build_mechanism_effectiveness_traces",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "lineRange": [299, 312],
+      "summary": "机制有效性追踪的公开入口，从持久化记录重建对外可用的追踪条目。",
+      "tags": ["机制追踪", "入口点", "投影"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_trace.py:_compact_verifier",
+      "type": "function",
+      "name": "_compact_verifier",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "lineRange": [315, 328],
+      "summary": "把验证器结果压缩为状态、检查项与缺失字段。",
+      "tags": ["验证器", "投影", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_trace.py:_build_mechanism_effectiveness_traces",
+      "type": "function",
+      "name": "_build_mechanism_effectiveness_traces",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "lineRange": [331, 502],
+      "summary": "机制有效性追踪的核心构建逻辑：逐条机制解析证据锚点、消费者与模型动作，并用 action_is_productive 剔除非产出性动作后产出可持久化的追踪记录。",
+      "tags": ["机制追踪", "有效性", "证据链接"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_trace.py:build_analysis_trace",
+      "type": "function",
+      "name": "build_analysis_trace",
+      "filePath": "src/threat_report_agent/analysis_trace.py",
+      "lineRange": [505, 893],
+      "summary": "对外主入口：把任务、工具运行、Claim/Evidence、门禁与机制追踪装配成分阶段的结构化分析过程视图。",
+      "tags": ["入口点", "分析过程追踪", "装配"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/analyst_report.py:AnalystChapterDraft",
+      "type": "class",
+      "name": "AnalystChapterDraft",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [196, 201],
+      "summary": "模型返回的单章草稿数据模型：目录 id、标题、证据锚点与说明。",
+      "tags": ["data-model", "pydantic", "报告章节"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/analyst_report.py:AnalystReportPlanEnvelope",
+      "type": "class",
+      "name": "AnalystReportPlanEnvelope",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [204, 207],
+      "summary": "模型主题规划的返回信封，包含章节列表与局限说明。",
+      "tags": ["data-model", "pydantic", "主题规划"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/analyst_report.py:AnalystTopic",
+      "type": "class",
+      "name": "AnalystTopic",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [211, 217],
+      "summary": "一个官方报告主题：行为目录 id、标题、状态、原因、锚点与来源。",
+      "tags": ["data-model", "pydantic", "报告主题"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:split_analyst_markdown",
+      "type": "function",
+      "name": "split_analyst_markdown",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [220, 225],
+      "summary": "按二级标题把分析员 markdown 拆成章节映射。",
+      "tags": ["markdown", "解析", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:primary_analyst_violations",
+      "type": "function",
+      "name": "primary_analyst_violations",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [228, 246],
+      "summary": "检查主报告 markdown 是否混入了执行摘要、种子图、覆盖字典或 Evidence UUID 等属于 ledger 的内容。",
+      "tags": ["validation", "质量门", "报告"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:iter_document_rows",
+      "type": "function",
+      "name": "iter_document_rows",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [249, 263],
+      "summary": "遍历报告文档中所有 evidence / finding 行，供主题匹配与锚点解析使用。",
+      "tags": ["迭代器", "报告文档", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_is_runtime_symbol",
+      "type": "function",
+      "name": "_is_runtime_symbol",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [280, 290],
+      "summary": "判定符号是否为运行时或 CRT 样板噪声，避免其进入官方报告叙事。",
+      "tags": ["过滤", "符号", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_is_behavior_api",
+      "type": "function",
+      "name": "_is_behavior_api",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [302, 318],
+      "summary": "判定某个 API 是否属于值得作为行为叙述的类别（进程、网络、注入等）。",
+      "tags": ["语义判定", "api", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:document_topic_haystack",
+      "type": "function",
+      "name": "document_topic_haystack",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [321, 351],
+      "summary": "为一个主题汇总可搜索的文本干草堆（证据行、静态计划、导入表等），用于判断该主题在本样本上是否真有落点。",
+      "tags": ["检索", "主题匹配", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_notable_imports",
+      "type": "function",
+      "name": "_notable_imports",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [375, 386],
+      "summary": "挑选值得写进报告的导入 API，过滤运行时样板。",
+      "tags": ["pe-imports", "过滤", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_scrub_ledger_uuids_from_primary",
+      "type": "function",
+      "name": "_scrub_ledger_uuids_from_primary",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [411, 422],
+      "summary": "从主报告文本中清除 ledger UUID，保持分析员叙述口吻。",
+      "tags": ["脱敏", "ledger", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_field_text",
+      "type": "function",
+      "name": "_field_text",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [425, 450],
+      "summary": "把字段值（含嵌套 mapping / 序列）安全展平成可读文本。",
+      "tags": ["字段展平", "文本", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_mechanism_catalog_id",
+      "type": "function",
+      "name": "_mechanism_catalog_id",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [467, 479],
+      "summary": "从机制记录中解析出它对应的行为目录 id。",
+      "tags": ["机制", "行为目录", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_mechanism_ready",
+      "type": "function",
+      "name": "_mechanism_ready",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [482, 492],
+      "summary": "调用 inspect_mechanism_ready 判断机制是否达到 critical_ready，CANDIDATE 行不计入。",
+      "tags": ["报告就绪", "机制", "质量门"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_blocking_unknown_demotes_threshold",
+      "type": "function",
+      "name": "_blocking_unknown_demotes_threshold",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [511, 521],
+      "summary": "判断阻塞性 UNKNOWN 是否应把主题健康度降级到阈值以下。",
+      "tags": ["质量门", "unknown", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_topic_status",
+      "type": "function",
+      "name": "_topic_status",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [524, 546],
+      "summary": "为一个报告主题计算 OPEN / PARTIAL / CLOSED 状态标签。",
+      "tags": ["状态判定", "报告主题", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:plan_analyst_topics",
+      "type": "function",
+      "name": "plan_analyst_topics",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [564, 672],
+      "summary": "核心主题规划：用行为目录、PMA 静态规则与本样本证据挑选报告章节，产出 AnalystTopic 列表，没有预设的 C2 / persist / inject 大纲。",
+      "tags": ["主题规划", "行为目录", "入口点"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_usable_model_title",
+      "type": "function",
+      "name": "_usable_model_title",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [685, 696],
+      "summary": "校验模型给出的章节标题是否可用（非空且非占位文本）。",
+      "tags": ["validation", "标题", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:apply_model_topic_plan",
+      "type": "function",
+      "name": "apply_model_topic_plan",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [699, 748],
+      "summary": "把模型返回的主题规划合并进确定性规划结果，被拒章节只保留局限说明。",
+      "tags": ["主题规划", "模型融合", "入口点"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_blob",
+      "type": "function",
+      "name": "_blob",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [759, 776],
+      "summary": "把一组行对象合并成小写文本 blob 供关键词匹配。",
+      "tags": ["文本匹配", "utility", "检索"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_official_prose",
+      "type": "function",
+      "name": "_official_prose",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [832, 843],
+      "summary": "清洗叙述文本中的占位或噪声片段，得到符合官方口径的 prose。",
+      "tags": ["文本清洗", "报告", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_has_verified_attribution",
+      "type": "function",
+      "name": "_has_verified_attribution",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [846, 855],
+      "summary": "判断是否存在已验证的归因信息，决定是否保留攻击者叙述。",
+      "tags": ["归因", "validation", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_protocol_slot_raw",
+      "type": "function",
+      "name": "_protocol_slot_raw",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [865, 874],
+      "summary": "从十问调查协议中取出指定槽位的原始值。",
+      "tags": ["调查协议", "槽位", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_slot_display",
+      "type": "function",
+      "name": "_slot_display",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [888, 943],
+      "summary": "把十问协议槽位渲染成展示文本，空槽统一使用占位符而不是杜撰内容。",
+      "tags": ["调查协议", "渲染", "占位符"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_finding_rows_for_topic",
+      "type": "function",
+      "name": "_finding_rows_for_topic",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [957, 970],
+      "summary": "筛选归属于某个报告主题的 finding 行。",
+      "tags": ["主题匹配", "报告", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_chapter_status_label",
+      "type": "function",
+      "name": "_chapter_status_label",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [973, 988],
+      "summary": "把章节状态转换成报告展示用的状态标签。",
+      "tags": ["状态标签", "渲染", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_project_topic_slots",
+      "type": "function",
+      "name": "_project_topic_slots",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [991, 1025],
+      "summary": "把十问调查协议的槽位投影到主题上下文中，供章节渲染取用。",
+      "tags": ["调查协议", "投影", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_ten_question_section",
+      "type": "function",
+      "name": "_ten_question_section",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1028, 1043],
+      "summary": "渲染十问调查协议章节。",
+      "tags": ["调查协议", "渲染", "报告章节"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_collect_official_unknowns",
+      "type": "function",
+      "name": "_collect_official_unknowns",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1046, 1059],
+      "summary": "汇总报告中仍然未知的字段，作为局限说明输出。",
+      "tags": ["unknown", "局限", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_topic_body",
+      "type": "function",
+      "name": "_topic_body",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1062, 1433],
+      "summary": "单主题正文渲染器：按主题类型装配机制描述、证据锚点、静态计划与验证说明，是官方报告正文的主要生成路径。",
+      "tags": ["渲染", "报告正文", "核心"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_pe_overview",
+      "type": "function",
+      "name": "_pe_overview",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1446, 1488],
+      "summary": "渲染 PE 概览段落（格式识别、节区、入口点、导入等静态事实）。",
+      "tags": ["pe", "渲染", "报告"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_synthesis",
+      "type": "function",
+      "name": "_synthesis",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1491, 1546],
+      "summary": "渲染综合判断段落，汇总机制就绪度与剩余缺口。",
+      "tags": ["渲染", "综合判断", "报告"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_verification_note",
+      "type": "function",
+      "name": "_verification_note",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1560, 1631],
+      "summary": "渲染验证说明：明确区分已验证与 CANDIDATE，并解释某项为何尚未升级。",
+      "tags": ["验证", "claim", "渲染"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:render_analyst_chapters",
+      "type": "function",
+      "name": "render_analyst_chapters",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1634, 1658],
+      "summary": "把主题列表渲染为分析员章节 markdown。",
+      "tags": ["渲染", "报告章节", "入口点"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:_official_sample_name",
+      "type": "function",
+      "name": "_official_sample_name",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1661, 1679],
+      "summary": "推导官方报告使用的样本名称。",
+      "tags": ["命名", "报告", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:stamp_official_report_chrome",
+      "type": "function",
+      "name": "stamp_official_report_chrome",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1682, 1706],
+      "summary": "给官方报告加上固定的标题与页眉外壳，并移除残留的 ledger 痕迹。",
+      "tags": ["报告外壳", "脱敏", "渲染"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:render_official_markdown",
+      "type": "function",
+      "name": "render_official_markdown",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1709, 1744],
+      "summary": "官方报告渲染主流程：装配章节后调用 static_wording_violations 做静态措辞合规检查。",
+      "tags": ["入口点", "报告渲染", "质量门"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:compose_official_markdown",
+      "type": "function",
+      "name": "compose_official_markdown",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1747, 1751],
+      "summary": "把章节草稿拼装成完整的官方 markdown 文档。",
+      "tags": ["装配", "markdown", "入口点"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:compact_analyst_context",
+      "type": "function",
+      "name": "compact_analyst_context",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1754, 1792],
+      "summary": "为模型主题规划压缩分析上下文，只保留可用于选题的字段。",
+      "tags": ["上下文压缩", "模型输入", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analyst_report.py:official_revision_semantic_tokens",
+      "type": "function",
+      "name": "official_revision_semantic_tokens",
+      "filePath": "src/threat_report_agent/analyst_report.py",
+      "lineRange": [1804, 1831],
+      "summary": "抽取官方报告 revision 的语义 token，用于比较两版报告之间是否真有实质变化。",
+      "tags": ["revision", "语义比较", "utility"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:_safe_details",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:_compact_hypothesis",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:_compact_action",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:_compact_model_call",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:build_mechanism_effectiveness_traces",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:_compact_verifier",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:_build_mechanism_effectiveness_traces",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:build_analysis_trace",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "class:src/threat_report_agent/analyst_report.py:AnalystChapterDraft",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "class:src/threat_report_agent/analyst_report.py:AnalystReportPlanEnvelope",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "class:src/threat_report_agent/analyst_report.py:AnalystTopic",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:split_analyst_markdown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:primary_analyst_violations",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:iter_document_rows",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_is_runtime_symbol",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_is_behavior_api",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:document_topic_haystack",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_notable_imports",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_scrub_ledger_uuids_from_primary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_field_text",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_mechanism_catalog_id",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_mechanism_ready",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_blocking_unknown_demotes_threshold",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_topic_status",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:plan_analyst_topics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_usable_model_title",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:apply_model_topic_plan",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_blob",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_official_prose",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_has_verified_attribution",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_protocol_slot_raw",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_slot_display",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_finding_rows_for_topic",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_chapter_status_label",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_project_topic_slots",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_ten_question_section",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_collect_official_unknowns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_topic_body",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_pe_overview",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_synthesis",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_verification_note",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:render_analyst_chapters",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:_official_sample_name",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:stamp_official_report_chrome",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:render_official_markdown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:compose_official_markdown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:compact_analyst_context",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:official_revision_semantic_tokens",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:build_mechanism_effectiveness_traces",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "function:src/threat_report_agent/analysis_trace.py:build_analysis_trace",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "class:src/threat_report_agent/analyst_report.py:AnalystChapterDraft",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "class:src/threat_report_agent/analyst_report.py:AnalystReportPlanEnvelope",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "class:src/threat_report_agent/analyst_report.py:AnalystTopic",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:split_analyst_markdown",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:primary_analyst_violations",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:iter_document_rows",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:document_topic_haystack",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:plan_analyst_topics",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:apply_model_topic_plan",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:render_analyst_chapters",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:stamp_official_report_chrome",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:render_official_markdown",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:compose_official_markdown",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:compact_analyst_context",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "function:src/threat_report_agent/analyst_report.py:official_revision_semantic_tokens",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_trace.py",
+      "target": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "file:src/threat_report_agent/behavior_catalog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "file:src/threat_report_agent/investigation_protocol.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "file:src/threat_report_agent/mechanism_ready.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/analyst_report.py",
+      "target": "file:src/threat_report_agent/product_certification.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_trace.py:_build_mechanism_effectiveness_traces",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:action_is_productive",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analyst_report.py:_mechanism_ready",
+      "target": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analyst_report.py:_slot_display",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:is_empty_marker",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analyst_report.py:render_official_markdown",
+      "target": "function:src/threat_report_agent/product_certification.py:static_wording_violations",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analyst_report.py:plan_analyst_topics",
+      "target": "class:src/threat_report_agent/behavior_catalog.py:BehaviorCatalog",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analyst_report.py:_synthesis",
+      "target": "class:src/threat_report_agent/behavior_catalog.py:BehaviorCatalog",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

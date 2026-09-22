@@ -165,6 +165,9 @@ def test_versioned_system_prompts_keep_untrusted_data_out_of_instructions() -> N
     assert len(prompt.sha256) == 64
     assert "Evidence" in prompt.system_text
     assert "valid json" in prompt.system_text
+    assert "executive summary" in prompt.system_text.casefold()
+    assert "再深入" in prompt.system_text
+    assert "Input -> Transformation/Control" in prompt.system_text
     assert "execute me" not in messages[0]["content"]
     assert messages[0] == {"role": "system", "content": prompt.system_text}
     assert messages[1]["role"] == "user"

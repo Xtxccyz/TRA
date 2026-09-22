@@ -1,0 +1,1066 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "type": "file",
+      "name": "analysis_task_orchestration.py",
+      "filePath": "src/threat_report_agent/analysis_task_orchestration.py",
+      "summary": "Analysis Task 的调查阶段编排层：定义 persist HOW skip 判定、调查循环路径选择（READY/BOUNDARY 优先于预算、预算优先于 DeepMiningPlanner），以及工作账本 OPEN/DEFERRED/tail 的饱和调查与受控模拟交错。首轮 analyze 经 run_analysis_task_investigation 进入，DSH workbench 经 continue_investigation_after_action 续跑；DeepMiningPlanner 仍是唯一的动作提出者，本模块不做第二个 planner。",
+      "tags": [
+        "orchestration",
+        "investigation",
+        "persist-how",
+        "work-ledger",
+        "编排"
+      ],
+      "complexity": "complex",
+      "languageNotes": "用 Protocol 声明阶段机不拥有的 I/O（工作账本、调查循环、静态后受控模拟仍留在 AnalysisService），并通过 seed_result / static_boundary / unique_thread / supporting_boundary 四个注入回调把副作用挡在模块之外，模块只做纯决策。"
+    },
+    {
+      "id": "file:src/threat_report_agent/evidence_index.py",
+      "type": "file",
+      "name": "evidence_index.py",
+      "filePath": "src/threat_report_agent/evidence_index.py",
+      "summary": "为不可变静态 Evidence 生成规范化且有界的检索键：只保存归一化后的 selector，不复制样本字符串或反编译文本，供检索器在加载 Evidence 值之前先拿到有界的候选证据 ID。",
+      "tags": [
+        "indexing",
+        "evidence-search",
+        "normalization",
+        "bounded"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "所有键都经 canonical_selector 折叠大小写与空白；裸 Ghidra 地址被特意保留为单个 selector，避免把 14000c520 拆成 c520 造成误召回。"
+    },
+    {
+      "id": "file:src/threat_report_agent/evidence_recovery.py",
+      "type": "file",
+      "name": "evidence_recovery.py",
+      "filePath": "src/threat_report_agent/evidence_recovery.py",
+      "summary": "问题驱动的证据检索原语层：在已序列化的 Evidence 行上定义证据投递漏斗（PRODUCED → … → ACCEPTED_AS_SUPPORT）、基于索引 selector 的工件范围内有界候选检索（BoundedEvidenceRepository），以及按调查问题打分并裁剪上下文的 QuestionCentricRetriever。",
+      "tags": [
+        "retrieval",
+        "evidence",
+        "context-budget",
+        "ranking",
+        "检索"
+      ],
+      "complexity": "complex",
+      "languageNotes": "用 StrEnum 表达漏斗阶段与上下文角色，用 frozen dataclass 表达检索请求与上下文包，使每次检索契约可审计、可回放。"
+    },
+    {
+      "id": "class:src/threat_report_agent/analysis_task_orchestration.py:PersistHowDecision",
+      "type": "class",
+      "name": "PersistHowDecision",
+      "lineRange": [
+        81,
+        86
+      ],
+      "summary": "冻结数据类，表示 persist HOW facts 已在账本时残留 TRACE 动作是否仍可运行的判定结果，disposition 取 ready / boundary / mine 三种之一。",
+      "tags": [
+        "data-model",
+        "decision",
+        "persist-how"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:resolve_persist_how_skip",
+      "type": "function",
+      "name": "resolve_persist_how_skip",
+      "lineRange": [
+        93,
+        195
+      ],
+      "summary": "在预算延迟与 DeepMiningPlanner 之前判定 persist HOW skip：由 seed_result / static_boundary / unique_thread / supporting_boundary 四个注入探针决定 READY、BOUNDARY 或 MINE；一旦存在必需恢复工具或首轮模型/人工目录动作，就取消 skip 让 seed 保持可挖掘。",
+      "tags": [
+        "investigation",
+        "persist-how",
+        "decision",
+        "deduplication"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:next_investigation_loop_path",
+      "type": "function",
+      "name": "next_investigation_loop_path",
+      "lineRange": [
+        204,
+        221
+      ],
+      "summary": "按 persist HOW skip 优先于预算、预算优先于 DeepMiningPlanner 的顺序选出本轮调查循环路径（persist_ready / persist_boundary / budget_defer / planner）；不存在把空提案列表当作 persist-ready 的零成本跳过。",
+      "tags": [
+        "routing",
+        "budget",
+        "planner",
+        "investigation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/analysis_task_orchestration.py:AnalysisTaskRuntime",
+      "type": "class",
+      "name": "AnalysisTaskRuntime",
+      "lineRange": [
+        224,
+        263
+      ],
+      "summary": "Protocol，声明本阶段机刻意不拥有的 I/O：工作账本读取/停放/收尾、调查循环、静态后受控模拟、模拟结果计数与 HOW 重校验等仍留在 AnalysisService 上的方法签名，使既有 SQLAlchemy 会话无需改动。",
+      "tags": [
+        "protocol",
+        "interface",
+        "dependency-inversion",
+        "runtime"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:action_is_model_or_human",
+      "type": "function",
+      "name": "action_is_model_or_human",
+      "lineRange": [
+        274,
+        291
+      ],
+      "summary": "判断动作提案是否来自首轮 analyze 的模型或人工目录动作（检查 provenance、planner_turn_id 以及 parameters 中的 origin 与内部标记），这类动作必须穿过 persist HOW skip。",
+      "tags": [
+        "provenance",
+        "action-gate",
+        "investigation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:keep_recovery_after_persist_skip",
+      "type": "function",
+      "name": "keep_recovery_after_persist_skip",
+      "lineRange": [
+        294,
+        307
+      ],
+      "summary": "在 persist CANDIDATE 之后只保留必需恢复工具与模型/人工动作，丢弃残留 TRACE 提案，返回保留下来的 ActionSpec 元组。",
+      "tags": [
+        "filter",
+        "recovery",
+        "persist-how"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:supersede_queued_trace_after_persist_skip",
+      "type": "function",
+      "name": "supersede_queued_trace_after_persist_skip",
+      "lineRange": [
+        310,
+        333
+      ],
+      "summary": "把 persist HOW skip 之后仍为 QUEUED 的残留 DSH TRACE 票据置为 CANCELLED 并写入 PERSIST_HOW_SKIP 错误，避免官方修订已记录 persist CANDIDATE/UNKNOWN 后聊天侧仍追问“再深入”；必需恢复动作（参数追踪、反编译、授权字节、受控模拟）继续排队。",
+      "tags": [
+        "queue",
+        "cancellation",
+        "persist-how"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:run_saturated_investigation",
+      "type": "function",
+      "name": "run_saturated_investigation",
+      "lineRange": [
+        336,
+        416
+      ],
+      "summary": "驱动工作账本直到没有 OPEN 或 DEFERRED：coverage 阶段把超时 seed 停为 DEFERRED（待完成）后继续其余 seed，OPEN 清空后先派发隔离受控模拟再走 tail pass，只有 tail 之后才允许诚实的 UNKNOWN；检测到停滞时把残留 seed 交给 tail 并收尾。",
+      "tags": [
+        "investigation",
+        "work-ledger",
+        "emulation",
+        "saturation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:run_emulation_informed_investigation",
+      "type": "function",
+      "name": "run_emulation_informed_investigation",
+      "lineRange": [
+        419,
+        442
+      ],
+      "summary": "先派发隔离受控模拟再基于新事实继续调查：只有 worker 产生了真实 simulation_result 才重校验 HOW 并续跑（饱和或单轮），否则直接返回，避免对未变化的 frontier 再烧一次动作预算。",
+      "tags": [
+        "emulation",
+        "investigation",
+        "budget",
+        "frontier"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:run_analysis_task_investigation",
+      "type": "function",
+      "name": "run_analysis_task_investigation",
+      "lineRange": [
+        445,
+        452
+      ],
+      "summary": "首轮 analyze 的入口：先饱和调查工作账本，再做受控模拟告知的续查，返回去重后的局限性说明。",
+      "tags": [
+        "entry-point",
+        "investigation",
+        "emulation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/analysis_task_orchestration.py:continue_investigation_after_action",
+      "type": "function",
+      "name": "continue_investigation_after_action",
+      "lineRange": [
+        455,
+        460
+      ],
+      "summary": "DSH workbench 在一次目录动作之后的续跑入口：执行一遍受控模拟告知的调查（模拟、在真实结果行上重校验 HOW、一轮循环），绝不做饱和调查。",
+      "tags": [
+        "entry-point",
+        "workbench",
+        "emulation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/evidence_index.py:canonical_selector",
+      "type": "function",
+      "name": "canonical_selector",
+      "lineRange": [
+        85,
+        87
+      ],
+      "summary": "把任意目标 selector 归一化为小写、折叠空白的单行文本（截断 160 字符），不解释不可信的样本数据；它是索引写入与查询两侧共用的规范化契约。",
+      "tags": [
+        "normalization",
+        "selector",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/evidence_index.py:_walk",
+      "type": "function",
+      "name": "_walk",
+      "lineRange": [
+        90,
+        112
+      ],
+      "summary": "在受限预算内递归遍历 Evidence 的 value/anchor 结构：只沿白名单 selector 字段或嵌套容器下降，每层把预算减半，最终收集规范化文本及其中的标识符/0x 地址 token。",
+      "tags": [
+        "traversal",
+        "bounded",
+        "selector",
+        "normalization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/evidence_index.py:evidence_search_keys",
+      "type": "function",
+      "name": "evidence_search_keys",
+      "lineRange": [
+        115,
+        131
+      ],
+      "summary": "为一行 Evidence 生成紧凑的精确匹配键集合：非索引 kind 直接返回空；否则先加 kind 前缀与函数身份字段（function_entry/entry/rva/api 等），再遍历 value 与 anchor，最后去重、按上限截断并排序。",
+      "tags": [
+        "indexing",
+        "evidence-search",
+        "selector",
+        "bounded"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/evidence_index.py:target_search_keys",
+      "type": "function",
+      "name": "target_search_keys",
+      "lineRange": [
+        134,
+        146
+      ],
+      "summary": "把已校验的动作/检索目标值编译成索引 selector：裸 Ghidra 地址保持单个 selector 以免被拆成短 token 误召回无关文本，其余再做 token 展开，最终排序去重并截断到 128 个。",
+      "tags": [
+        "indexing",
+        "selector",
+        "query-compilation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:EvidenceStage",
+      "type": "class",
+      "name": "EvidenceStage",
+      "lineRange": [
+        24,
+        33
+      ],
+      "summary": "证据投递漏斗的阶段枚举：PRODUCED、NORMALIZED、PERSISTED、ELIGIBLE、CANDIDATE、SELECTED、DELIVERED、REFERENCED_BY_MODEL、ACCEPTED_AS_SUPPORT。",
+      "tags": [
+        "enum",
+        "evidence-lifecycle",
+        "contract"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:ContextRole",
+      "type": "class",
+      "name": "ContextRole",
+      "lineRange": [
+        36,
+        40
+      ],
+      "summary": "上下文项角色枚举：CORE_SUPPORT、CORROBORATING、NAVIGATION、EXPANSION。",
+      "tags": [
+        "enum",
+        "context",
+        "ranking"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:FailureInterpretation",
+      "type": "class",
+      "name": "FailureInterpretation",
+      "lineRange": [
+        43,
+        46
+      ],
+      "summary": "动作失败的解释枚举：UNKNOWN、NO_NEW_EVIDENCE、STATIC_BOUNDARY。",
+      "tags": [
+        "enum",
+        "failure",
+        "investigation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:EvidenceDeliveryEvent",
+      "type": "class",
+      "name": "EvidenceDeliveryEvent",
+      "lineRange": [
+        50,
+        55
+      ],
+      "summary": "冻结数据类，记录一条 Evidence 在某个投递阶段上的事件：证据 ID、阶段、turn/thread 与明细字典。",
+      "tags": [
+        "data-model",
+        "event",
+        "evidence-lifecycle"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:EvidenceDeliveryLedger",
+      "type": "class",
+      "name": "EvidenceDeliveryLedger",
+      "lineRange": [
+        58,
+        121
+      ],
+      "summary": "追加式内存漏斗，在持久化模型回合之前使用：强制每条 Evidence 从 PRODUCED 起逐级推进，跳级或乱序直接抛错，并提供当前阶段查询与各阶段去重计数。",
+      "tags": [
+        "ledger",
+        "state-machine",
+        "evidence-lifecycle",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/evidence_recovery.py:canonical_token",
+      "type": "function",
+      "name": "canonical_token",
+      "lineRange": [
+        149,
+        150
+      ],
+      "summary": "把任意值折叠成小写、空白归一化的 token 文本，供动作 selector 与锚点比较使用。",
+      "tags": [
+        "normalization",
+        "token",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/evidence_recovery.py:_canonical_action_selector",
+      "type": "function",
+      "name": "_canonical_action_selector",
+      "lineRange": [
+        160,
+        191
+      ],
+      "summary": "把历史 function_entry 与较新的 target RVA 归一为同一 {scope, target} 形态以便查询去重，同时把 API 名留在独立作用域，避免 API 取向的查询误压制函数取向的查询。",
+      "tags": [
+        "normalization",
+        "selector",
+        "deduplication"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/evidence_recovery.py:canonical_action_key",
+      "type": "function",
+      "name": "canonical_action_key",
+      "lineRange": [
+        194,
+        220
+      ],
+      "summary": "生成对目标与调查作用域都敏感的稳定动作键（ACTION_TYPE:sha256 前 20 位）；可选 action_scope 让同一 action type 对同一函数在不同机制问题下独立运行而互不压制，同时兼容只有 target 的历史调用方。",
+      "tags": [
+        "hashing",
+        "deduplication",
+        "action-key"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:RetrievalRequest",
+      "type": "class",
+      "name": "RetrievalRequest",
+      "lineRange": [
+        224,
+        275
+      ],
+      "summary": "冻结数据类，描述一次问题驱动的检索请求：线程/工件/假设类型、目标锚点、必需证据 kind、caller/callee/data 图深度、playbook 与版本、候选上限以及显式的检索模式，构造时校验取值并暴露 anchor_tokens 与 as_dict。",
+      "tags": [
+        "data-model",
+        "retrieval",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:CandidateEvidenceBatch",
+      "type": "class",
+      "name": "CandidateEvidenceBatch",
+      "lineRange": [
+        279,
+        286
+      ],
+      "summary": "冻结数据类，承载一次索引化静态证据查询的有界结果：Evidence 行、候选数、查询次数、用到的 selector 键与图扩展轨迹。",
+      "tags": [
+        "data-model",
+        "retrieval",
+        "bounded"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:BoundedEvidenceRepository",
+      "type": "class",
+      "name": "BoundedEvidenceRepository",
+      "lineRange": [
+        289,
+        510
+      ],
+      "summary": "在工件范围内用索引 selector 先取候选 ID 再按 ID 取回 Evidence：精确 selector 与必需 kind 两类查询分别限流，随后只沿有类型的静态调用/数据边做 caller/callee/data 有界图扩展，绝不扫描整个任务的 Evidence 台账。",
+      "tags": [
+        "repository",
+        "retrieval",
+        "graph-expansion",
+        "bounded"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:ContextItem",
+      "type": "class",
+      "name": "ContextItem",
+      "lineRange": [
+        514,
+        522
+      ],
+      "summary": "冻结数据类，表示送入模型上下文的一条证据项：证据 ID、kind、上下文角色、选择评分、理由、配额组、值与锚点。",
+      "tags": [
+        "data-model",
+        "context",
+        "ranking"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:ContextPacket",
+      "type": "class",
+      "name": "ContextPacket",
+      "lineRange": [
+        526,
+        556
+      ],
+      "summary": "冻结数据类，封装一次检索的上下文清单：请求、条目、core 与 expansion 划分、排除原因与候选数，并序列化为带 untrusted_analysis_data 信任区标记的字典。",
+      "tags": [
+        "data-model",
+        "context",
+        "serialization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/evidence_recovery.py:QuestionCentricRetriever",
+      "type": "class",
+      "name": "QuestionCentricRetriever",
+      "lineRange": [
+        574,
+        715
+      ],
+      "summary": "按调查问题从有界候选集里挑选紧凑上下文：按必需 kind、目标锚点与机制主 kind 打分，套用 playbook 配额下限与按 kind 的自适应上限，让通用 function 行只作导航提示而不挤占直接调用/数据/CFG 证据，并为每条未入选证据记录排除原因。",
+      "tags": [
+        "retrieval",
+        "ranking",
+        "context-budget",
+        "scoring"
+      ],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "class:src/threat_report_agent/analysis_task_orchestration.py:PersistHowDecision",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "class:src/threat_report_agent/analysis_task_orchestration.py:PersistHowDecision",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:resolve_persist_how_skip",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:resolve_persist_how_skip",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:next_investigation_loop_path",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:next_investigation_loop_path",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "class:src/threat_report_agent/analysis_task_orchestration.py:AnalysisTaskRuntime",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "class:src/threat_report_agent/analysis_task_orchestration.py:AnalysisTaskRuntime",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:action_is_model_or_human",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:action_is_model_or_human",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:keep_recovery_after_persist_skip",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:keep_recovery_after_persist_skip",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:supersede_queued_trace_after_persist_skip",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:supersede_queued_trace_after_persist_skip",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_saturated_investigation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_saturated_investigation",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_emulation_informed_investigation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_emulation_informed_investigation",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_analysis_task_investigation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_analysis_task_investigation",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:continue_investigation_after_action",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:continue_investigation_after_action",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_index.py",
+      "target": "function:src/threat_report_agent/evidence_index.py:canonical_selector",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_index.py",
+      "target": "function:src/threat_report_agent/evidence_index.py:canonical_selector",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_index.py",
+      "target": "function:src/threat_report_agent/evidence_index.py:_walk",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_index.py",
+      "target": "function:src/threat_report_agent/evidence_index.py:_walk",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_index.py",
+      "target": "function:src/threat_report_agent/evidence_index.py:evidence_search_keys",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_index.py",
+      "target": "function:src/threat_report_agent/evidence_index.py:evidence_search_keys",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_index.py",
+      "target": "function:src/threat_report_agent/evidence_index.py:target_search_keys",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_index.py",
+      "target": "function:src/threat_report_agent/evidence_index.py:target_search_keys",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:EvidenceStage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:EvidenceStage",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:ContextRole",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:ContextRole",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:FailureInterpretation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:FailureInterpretation",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:EvidenceDeliveryEvent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:EvidenceDeliveryEvent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:EvidenceDeliveryLedger",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:EvidenceDeliveryLedger",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "function:src/threat_report_agent/evidence_recovery.py:canonical_token",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "function:src/threat_report_agent/evidence_recovery.py:canonical_token",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "function:src/threat_report_agent/evidence_recovery.py:_canonical_action_selector",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "function:src/threat_report_agent/evidence_recovery.py:_canonical_action_selector",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "function:src/threat_report_agent/evidence_recovery.py:canonical_action_key",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "function:src/threat_report_agent/evidence_recovery.py:canonical_action_key",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:RetrievalRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:RetrievalRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:CandidateEvidenceBatch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:CandidateEvidenceBatch",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:BoundedEvidenceRepository",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:BoundedEvidenceRepository",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:ContextItem",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:ContextItem",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:ContextPacket",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:ContextPacket",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:QuestionCentricRetriever",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "class:src/threat_report_agent/evidence_recovery.py:QuestionCentricRetriever",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "file:src/threat_report_agent/investigation_ledger.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "file:src/threat_report_agent/investigation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "file:src/threat_report_agent/models.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "file:src/threat_report_agent/evidence_index.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/evidence_recovery.py",
+      "target": "file:src/threat_report_agent/models.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:resolve_persist_how_skip",
+      "target": "function:src/threat_report_agent/investigation.py:recovery_actions_for_gap",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:resolve_persist_how_skip",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:action_is_model_or_human",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:keep_recovery_after_persist_skip",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:action_is_model_or_human",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:run_analysis_task_investigation",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_saturated_investigation",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:run_analysis_task_investigation",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_emulation_informed_investigation",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:continue_investigation_after_action",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_emulation_informed_investigation",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:run_emulation_informed_investigation",
+      "target": "function:src/threat_report_agent/analysis_task_orchestration.py:run_saturated_investigation",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:run_saturated_investigation",
+      "target": "function:src/threat_report_agent/investigation_ledger.py:completion_allows_stop",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/analysis_task_orchestration.py:run_saturated_investigation",
+      "target": "function:src/threat_report_agent/investigation_ledger.py:open_item_ids",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/evidence_recovery.py:BoundedEvidenceRepository",
+      "target": "function:src/threat_report_agent/evidence_index.py:target_search_keys",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/evidence_recovery.py:BoundedEvidenceRepository",
+      "target": "function:src/threat_report_agent/evidence_index.py:canonical_selector",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/evidence_recovery.py:canonical_action_key",
+      "target": "function:src/threat_report_agent/evidence_recovery.py:_canonical_action_selector",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/evidence_recovery.py:_canonical_action_selector",
+      "target": "function:src/threat_report_agent/evidence_recovery.py:canonical_token",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "target": "file:src/threat_report_agent/service.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ]
+}

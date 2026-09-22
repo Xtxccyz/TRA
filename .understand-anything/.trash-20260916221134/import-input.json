@@ -1,0 +1,401 @@
+{
+  "projectRoot": "D:\\threat report agent",
+  "files": [
+    {
+      "path": "src/threat_report_agent/__init__.py",
+      "language": "python",
+      "sizeLines": 1,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/agent_runtime.py",
+      "language": "python",
+      "sizeLines": 142,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/agents.py",
+      "language": "python",
+      "sizeLines": 607,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/analysis_task_orchestration.py",
+      "language": "python",
+      "sizeLines": 460,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/analysis_trace.py",
+      "language": "python",
+      "sizeLines": 893,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/analyst_report.py",
+      "language": "python",
+      "sizeLines": 1864,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/attack_mapping.py",
+      "language": "python",
+      "sizeLines": 331,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/auth.py",
+      "language": "python",
+      "sizeLines": 214,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/behavior_catalog.py",
+      "language": "python",
+      "sizeLines": 1131,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/cli.py",
+      "language": "python",
+      "sizeLines": 88,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/config.py",
+      "language": "python",
+      "sizeLines": 328,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/content_store.py",
+      "language": "python",
+      "sizeLines": 352,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/contracts.py",
+      "language": "python",
+      "sizeLines": 138,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/controlled_emulation.py",
+      "language": "python",
+      "sizeLines": 175,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/database.py",
+      "language": "python",
+      "sizeLines": 848,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/dataflow.py",
+      "language": "python",
+      "sizeLines": 1033,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/deep_analysis_quality.py",
+      "language": "python",
+      "sizeLines": 931,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/emulation_plan.py",
+      "language": "python",
+      "sizeLines": 365,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/evidence_index.py",
+      "language": "python",
+      "sizeLines": 146,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/evidence_recovery.py",
+      "language": "python",
+      "sizeLines": 715,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/function_simhash.py",
+      "language": "python",
+      "sizeLines": 49,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/function_similarity.py",
+      "language": "python",
+      "sizeLines": 153,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/ghidra_adapter.py",
+      "language": "python",
+      "sizeLines": 277,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "language": "java",
+      "sizeLines": 168,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/gold_output_bar.py",
+      "language": "python",
+      "sizeLines": 327,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/intake.py",
+      "language": "python",
+      "sizeLines": 474,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/investigation_ledger.py",
+      "language": "python",
+      "sizeLines": 271,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/investigation_protocol.py",
+      "language": "python",
+      "sizeLines": 422,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/investigation.py",
+      "language": "python",
+      "sizeLines": 7803,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/knowledge/attack-enterprise-index.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/threat_report_agent/knowledge/attack-snapshot.yaml",
+      "language": "yaml",
+      "sizeLines": 44,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/threat_report_agent/main.py",
+      "language": "python",
+      "sizeLines": 1644,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/mechanism_completeness.py",
+      "language": "python",
+      "sizeLines": 141,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/mechanism_ready.py",
+      "language": "python",
+      "sizeLines": 71,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/methodology.py",
+      "language": "python",
+      "sizeLines": 624,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/model_gateway.py",
+      "language": "python",
+      "sizeLines": 1203,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/models.py",
+      "language": "python",
+      "sizeLines": 793,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/observability.py",
+      "language": "python",
+      "sizeLines": 59,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/orchestration.py",
+      "language": "python",
+      "sizeLines": 483,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/persist_how.py",
+      "language": "python",
+      "sizeLines": 2220,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/pma_static_plan.py",
+      "language": "python",
+      "sizeLines": 813,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/policies/preset-commands.json",
+      "language": "json",
+      "sizeLines": 154,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/threat_report_agent/policies/tool-policy.json",
+      "language": "json",
+      "sizeLines": 117,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/threat_report_agent/policy.py",
+      "language": "python",
+      "sizeLines": 140,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/product_certification.py",
+      "language": "python",
+      "sizeLines": 673,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/prompts.py",
+      "language": "python",
+      "sizeLines": 66,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/prompts/analyst-report-system-v1.md",
+      "language": "markdown",
+      "sizeLines": 42,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/threat_report_agent/prompts/manifest.json",
+      "language": "json",
+      "sizeLines": 25,
+      "fileCategory": "config"
+    },
+    {
+      "path": "src/threat_report_agent/prompts/planning-system-v1.md",
+      "language": "markdown",
+      "sizeLines": 86,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "language": "markdown",
+      "sizeLines": 68,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/threat_report_agent/prompts/triage-system-v1.md",
+      "language": "markdown",
+      "sizeLines": 10,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "src/threat_report_agent/reporting.py",
+      "language": "python",
+      "sizeLines": 9894,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/runtime_contracts.py",
+      "language": "python",
+      "sizeLines": 200,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/secret_store.py",
+      "language": "python",
+      "sizeLines": 20,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/semantic_predicates.py",
+      "language": "python",
+      "sizeLines": 199,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/service.py",
+      "language": "python",
+      "sizeLines": 28147,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/simulation_adapters.py",
+      "language": "python",
+      "sizeLines": 1500,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/static_analysis.py",
+      "language": "python",
+      "sizeLines": 6458,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/static_simulation.py",
+      "language": "python",
+      "sizeLines": 482,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/static/app.js",
+      "language": "javascript",
+      "sizeLines": 609,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/static/index.html",
+      "language": "html",
+      "sizeLines": 252,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "src/threat_report_agent/static/styles.css",
+      "language": "css",
+      "sizeLines": 701,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "src/threat_report_agent/status.py",
+      "language": "python",
+      "sizeLines": 108,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/tool_execution.py",
+      "language": "python",
+      "sizeLines": 1346,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/turn_lifecycle.py",
+      "language": "python",
+      "sizeLines": 109,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/threat_report_agent/validation.py",
+      "language": "python",
+      "sizeLines": 52,
+      "fileCategory": "code"
+    }
+  ]
+}

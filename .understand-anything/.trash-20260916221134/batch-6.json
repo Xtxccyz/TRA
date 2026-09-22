@@ -1,0 +1,171 @@
+{
+  "nodes": [
+    {
+      "id": "document:src/threat_report_agent/prompts/analyst-report-system-v1.md",
+      "type": "document",
+      "name": "analyst-report-system-v1.md",
+      "filePath": "src/threat_report_agent/prompts/analyst-report-system-v1.md",
+      "summary": "官方分析员主文（analyst report overlay）的系统提示词：要求模型只依据注入的 existing_topics、notable_imports、findings、haystack_preview 输出 chapters + limitations 的 JSON，按本样本证据决定章节阅读顺序，禁止套用固定 C2／下载／持久化模板。未在 haystack_preview 中出现锚点的章节必须丢弃，未覆盖问题写入 limitations，且模型文本永远不算 Evidence。",
+      "tags": ["documentation", "prompt-template", "提示词", "报告生成", "证据锚定"],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:src/threat_report_agent/prompts/manifest.json",
+      "type": "config",
+      "name": "manifest.json",
+      "filePath": "src/threat_report_agent/prompts/manifest.json",
+      "summary": "Prompt 版本清单（schema_version 1.0），登记 triage-agent、static-analysis-agent、analysis-planner-agent、analyst-report-agent 四个系统提示词的 id、版本与文件名。PromptRegistry 启动时读取该清单，把每个文件加载为带版本的 PromptDefinition 供 prompts.require(id, version) 使用。",
+      "tags": ["configuration", "prompt-template", "版本管理", "资源注册"],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:src/threat_report_agent/prompts/planning-system-v1.md",
+      "type": "document",
+      "name": "planning-system-v1.md",
+      "filePath": "src/threat_report_agent/prompts/planning-system-v1.md",
+      "summary": "活体调查规划器（service._run_investigation_loop + DeepMiningPlanner）的系统提示词：只允许从白名单静态工具、给定 Artifact ID 与已投递 Evidence ID 出发，输出 actions／stop_conditions／limitations 的 JSON，每个闭合动作需带可证伪的 question→hypothesis→alternatives→missing_evidence→failure_meaning 契约。明确规定 Unicorn/Speakeasy/Qiling 属于静态分析而非沙箱或动态样本执行，规划器不得自我授权，且 NO_NEW_EVIDENCE 后不得重放同一 selector。",
+      "tags": ["documentation", "prompt-template", "提示词", "调查规划", "静态分析"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "type": "document",
+      "name": "static-analysis-system-v1.md",
+      "filePath": "src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "summary": "静态分析专长 Agent 的系统提示词：定义 atomic claim envelope（module／subject／action／object／mechanism／condition／statement／evidence_ids／confidence／status），要求机制写成 Input→Transformation/Control→Condition→Output→Consumer→Side Effect 的有序静态链，不可恢复的环节写 UNKNOWN(<part>) 并说明缺失 Evidence。内含 PMA 决策规则（用 Ghidra 而非 IDA、VirtualSize 远大于 Raw 或空 IAT 即加壳存根、APC≠远程注入、配置的端点≠在线 C2），并重申隔离 worker 上的 Unicorn/Speakeasy/Qiling 属于静态分析。",
+      "tags": ["documentation", "prompt-template", "提示词", "静态分析", "Claim"],
+      "complexity": "moderate",
+      "languageNotes": "提示词用 `UNKNOWN(<part>)` 占位符表达机制链缺失环节，使缺口在 JSON 输出中显式可检测，而不是被运行期假设填满。"
+    },
+    {
+      "id": "document:src/threat_report_agent/prompts/triage-system-v1.md",
+      "type": "document",
+      "name": "triage-system-v1.md",
+      "filePath": "src/threat_report_agent/prompts/triage-system-v1.md",
+      "summary": "静态分诊 Agent 的系统提示词：把样本字符串、脚本注释、文档字段、检索结果与工具输出一律视为不可信分析数据，绝不执行样本或访问观测到的端点。分诊只基于已投递的 Artifact 与 Evidence 提出角色、覆盖义务、优先级与结构化后续动作，每条事实判断必须引用 Evidence ID，且不得返回工具调用或改动 Case 范围、资源限制与策略。",
+      "tags": ["documentation", "prompt-template", "提示词", "分诊", "证据链"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "config:src/threat_report_agent/prompts/manifest.json",
+      "target": "document:src/threat_report_agent/prompts/triage-system-v1.md",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/prompts/manifest.json",
+      "target": "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/prompts/manifest.json",
+      "target": "document:src/threat_report_agent/prompts/planning-system-v1.md",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/prompts/manifest.json",
+      "target": "document:src/threat_report_agent/prompts/analyst-report-system-v1.md",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/prompts/manifest.json",
+      "target": "file:src/threat_report_agent/prompts.py",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/analyst-report-system-v1.md",
+      "target": "file:src/threat_report_agent/analyst_report.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/analyst-report-system-v1.md",
+      "target": "file:src/threat_report_agent/service.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/planning-system-v1.md",
+      "target": "file:src/threat_report_agent/investigation.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/planning-system-v1.md",
+      "target": "file:src/threat_report_agent/service.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "target": "file:src/threat_report_agent/static_analysis.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "target": "file:src/threat_report_agent/behavior_catalog.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "target": "file:src/threat_report_agent/agents.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "target": "file:src/threat_report_agent/service.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/triage-system-v1.md",
+      "target": "file:src/threat_report_agent/agents.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/triage-system-v1.md",
+      "target": "file:src/threat_report_agent/service.py",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/planning-system-v1.md",
+      "target": "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:src/threat_report_agent/prompts/analyst-report-system-v1.md",
+      "target": "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

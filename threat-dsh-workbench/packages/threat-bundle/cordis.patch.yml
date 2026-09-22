@@ -10,6 +10,9 @@
       name: '@threat-dsh/session-events'
     - id: threat-context-provider
       name: '@threat-dsh/context-provider'
+      config:
+        backendUrl: !!js process.env.THREAT_BACKEND_URL ?? 'http://127.0.0.1:8000'
+        token: !!js process.env.THREAT_BACKEND_TOKEN ?? ''
     - id: threat-context-store
       name: '@threat-dsh/context-store'
     - id: threat-model-gateway

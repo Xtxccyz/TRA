@@ -23,9 +23,10 @@ from temporalio.exceptions import (
 from threat_report_agent.content_store import LocalContentStore, ToolRunStorageGrant
 from threat_report_agent.database import Database
 from threat_report_agent.ghidra_adapter import GhidraRun
-from threat_report_agent.models import AnalysisTask, ToolRun
+from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob, ToolRun
 from threat_report_agent.service import AnalysisService
 from threat_report_agent.config import Settings
+from threat_report_agent.intake import PackageEntry
 from threat_report_agent.tool_execution import (
     StaticToolActivities,
     StaticToolRunWorkflow,
@@ -38,6 +39,7 @@ from threat_report_agent.tool_execution import (
     ensure_model_payload_cleanup_schedule,
     intake_entries_from_payload,
     static_result_from_payload,
+    client_result_timeout_seconds,
 )
 
 
@@ -388,13 +390,15 @@ def test_workflow_runs_durable_tool_slices_in_order(monkeypatch) -> None:
 def test_workflow_execution_timeout_allows_worker_cleanup(monkeypatch) -> None:
     request = make_request("sha256/aa/aa/" + "a" * 64, "a" * 64)
     execution_timeout: timedelta | None = None
+    schedule_timeout: timedelta | None = None
 
     async def fake_execute_activity(name: str, argument: dict, **options: object) -> dict:
-        nonlocal execution_timeout
+        nonlocal execution_timeout, schedule_timeout
         if name == "prepare_static_tool":
             return ToolRunResult(status="READY").model_dump(mode="json")
         if name == "execute_static_tool":
             execution_timeout = options.get("start_to_close_timeout")
+            schedule_timeout = options.get("schedule_to_start_timeout")
             return ToolRunResult(status="FAILED", error="EXPECTED").model_dump(mode="json")
         if name in {"validate_static_tool_output", "finalize_static_tool_run"}:
             return dict(argument["result"])
@@ -409,6 +413,13 @@ def test_workflow_execution_timeout_allows_worker_cleanup(monkeypatch) -> None:
 
     assert execution_timeout is not None
     assert execution_timeout > timedelta(seconds=request.max_cpu_seconds)
+    assert schedule_timeout == timedelta(seconds=30)
+
+
+def test_client_result_timeout_follows_ghidra_cpu_budget() -> None:
+    assert client_result_timeout_seconds(60) == 105
+    assert client_result_timeout_seconds(900) == 945
+    assert client_result_timeout_seconds(30) == 90
 
 
 def test_workflow_dispatches_control_and_scoped_execution_to_separate_queues(
@@ -627,6 +638,118 @@ def test_activity_cancellation_stops_ghidra_and_persists_cancelled(
     assert persisted["finished_at"] is not None
 
 
+def test_activity_cancellation_stops_emulator_and_persists_cancelled(
+    test_settings: Settings,
+    monkeypatch,
+) -> None:
+    settings = replace(
+        test_settings,
+        simulation_profile="static-first-controlled-emulation",
+        simulation_worker_identity="controlled-emu-worker-v1",
+        simulation_worker_image_digest="sha256:emu-worker-v1",
+        simulation_allowed_simulators=("unicorn",),
+        simulation_allow_local_process=False,
+        simulation_timeout_seconds=8,
+        simulation_instruction_budget=2_000_000,
+        content_store_path=test_settings.content_store_path,
+    )
+    store = LocalContentStore(settings.content_store_path)
+    source = store.put(bytes.fromhex("ebfe") + b"\x90" * 14)
+    database = Database(settings.database_url)
+    database.create_schema()
+    service = AnalysisService(settings, database, store)
+    case = service.create_case("Cancelled emulator ToolRun")
+    with database.session_factory.begin() as session:
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        task_id = task.id
+        trace_id = task.trace_id
+    request = make_request(source.storage_key, source.sha256).model_copy(
+        update={
+            "case_id": case.id,
+            "task_id": task_id,
+            "trace_id": trace_id,
+            "artifact_id": None,
+            "tool_name": "controlled-emulator",
+            "tool_version": "0.1.0",
+            "logical_path": "granted.bin",
+            "task_queue": "static-emu",
+            "max_cpu_seconds": 8,
+            "parameters": {
+                "granted_windows": [
+                    {
+                        "simulator": "unicorn",
+                        "entry_address": 0x1000000,
+                        "role": "os_thread_start_routine",
+                    }
+                ]
+            },
+        }
+    )
+    request = request.model_copy(
+        update={
+            "storage_access": ToolRunStorageAccess(
+                input_storage_key=source.storage_key,
+                input_url="http://minio/scoped-input",
+                output_storage_key=f"tool-runs/{request.tool_run_id}/output.json",
+                output_url="http://minio/scoped-output",
+            )
+        }
+    )
+    uploads: list[bytes] = []
+    started = threading.Event()
+
+    class RecordingScopedStore:
+        def __init__(self, _: ToolRunStorageGrant) -> None:
+            pass
+
+        def read(self, storage_key: str) -> bytes:
+            assert storage_key == source.storage_key
+            started.set()
+            return bytes.fromhex("ebfe") + b"\x90" * 14
+
+        def put(self, content: bytes):
+            uploads.append(content)
+
+            class Stored:
+                sha256 = hashlib.sha256(content).hexdigest()
+                storage_key = f"tool-runs/{request.tool_run_id}/output.json"
+                size = len(content)
+
+            return Stored()
+
+    monkeypatch.setattr(
+        "threat_report_agent.tool_execution.ScopedToolRunContentStore",
+        RecordingScopedStore,
+    )
+    monkeypatch.setattr(
+        "threat_report_agent.tool_execution.activity.heartbeat",
+        lambda *_: None,
+    )
+    activities = StaticToolActivities(settings, store, database)
+    asyncio.run(activities.register_static_tool_run(request.model_dump(mode="json")))
+    asyncio.run(activities.prepare_static_tool(request.model_dump(mode="json")))
+
+    async def cancel_running_activity() -> None:
+        running = asyncio.create_task(
+            activities.execute_static_tool(request.model_dump(mode="json"))
+        )
+        while not started.is_set():
+            await asyncio.sleep(0.001)
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+
+    asyncio.run(cancel_running_activity())
+
+    persisted = service.task_view(task_id)["tool_runs"][0]
+    assert uploads == []
+    assert persisted["status"] == "CANCELLED"
+    assert persisted["error"] in {"TOOL_ACTIVITY_CANCELLED", "ACTIVITY_CANCELLED"}
+    assert persisted["finished_at"] is not None
+
+
 def test_service_attaches_worker_persisted_tool_runs_without_duplicates(
     test_settings: Settings,
     monkeypatch,
@@ -663,7 +786,11 @@ def test_service_attaches_worker_persisted_tool_runs_without_duplicates(
 
     task = service.task_view(result.task_id)
     assert result.lifecycle == "SUCCEEDED"
-    assert len(task["tool_runs"]) == 3
+    # Deep investigation legitimately adds read-only evidence-query runs.
+    # The temporal-worker contract is that the parser ToolRun is attached
+    # exactly once, rather than that it is the only downstream operation.
+    assert sum(item["tool"] == "script-parser" for item in task["tool_runs"]) == 1
+    assert len(task["tool_runs"]) >= 3
     assert any(
         item["tool"] == "signal-extractor" and item["version"] == "methodology-v1"
         for item in task["tool_runs"]
@@ -686,11 +813,133 @@ def test_service_attaches_worker_persisted_tool_runs_without_duplicates(
         "signal-extractor",
         scheduler="idempotency-regression",
     )
+    # The first explicit refresh may incorporate investigation Evidence that
+    # arrived after the initial parser-time profile. Once that frontier is
+    # current, a second invocation must be a true no-op.
+    refreshed = service.task_view(result.task_id)
+    service._run_methodology_action(
+        result.task_id,
+        artifact_id,
+        "signal-extractor",
+        scheduler="idempotency-regression",
+    )
     after = service.task_view(result.task_id)
     assert len(after["tool_runs"]) == before["tool_runs"]
-    assert sum(item["kind"] == "analysis_profile" for item in after["evidence"]) == before["profiles"] == 1
-    assert sum(item["kind"] == "fact_match" for item in after["evidence"]) == before["matches"]
-    assert len(after["claims"]) == before["claims"]
+    assert sum(item["kind"] == "analysis_profile" for item in after["evidence"]) == sum(
+        item["kind"] == "analysis_profile" for item in refreshed["evidence"]
+    )
+    assert sum(item["kind"] == "fact_match" for item in after["evidence"]) == sum(
+        item["kind"] == "fact_match" for item in refreshed["evidence"]
+    )
+    assert len(after["claims"]) == len(refreshed["claims"])
+
+
+def test_temporal_static_action_releases_task_transaction_before_wait(
+    test_settings: Settings,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A slow parser must not block the control-plane cancellation writer.
+
+    This is the production failure mode: the parser awaits a Temporal Worker
+    while the service has already written an audit row.  The action path must
+    commit that short bookkeeping transaction before the await, allowing a
+    concurrent cancel request to acquire the task row lock immediately.
+    """
+    database_url = f"sqlite:///{tmp_path / 'temporal-action-lock.db'}"
+    settings = replace(test_settings, database_url=database_url, tool_execution_mode="temporal")
+    database = Database(database_url)
+    database.create_schema()
+    service = AnalysisService(settings, database, LocalContentStore(settings.content_store_path))
+    case = service.create_case("slow temporal action")
+    content = b"print('static-only')\n"
+    stored = service.content_store.put(content)
+    with database.session_factory.begin() as session:
+        session.add(
+            ContentBlob(
+                sha256=stored.sha256,
+                size=len(content),
+                media_type="text/x-python",
+                storage_key=stored.storage_key,
+            )
+        )
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256=stored.sha256,
+            logical_path="sample.py",
+            detected_type="script",
+        )
+        session.add(artifact)
+        session.flush()
+        task_id, artifact_id = task.id, artifact.id
+
+    started = threading.Event()
+
+    async def slow_execute(_: TemporalToolExecutor, request: ToolRunRequest) -> ToolRunResult:
+        started.set()
+        await asyncio.sleep(1.2)
+        return ToolRunResult(
+            status="FAILED",
+            error="SYNTHETIC_SLOW_PARSER",
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            worker_metadata={
+                "tool_run_id": request.tool_run_id,
+                "executor": "temporal",
+                "workflow_id": request.workflow_id,
+                "task_queue": request.task_queue,
+            },
+        )
+
+    monkeypatch.setattr(TemporalToolExecutor, "execute", slow_execute)
+    errors: list[BaseException] = []
+
+    def run_action() -> None:
+        try:
+            with database.session_factory() as session:
+                task = session.get(AnalysisTask, task_id)
+                artifact = session.get(Artifact, artifact_id)
+                assert task is not None and artifact is not None
+                service._analyze_artifact(
+                    session,
+                    task,
+                    artifact,
+                    PackageEntry(
+                        logical_path="sample.py",
+                        content=content,
+                        parent_path=None,
+                        discovery="submitted",
+                        content_sha256=stored.sha256,
+                        storage_key=stored.storage_key,
+                        stored_size=len(content),
+                        detected_type="script",
+                        mime_type="text/x-python",
+                        type_source="test",
+                    ),
+                    tool_name="script-parser",
+                    release_transaction_before_wait=True,
+                )
+                session.commit()
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    worker = threading.Thread(target=run_action)
+    worker.start()
+    if not started.wait(timeout=2):
+        worker.join(timeout=5)
+        raise AssertionError(f"synthetic Temporal call did not start: {errors!r}")
+    began_cancel = time.monotonic()
+    service.cancel_task(task_id, actor="lock-regression")
+    cancel_elapsed = time.monotonic() - began_cancel
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert errors == []
+    assert cancel_elapsed < 0.8, f"cancel waited on parser transaction: {cancel_elapsed:.3f}s"
+    assert service.task_status(task_id)["lifecycle"] == "CANCELLED"
 
 
 def test_cancel_task_propagates_to_temporal_and_persists_terminal_states(
@@ -737,6 +986,54 @@ def test_cancel_task_propagates_to_temporal_and_persists_terminal_states(
     assert {event["event_type"] for event in service.list_audit_events(task_id)} >= {
         "analysis_task.cancel_requested",
         "analysis_task.cancelled",
+    }
+
+
+def test_cancel_tool_run_stops_one_running_activity_without_cancelling_the_task(
+    test_settings: Settings,
+    monkeypatch,
+) -> None:
+    database = Database(test_settings.database_url)
+    database.create_schema()
+    service = AnalysisService(
+        test_settings,
+        database,
+        LocalContentStore(test_settings.content_store_path),
+    )
+    case = service.create_case("Activity-tree cancel")
+    with database.session_factory.begin() as session:
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        running = ToolRun(
+            task_id=task.id,
+            artifact_id=None,
+            tool_name="ghidra-headless",
+            tool_version="12.1.2",
+            status="RUNNING",
+            parameters={},
+            environment={"workflow_id": "toolrun-activity-cancel"},
+        )
+        session.add(running)
+        session.flush()
+        task_id = task.id
+        tool_run_id = running.id
+    cancelled: list[str] = []
+
+    async def fake_cancel(_: TemporalToolExecutor, workflow_id: str) -> None:
+        cancelled.append(workflow_id)
+
+    monkeypatch.setattr(TemporalToolExecutor, "cancel_workflow", fake_cancel)
+
+    result = service.cancel_tool_run(task_id, tool_run_id, actor="test-analyst")
+
+    assert cancelled == ["toolrun-activity-cancel"]
+    assert result["lifecycle"] == "RUNNING"
+    assert result["cancelled_tool_run_id"] == tool_run_id
+    assert result["tool_runs"][0]["status"] == "CANCELLED"
+    assert {event["event_type"] for event in service.list_audit_events(task_id)} >= {
+        "analysis_task.tool_run_cancel_requested",
+        "analysis_task.tool_run_cancelled",
     }
 
 

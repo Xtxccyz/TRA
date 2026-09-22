@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
 from sqlalchemy.exc import IntegrityError
 
 from threat_report_agent.content_store import LocalContentStore
@@ -25,6 +26,7 @@ from threat_report_agent.models import (
     AnalysisTurnResultRecord,
     Relation,
 )
+from threat_report_agent.reporting import REPORT_MODULES
 from threat_report_agent.service import AnalysisService
 
 
@@ -156,7 +158,14 @@ def test_old_evidence_rows_are_backfilled_into_selector_index(test_settings) -> 
         run = ToolRun(task_id=task.id, artifact_id=artifact.id, tool_name='ghidra-headless', tool_version='test', status='SUCCEEDED')
         session.add(run)
         session.flush()
-        evidence = Evidence(task_id=task.id, artifact_id=artifact.id, tool_run_id=run.id, module='static', kind='xref', nature='STATIC_OBSERVED', value={'target_name': 'GetProcAddress'}, anchor={'function_entry': '0x140001000'})
+        # Non-indexable rows must not permanently occupy the migration page.
+        session.add_all(
+            Evidence(id=f'a-legacy-{index:04}', task_id=task.id, artifact_id=artifact.id,
+                     tool_run_id=run.id, module='static', kind='file_identity',
+                     nature='STATIC_OBSERVED', value={}, anchor={})
+            for index in range(260)
+        )
+        evidence = Evidence(id='z-legacy-target', task_id=task.id, artifact_id=artifact.id, tool_run_id=run.id, module='static', kind='xref', nature='STATIC_OBSERVED', value={'target_name': 'GetProcAddress'}, anchor={'function_entry': '0x140001000'})
         session.add(evidence)
         session.flush()
         session.query(EvidenceSearchKey).delete()
@@ -170,6 +179,90 @@ def test_old_evidence_rows_are_backfilled_into_selector_index(test_settings) -> 
         batch = BoundedEvidenceRepository().retrieve(session, task_id=task_id, request=request)
 
     assert evidence_id in {row.id for row in batch.rows}
+
+
+@pytest.mark.parametrize("flush_batch_size", [32, 8])
+def test_evidence_selector_index_is_inserted_as_one_executemany_batch(
+    test_settings, flush_batch_size: int
+) -> None:
+    """Each flush indexes its written Evidence in one bulk insert."""
+    database = Database(test_settings.database_url)
+    database.create_schema()
+    statements: list[tuple[str, bool, int]] = []
+
+    def capture(_conn, _cursor, statement, parameters, _context, executemany) -> None:
+        normalized = " ".join(str(statement).split()).lower()
+        if "insert into evidence_search_keys" in normalized:
+            count = len(parameters) if executemany and hasattr(parameters, "__len__") else 1
+            statements.append((normalized, bool(executemany), count))
+
+    event.listen(database.engine, "before_cursor_execute", capture)
+    try:
+        with database.session_factory.begin() as session:
+            case = CaseRecord(title="selector batch")
+            session.add(case)
+            session.flush()
+            task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+            session.add(task)
+            session.flush()
+            blob = ContentBlob(
+                sha256="b" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/selector-batch",
+            )
+            session.add(blob)
+            session.flush()
+            artifact = Artifact(
+                task_id=task.id,
+                content_sha256=blob.sha256,
+                logical_path="selector-batch.exe",
+                detected_type="pe",
+            )
+            session.add(artifact)
+            session.flush()
+            run = ToolRun(
+                task_id=task.id,
+                artifact_id=artifact.id,
+                tool_name="test",
+                tool_version="1",
+                status="SUCCEEDED",
+            )
+            session.add(run)
+            session.flush()
+            evidence_rows = [
+                Evidence(
+                    id=f"selector-evidence-{index}",
+                    task_id=task.id,
+                    artifact_id=artifact.id,
+                    tool_run_id=run.id,
+                    module="static",
+                    kind="function_context",
+                    nature="STATIC_OBSERVED",
+                    value={
+                        "name": f"Function{index}",
+                        "target_name": "GetProcAddress",
+                    },
+                    anchor={"function_entry": hex(0x401000 + index * 16)},
+                )
+                for index in range(32)
+            ]
+            session.add_all(evidence_rows)
+            for offset in range(0, len(evidence_rows), flush_batch_size):
+                session.flush(objects=evidence_rows[offset : offset + flush_batch_size])
+                with session.no_autoflush:
+                    indexed_ids = set(session.scalars(select(EvidenceSearchKey.evidence_id)))
+                assert indexed_ids == {
+                    row.id for row in evidence_rows[: offset + flush_batch_size]
+                }
+                assert len(session.new) == len(evidence_rows) - offset - flush_batch_size
+    finally:
+        event.remove(database.engine, "before_cursor_execute", capture)
+
+    assert len(statements) == 32 // flush_batch_size
+    assert all(
+        executemany and row_count > flush_batch_size for _, executemany, row_count in statements
+    )
 
 
 def _legacy_failed_task(service: AnalysisService, database: Database, case_id: str, *, message: str) -> str:
@@ -199,6 +292,30 @@ def _legacy_failed_task(service: AnalysisService, database: Database, case_id: s
             payload={"error_type": "DataCorrupted", "message": message},
         )
         return task.id
+
+
+def test_audit_head_is_reused_within_transaction_and_chain_remains_valid(test_settings) -> None:
+    database = Database(test_settings.database_url)
+    service = AnalysisService(test_settings, database, LocalContentStore(test_settings.content_store_path))
+    database.create_schema()
+    case = service.create_case("audit head reuse")
+    with database.session_factory.begin() as session:
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        first = service._audit(
+            session, case_id=case.id, task_id=task.id, event_type="test.first",
+            actor="test", object_type="Evidence", object_id="e1", payload={},
+        )
+        second = service._audit(
+            session, case_id=case.id, task_id=task.id, event_type="test.second",
+            actor="test", object_type="Evidence", object_id="e2", payload={},
+        )
+        assert second.chain_sequence == first.chain_sequence + 1
+        assert second.previous_hash == first.event_hash
+        assert session.info["_threat_audit_heads"][f"task:{task.id}"].sequence == 2
+        task_id = task.id
+    assert service.audit_integrity(task_id)["valid"] is True
 
 
 def test_backfill_legacy_failed_task_creates_retryable_db_failure_contract(test_settings) -> None:
@@ -447,3 +564,71 @@ def test_relation_support_guard_also_blocks_unsupported_updates(test_settings) -
     with pytest.raises(IntegrityError):
         with database.session_factory.begin() as session:
             session.execute(Relation.__table__.update().where(Relation.id == relation_id).values(evidence_id=None))
+
+
+def test_report_revision_strips_nul_bytes_before_persist(test_settings) -> None:
+    """Recovered PE strings may contain NUL; PostgreSQL TEXT cannot store them."""
+    database = Database(test_settings.database_url)
+    service = AnalysisService(
+        test_settings, database, LocalContentStore(test_settings.content_store_path)
+    )
+    database.create_schema()
+    case = service.create_case("nul in recovered strings")
+    with database.session_factory.begin() as session:
+        task = AnalysisTask(
+            case_id=case.id,
+            lifecycle="SUCCEEDED",
+            outcome="PARTIAL",
+            analysis_class="BOUNDED_STATIC_ANALYSIS",
+            limitations=["recovered UTF-16 buffer hello\x00world"],
+        )
+        session.add(task)
+        session.flush()
+        session.add(
+            ContentBlob(
+                sha256="9" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/nul-report",
+            )
+        )
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256="9" * 64,
+            logical_path="notepad.exe",
+            detected_type="pe",
+        )
+        session.add(artifact)
+        session.flush()
+        run = ToolRun(
+            task_id=task.id,
+            artifact_id=artifact.id,
+            tool_name="static",
+            tool_version="1",
+            status="SUCCEEDED",
+        )
+        session.add(run)
+        session.flush()
+        session.add(
+            Evidence(
+                task_id=task.id,
+                artifact_id=artifact.id,
+                tool_run_id=run.id,
+                module="static",
+                kind="string",
+                nature="STATIC_OBSERVED",
+                value={"text": "hello\x00world"},
+                anchor={},
+            )
+        )
+        session.flush()
+        snapshot = service._freeze_snapshot(session, task)
+        revision = service._create_report_revision(
+            session, task, snapshot, list(REPORT_MODULES)
+        )
+        assert "\x00" not in revision.markdown
+        payload = json.dumps(revision.document)
+        assert "\x00" not in payload
+        assert "hello" in payload
+        assert "world" in payload

@@ -3,8 +3,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from threat_report_agent.attack_mapping import (
+    load_attack_knowledge,
     load_attack_snapshot,
     map_behavior_claim,
+    resolve_attack_technique,
 )
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
@@ -123,12 +125,14 @@ def test_analysis_persists_versioned_attack_mapping_tool_run(test_settings) -> N
     task = service.task_view(result.task_id)
     mapping_runs = [run for run in task["tool_runs"] if run["tool"] == "attack-mapping-index"]
     assert len(mapping_runs) == 1
-    assert mapping_runs[0]["version"] == "0.1.0"
+    assert mapping_runs[0]["version"] == "0.2.0"
     mapped_claims = [claim for claim in task["claims"] if claim["attack_mapping"].get("mappings")]
     assert mapped_claims
     assert all(
         item["attack_mapping"]["mappings"][0]["status"] == "candidate" for item in mapped_claims
     )
+    assert all(item["attack_mapping"].get("knowledge_sha256") for item in mapped_claims)
+    assert all(item["attack_mapping"]["mappings"][0].get("url") for item in mapped_claims)
     revision = service.get_report_revision(result.report_revision_id)
     behavior = next(
         item for item in revision["document"]["modules"] if item["id"] == "behavior_attack"
@@ -136,3 +140,53 @@ def test_analysis_persists_versioned_attack_mapping_tool_run(test_settings) -> N
     mapped_rows = [row for row in behavior["rows"] if row.get("attack_mapping", {}).get("mappings")]
     assert mapped_rows
     assert mapped_rows[0]["attack_mapping"]["snapshot_version"]
+
+
+def test_enterprise_knowledge_resolves_active_and_revoked_ids() -> None:
+    knowledge = load_attack_knowledge()
+
+    assert knowledge.technique_count >= 697
+    parent = resolve_attack_technique("T1134.004", knowledge)
+    assert parent is not None
+    assert parent.status == "active"
+    assert parent.name == "Parent PID Spoofing"
+    assert parent.url.endswith("/T1134.004/")
+    assert "DET0489" in {item["id"] for item in parent.detection_strategies}
+
+    replaced = resolve_attack_technique("T1066", knowledge)
+    assert replaced is not None
+    assert replaced.technique_id == "T1027.005"
+    assert replaced.status == "active"
+    assert resolve_attack_technique("T9999.999", knowledge) is None
+
+
+def test_structured_mapping_uses_official_technique_name() -> None:
+    claim = SimpleNamespace(
+        id="claim-1",
+        module="decryption",
+        subject="sample.exe",
+        action="may_decode_or_decrypt",
+        object="embedded data",
+        mechanism="static crypto, encoding, or high-entropy indicators",
+        condition="inferred from file content without execution",
+        confidence="MEDIUM",
+        status="CANDIDATE",
+    )
+    evidence = {
+        "ev-1": SimpleNamespace(
+            id="ev-1",
+            task_id="task-1",
+            kind="crypto_indicator",
+            value={"algorithm": "AES"},
+        )
+    }
+
+    mapped = map_behavior_claim(claim, ("ev-1",), evidence, task_id="task-1")[0]
+    knowledge = resolve_attack_technique(mapped.technique_id)
+    assert knowledge is not None
+    assert mapped.technique_name == knowledge.name
+    assert mapped.knowledge_status == "active"
+    assert mapped.url
+    assert mapped.tactics
+    assert mapped.detection_strategies
+

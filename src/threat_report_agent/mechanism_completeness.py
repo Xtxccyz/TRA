@@ -16,6 +16,15 @@ FIELD_WEIGHTS: tuple[tuple[str, int], ...] = (
     ("evidence_ids", 5),
 )
 _UNKNOWN_MARKERS = ("unknown(", "unknown:", "<unknown>", "not recovered", "unresolved")
+# These phrases describe a field slot, but do not identify a concrete value.
+# Treating them as semantic evidence inflated dynamic-resolution candidates to
+# 100/100 even when neither the resolver input nor the indirect consumer was
+# recovered.  Keep the list intentionally narrow so ordinary analyst prose
+# such as ``resolved entry-point consumer`` remains meaningful.
+_GENERIC_PLACEHOLDER_MARKERS = (
+    "module name and exported entry-point name",
+    "indirect call/jump consumer",
+)
 _NAVIGATION_MARKERS = {
     "prioritizes", "references", "matches", "calls", "xref", "cfg prominence",
     "call-site density", "contains rva-level call sites", "function review priority",
@@ -35,7 +44,7 @@ def _values(value: object) -> tuple[str, ...]:
 def is_unknown_value(value: object) -> bool:
     values = _values(value)
     return not values or any(
-        any(marker in item.casefold() for marker in _UNKNOWN_MARKERS)
+        any(marker in item.casefold() for marker in (*_UNKNOWN_MARKERS, *_GENERIC_PLACEHOLDER_MARKERS))
         for item in values
     )
 
@@ -50,6 +59,25 @@ def is_navigation_value(value: object) -> bool:
 
 def has_semantic_value(key: str, value: object) -> bool:
     """Return whether a field carries actual mechanism semantics."""
+    # An EMPTY CONTAINER carries no semantics, whatever shape it takes.
+    #
+    # MEASURED DEFECT. Before this guard, `{}` scored as known semantics for all eight semantic fields
+    # (`inputs`, `outputs`, `consumers`, `transformation_or_control`, `conditions`, `side_effects`,
+    # `target`, `evidence_ids`) while `[]` and `''` scored as unknown - an asymmetry with no basis in the
+    # contract, since none of the three carries information. The effect on a real score:
+    #
+    #     a mechanism whose semantic fields are ALL empty containers   85
+    #     the same mechanism with those keys absent                     0
+    #
+    # So a mechanism containing nothing at all could report 85 points of coverage, and the shape is not
+    # hypothetical: the published document of task `50673002` holds **16,228** empty dicts among 23,394
+    # mechanism-semantic values (empty lists: 127). That is 「有证据但分析不完全」 measured inside the
+    # scoring function - coverage asserted for content that does not exist.
+    #
+    # The guard is only about emptiness. A populated container still counts, because real recovered
+    # semantics are dictionaries (`{"RAX": {"kind": "constant", "value": "0x60000000"}}`).
+    if isinstance(value, (dict, list, tuple, set, frozenset)) and len(value) == 0:
+        return False
     if is_unknown_value(value) or is_navigation_value(value):
         return False
     values = " ".join(_values(value)).casefold()

@@ -1,0 +1,476 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/auth.py",
+      "type": "file",
+      "name": "auth.py",
+      "filePath": "src/threat_report_agent/auth.py",
+      "summary": "HTTP 层的身份与权限原语：Principal 描述调用主体，AuthAdapter 在生产环境校验 HS256/RS256 签名 Bearer JWT、其它环境可退回 X-Principal-* 请求头或受控 demo 身份，require_permission 供 FastAPI 路由声明所需权限。",
+      "tags": ["security", "authentication", "authorization", "middleware"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/auth.py:Principal",
+      "type": "class",
+      "name": "Principal",
+      "filePath": "src/threat_report_agent/auth.py",
+      "lineRange": [19, 82],
+      "summary": "不可变的调用主体（subject、roles、auth_source），提供 has() 判定角色或权限归属，是授权与审计链路共享的身份载体。",
+      "tags": ["security", "data-model", "authorization", "identity"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/auth.py:AuthAdapter",
+      "type": "class",
+      "name": "AuthAdapter",
+      "filePath": "src/threat_report_agent/auth.py",
+      "lineRange": [85, 204],
+      "summary": "身份适配器：按部署环境选择认证策略——生产环境要求签名 Bearer JWT（HS256 本地密钥或 RS256 + JWKS 缓存），非生产环境接受 X-Principal-Id/X-Principal-Roles 请求头，开启后回退到 demo 主体。",
+      "tags": ["security", "authentication", "jwt", "adapter"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/auth.py:require_permission",
+      "type": "function",
+      "name": "require_permission",
+      "filePath": "src/threat_report_agent/auth.py",
+      "lineRange": [207, 214],
+      "summary": "FastAPI 依赖：从请求解析 Principal 并校验指定 permission，未认证抛 401、越权抛 403。",
+      "tags": ["security", "authorization", "api-handler", "dependency"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/threat_report_agent/cli.py",
+      "type": "file",
+      "name": "cli.py",
+      "filePath": "src/threat_report_agent/cli.py",
+      "summary": "命令行入口：argparse 提供 analyze / worker / seal-audit-day 三个子命令，装配 Settings、Database、ContentStore 与 AnalysisService，把样本目录或文件提交分析并输出任务视图。",
+      "tags": ["entry-point", "cli", "orchestration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/cli.py:build_parser",
+      "type": "function",
+      "name": "build_parser",
+      "filePath": "src/threat_report_agent/cli.py",
+      "lineRange": [17, 35],
+      "summary": "构造 argparse 解析器与 analyze、worker、seal-audit-day 三个子命令及其参数。",
+      "tags": ["cli", "entry-point", "argument-parsing"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/cli.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "src/threat_report_agent/cli.py",
+      "lineRange": [38, 84],
+      "summary": "CLI 主流程：worker 子命令启动 Temporal tool worker，seal-audit-day 触发每日审计封存，否则创建 Case 并把样本目录或文件交给 AnalysisService 分析后打印结果。",
+      "tags": ["entry-point", "cli", "orchestration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/config.py",
+      "type": "file",
+      "name": "config.py",
+      "filePath": "src/threat_report_agent/config.py",
+      "summary": "环境变量驱动的运行时配置中心：Settings 与 ModelProviderSettings 集中定义数据库、对象存储/Content Store、各角色 Temporal 任务队列、模型网关预算、审计封存与鉴权参数，以及受控模拟上限，并探测本机 Ghidra 与 JDK 路径。",
+      "tags": ["config", "configuration", "environment", "settings"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/config.py:_local_java_home",
+      "type": "function",
+      "name": "_local_java_home",
+      "filePath": "src/threat_report_agent/config.py",
+      "lineRange": [26, 58],
+      "summary": "在 JAVA_HOME 与本机常见安装路径中探测可用 JDK，供 Ghidra headless 运行使用。",
+      "tags": ["utility", "environment", "ghidra"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/config.py:ModelProviderSettings",
+      "type": "class",
+      "name": "ModelProviderSettings",
+      "filePath": "src/threat_report_agent/config.py",
+      "lineRange": [62, 88],
+      "summary": "单个模型 provider 的路由配置（provider、base_url、model、api_style、启用开关、JSON 模式与采样参数），并提供 configured / has_route 判定。",
+      "tags": ["config", "data-model", "model-gateway", "settings"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/config.py:Settings",
+      "type": "class",
+      "name": "Settings",
+      "filePath": "src/threat_report_agent/config.py",
+      "lineRange": [92, 328],
+      "summary": "系统级配置聚合：环境与数据库、对象存储后端（local/S3）、各角色 Temporal 任务队列、模型调用预算与超时、审计封存与对象锁、JWT 鉴权，以及 simulation_* 受控模拟限额；from_environment() 负责从环境变量组装。",
+      "tags": ["config", "configuration", "settings", "environment"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/content_store.py",
+      "type": "file",
+      "name": "content_store.py",
+      "filePath": "src/threat_report_agent/content_store.py",
+      "summary": "Content Blob 字节层：定义 ContentStore 协议并提供本地文件系统与 S3/MinIO 两种实现，同时为 ToolRun 签发受限的输入/输出访问凭据。",
+      "tags": ["storage", "content-store", "persistence", "abstraction"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/content_store.py:StoredContent",
+      "type": "class",
+      "name": "StoredContent",
+      "filePath": "src/threat_report_agent/content_store.py",
+      "lineRange": [19, 22],
+      "summary": "已落地 Content Blob 的引用：sha256、字节大小与 storage_key。",
+      "tags": ["data-model", "storage", "content-store"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/content_store.py:ToolRunStorageGrant",
+      "type": "class",
+      "name": "ToolRunStorageGrant",
+      "filePath": "src/threat_report_agent/content_store.py",
+      "lineRange": [26, 30],
+      "summary": "授予单次 ToolRun 的存储范围：输入/输出的 storage key 与可访问 URL。",
+      "tags": ["data-model", "storage", "tool-run", "security"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/content_store.py:ScopedToolRunContentStore",
+      "type": "class",
+      "name": "ScopedToolRunContentStore",
+      "filePath": "src/threat_report_agent/content_store.py",
+      "lineRange": [33, 69],
+      "summary": "受限内容存储视图：把读写范围约束到单次 ToolRun 的授权键上，供隔离 worker 使用而不暴露整个存储。",
+      "tags": ["storage", "security", "tool-run", "wrapper"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/content_store.py:ContentStore",
+      "type": "class",
+      "name": "ContentStore",
+      "filePath": "src/threat_report_agent/content_store.py",
+      "lineRange": [72, 79],
+      "summary": "内容存储协议：put、put_immutable、read、delete，统一 Content Blob 字节存取接口。",
+      "tags": ["protocol", "storage", "abstraction"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/content_store.py:LocalContentStore",
+      "type": "class",
+      "name": "LocalContentStore",
+      "filePath": "src/threat_report_agent/content_store.py",
+      "lineRange": [82, 146],
+      "summary": "本地文件系统实现：按 sha256 组织目录写入 Content Blob，put_immutable 拒绝覆盖已存在对象，read/delete 按哈希定位。",
+      "tags": ["storage", "filesystem", "content-store", "persistence"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/content_store.py:S3ContentStore",
+      "type": "class",
+      "name": "S3ContentStore",
+      "filePath": "src/threat_report_agent/content_store.py",
+      "lineRange": [149, 352],
+      "summary": "S3/MinIO 实现：按前缀分桶（含带 object lock 保留策略的审计桶）、幂等写入、带重试的对象探测，并负责为 ToolRun 签发输入/输出访问以及读写 tool-run 输出对象。",
+      "tags": ["storage", "s3", "content-store", "audit", "persistence"],
+      "complexity": "complex",
+      "languageNotes": "审计封存对象走单独的 object lock 桶，与普通 Content Blob 在同一实现内按 key 前缀区分。"
+    },
+    {
+      "id": "file:src/threat_report_agent/database.py",
+      "type": "file",
+      "name": "database.py",
+      "filePath": "src/threat_report_agent/database.py",
+      "summary": "SQLAlchemy 持久层：Database 管理引擎与会话工厂，建表时执行整套幂等列迁移，并按方言安装 SQLite 外键、PostgreSQL 触发器/约束以及审计不可变与数据守卫。",
+      "tags": ["persistence", "database", "migration", "sqlalchemy"],
+      "complexity": "complex",
+      "languageNotes": "同一套迁移代码同时兼容 SQLite 与 PostgreSQL 方言，通过幂等 ALTER TABLE 与守卫安装实现可重复执行。"
+    },
+    {
+      "id": "class:src/threat_report_agent/database.py:Database",
+      "type": "class",
+      "name": "Database",
+      "filePath": "src/threat_report_agent/database.py",
+      "lineRange": [11, 848],
+      "summary": "持久层入口：持有 engine 与 session_factory，create_schema 触发 Case、Claim、Artifact、ContentBlob、ToolRun、ModelCall、Audit 等表的列迁移，安装证据搜索键索引、关系/快照/审计不可变守卫，并提供会话上下文。",
+      "tags": ["persistence", "database", "migration", "facade", "sqlalchemy"],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/auth.py",
+      "target": "class:src/threat_report_agent/auth.py:Principal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/auth.py",
+      "target": "class:src/threat_report_agent/auth.py:AuthAdapter",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/auth.py",
+      "target": "function:src/threat_report_agent/auth.py:require_permission",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/auth.py",
+      "target": "class:src/threat_report_agent/auth.py:Principal",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/auth.py",
+      "target": "class:src/threat_report_agent/auth.py:AuthAdapter",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/auth.py",
+      "target": "function:src/threat_report_agent/auth.py:require_permission",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "function:src/threat_report_agent/cli.py:build_parser",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "function:src/threat_report_agent/cli.py:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "function:src/threat_report_agent/cli.py:build_parser",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "function:src/threat_report_agent/cli.py:main",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "file:src/threat_report_agent/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "file:src/threat_report_agent/content_store.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "file:src/threat_report_agent/database.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "file:src/threat_report_agent/service.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/cli.py",
+      "target": "file:src/threat_report_agent/tool_execution.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:src/threat_report_agent/cli.py:main",
+      "target": "class:src/threat_report_agent/config.py:Settings",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/cli.py:main",
+      "target": "class:src/threat_report_agent/database.py:Database",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/cli.py:main",
+      "target": "class:src/threat_report_agent/content_store.py:LocalContentStore",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/cli.py:main",
+      "target": "function:src/threat_report_agent/tool_execution.py:run_static_worker",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/cli.py:main",
+      "target": "class:src/threat_report_agent/service.py:AnalysisService",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/config.py",
+      "target": "function:src/threat_report_agent/config.py:_local_java_home",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/config.py",
+      "target": "class:src/threat_report_agent/config.py:ModelProviderSettings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/config.py",
+      "target": "class:src/threat_report_agent/config.py:Settings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/config.py",
+      "target": "class:src/threat_report_agent/config.py:ModelProviderSettings",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/config.py",
+      "target": "class:src/threat_report_agent/config.py:Settings",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:StoredContent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:ToolRunStorageGrant",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:ScopedToolRunContentStore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:ContentStore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:LocalContentStore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:S3ContentStore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:StoredContent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:ToolRunStorageGrant",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:ScopedToolRunContentStore",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:ContentStore",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:LocalContentStore",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/content_store.py",
+      "target": "class:src/threat_report_agent/content_store.py:S3ContentStore",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/database.py",
+      "target": "class:src/threat_report_agent/database.py:Database",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/database.py",
+      "target": "class:src/threat_report_agent/database.py:Database",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+[
+  {
+    "order": 1,
+    "title": "接入层入口与请求外壳",
+    "description": "从 main.py 开始是理解本项目最自然的第一步：它是 FastAPI 应用的唯一入口，create_app 在此注册 workbench 会话与动作、Evidence 查询、Report 修订与审批、保留与清除、审计封存、模型配置等全部路由，并定义所有请求/响应模型，因此这一份文件就是后端 API 的目录。auth.py 提供 Principal、AuthAdapter 与 require_permission 鉴权原语，规定每个路由需要什么权限（生产环境校验 HS256/RS256 Bearer JWT）。需要注意的是 main.py 的根路由还会返回 static/index.html —— 那是遗留兼容 UI 的外壳，app.js 与 styles.css 同属这套遗留外壳，主界面是范围外的 threat-dsh-workbench，别把 static/ 当成产品前端。",
+    "nodeIds": [
+      "file:src/threat_report_agent/main.py",
+      "file:src/threat_report_agent/auth.py",
+      "file:src/threat_report_agent/static/index.html"
+    ],
+    "languageLesson": "FastAPI 用 create_app 工厂函数而不是模块级全局 app，便于测试与多实例装配；横切关注点（鉴权、数据库会话）通过 Depends 依赖注入声明在路由签名上，请求/响应模型用 Pydantic 声明，schema 即校验、即文档。"
+  },
+  {
+    "order": 2,
+    "title": "样本接入与内容寻址存储",
+    "description": "分析的第一个动作是把样本安全地拿进来。intake.py 递归展开 zip/7z（处理密码、路径穿越、文件数与字节数上限、嵌套深度上限），产出带逻辑路径、类型识别与 content_sha256 的 PackageEntry 清单，需要人工确认时抛出 IntakeGateRequired —— 这正是 README 所说的「有界 ZIP 接入」与「输入 Gate」。content_store.py 定义 ContentStore 协议并给出本地文件系统与 S3/MinIO 两种实现，按内容寻址存放 Content Blob，并为 ToolRun 签发受限的输入/输出访问凭据；secret_store.py 用 GATE_SECRET_KEY 经 SHA-256 派生 Fernet 密钥保存归档密码等 Gate 秘密，未配置密钥时直接拒绝接收秘密。",
+    "nodeIds": [
+      "file:src/threat_report_agent/intake.py",
+      "file:src/threat_report_agent/content_store.py",
+      "file:src/threat_report_agent/secret_store.py"
+    ],
+    "languageLesson": "ContentStore 的两种实现体现了 Python 的 Protocol（结构化子类型）：实现方不需要显式继承接口，只要形状匹配就能替换后端，这是 Python 里定义「接口」最轻量的方式，代价是错误只在调用时暴露。"
+  },
+  {
+    "order": 3,
+    "title": "追溯链的持久化骨架",
+    "description": "README 承诺的「ToolRun → 锚定 Evidence → Claim/Relation → Analysis Snapshot 追溯链」在代码里首先是一组表：models.py 定义 Case、Analysis Task、Artifact、Content Blob、ToolRun、Evidence、Claim、Relation、Report Revision，以及审计链与调查线程等表。database.py 负责引擎与会话工厂，建表时执行整套幂等列迁移，并按方言安装 SQLite 外键、PostgreSQL 触发器/约束以及审计不可变与数据守卫；Evidence 首次落库时还会通过事件钩子派生检索键（就是下一步要用到的 evidence_index）。先把实体认全，后面每一步的产物落到哪张表就有答案。",
+    "nodeIds": [
+      "file:src/threat_report_agent/models.py",
+      "file:src/threat_report_agent/database.py"
+    ],
+    "languageLesson": "SQLAlchemy 的事件钩子（event listener）把「Evidence 落库时派生检索键」固定在持久层，而不要求每个调用方记得手动派生；配合幂等列迁移，schema 可以演进而不依赖一次性迁移脚本的严格顺序。"
+  },
+  {
+    "order": 4,
+    "title": "服务层与现行活体调查 planner",
+    "description": "service.py 约 2.8 万行，是承载 Analysis Task 全生命周期的枢纽：提交与样本包展开、Artifact/ToolRun 注册、静态分析与受控模拟派发、Evidence 与 Claim 链接、Analysis Snapshot 冻结、Report Revision，以及 DSH workbench 会话接口。最关键的一点是：README 里「模型驱动、策略门控的动作规划」现行走的就是这个模块的 _run_investigation_loop，配合 investigation.DeepMiningPlanner。analysis_task_orchestration.py 决定 persist HOW 是否跳过、以及 READY/BOUNDARY、预算与 DeepMiningPlanner 之间的路径优先级（READY/BOUNDARY 优先于预算，预算优先于 DeepMiningPlanner），但 DeepMiningPlanner 仍是唯一的动作提出者，这里没有第二个 planner。服务层扇出高达 43 条，是全图最容易牵一发动全身的模块，读的时候建议只跟主链路走。",
+    "nodeIds": [
+      "file:src/threat_report_agent/service.py",
+      "file:src/threat_report_agent/analysis_task_orchestration.py"
+    ],
+    "languageLesson": "Python 没有 Java 那样的包私有边界，社区惯例是用前导下划线表达「内部实现」（例如 _run_investigation_loop）。所以下划线前缀不代表死代码，它只表示「这是编排层调用的入口，不属于对外 API」，跨模块引用它会绕过约定。"
+  },
+  {
+    "order": 5,
+    "title": "静态分析内核：从字节到静态事实",
+    "description": "这一层回答「样本在不被运行的前提下能被读到什么」。static_analysis.py 做 PE 结构解析、XOR 与解码恢复、动态 API 解析、进程创建参数与父进程属性恢复、间接调用跟踪与函数语义摘要，覆盖 README 所说的确定性文件身份、PE 结构/导入解析、字符串与熵、静态解密、加载器与反分析指标；它是全图扇入最高（9 条）的模块，几乎所有下游机制都消费它产出的静态事实。static_simulation.py 的 StaticAbstractExecutor 则在受限步数与路径预算内遍历已持久化的静态事实行，识别调用引用与 API 形状、推导 API/数据流阶段并生成 SimulationTraceStep 轨迹 —— 它不执行样本字节，结果显式标注 runtime_observed=False（simulation_kind=static_abstract_execution）。",
+    "nodeIds": [
+      "file:src/threat_report_agent/static_analysis.py",
+      "file:src/threat_report_agent/static_simulation.py"
+    ]
+  },
+  {
+    "order": 6,
+    "title": "Ghidra Headless 与 ToolRun 执行边界",
+    "description": "这一对文件展示了「用重型工具但仍然不执行样本」如何落地。ghidra_adapter.py 校验导出的 JSON 结构、准备受控输入文件名与内容，在受限环境下执行 analyzeHeadless 并回收 stdout/stderr 与导出结果，必要时结束整个进程树；ghidra_scripts/ExportStaticFacts.java 是 Ghidra 侧的后置导出脚本，对 PE 的临时副本导出反汇编函数、导入、字符串、交叉引用与 p-code 切片 —— 导入的是临时副本，从不执行样本。tool_execution.py 把这些运行包成 Temporal workflow/activity 承载的 ToolRun：强制工具白名单（配置见 policies/tool-policy.json），并直接拒绝 sample_execution 与 network_access 请求。工具权限不是在这里「申请」的，而是被拒绝的。",
+    "nodeIds": [
+      "file:src/threat_report_agent/ghidra_adapter.py",
+      "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "file:src/threat_report_agent/tool_execution.py"
+    ],
+    "languageLesson": "Ghidra Headless 脚本是 Java（GhidraScript，可读 p-code），而主体是 Python，两端通过结构化 JSON 交换事实。这是典型的进程外、跨语言集成：调用方只依赖「输出文件的结构契约」，所以适配器里第一件事是校验导出的 JSON 结构，而不是解析日志文本。"
+  },
+  {
+    "order": 7,
+    "title": "受控模拟不等于动态分析",
+    "description": "这是全项目最容易被外部误读的一层，值得逐字读。simulation_adapters.py 提供 Unicorn/Speakeasy/Qiling/flare-emu adapter、能力探测与 SimulationExecutionPolicy，并通过 IsolatedSimulationRunner 作为隔离执行 seam：未获得策略许可或缺少 worker 隔离时返回的是真实拒绝，而不是「假装执行」。这些结果的证据性质是 EMULATION_OBSERVED，代码路径绝不产生 DYNAMIC_OBSERVED —— 本产品的「静态分析」包含反汇编、数据流恢复以及隔离 worker 上的受控模拟；只有完整沙箱跑样本才叫动态分析，当前产品不做，因此「动态分析」「沙箱执行」「样本已运行」这类措辞都是错的。emulation_plan.py 只推导可交给 worker 的 Unicorn/Speakeasy 片段窗口并序列化给 worker，controlled_emulation.py 再区分 DEFERRED_TO_WORKER 占位与真实 simulation_result，并判断静态分析之后是否仍有未覆盖的已授权模拟窗口 —— 两个模块都不在宿主上执行样本。",
+    "nodeIds": [
+      "file:src/threat_report_agent/simulation_adapters.py",
+      "file:src/threat_report_agent/emulation_plan.py",
+      "file:src/threat_report_agent/controlled_emulation.py"
+    ]
+  },
+  {
+    "order": 8,
+    "title": "调查引擎：有界循环与调查义务",
+    "description": "从这一步开始，静态事实要被升级为有证据支撑的 Claim。investigation.py 定义 ActionType 与 ActionSpec、版本化 Playbook、ClaimGate 与各机制验证器，并由 InvestigationLoopDriver 驱动 Hypothesis→Action→Evidence→Verification 的有界循环，只做静态调查与受控模拟调度（第 7 步的隔离 worker 就是它的调度对象之一）。investigation_protocol.py 给出十问调查协议与 S0–S4 静态升级阶梯：空 prose、UNKNOWN token、单次 NO_NEW_EVIDENCE 都不能关闭槽位或宣告静态边界 —— 这些记录是调查义务，不是报告填充物。investigation_ledger.py 则是每个被发现的问题一行的状态账本（OPEN/IN_PROGRESS/DEFERRED/CLOSED/UNKNOWN/UNSUPPORTED），在仍有 OPEN 或 DEFERRED 时拒绝判定完成；三者合起来解释了「完成」在本项目里为什么是一个需要被反复拒绝的默认答案。",
+    "nodeIds": [
+      "file:src/threat_report_agent/investigation.py",
+      "file:src/threat_report_agent/investigation_protocol.py",
+      "file:src/threat_report_agent/investigation_ledger.py"
+    ]
+  },
+  {
+    "order": 9,
+    "title": "证据契约与有界检索：什么才算证据",
+    "description": "承接上一步的循环，这一步回答「Evidence 从哪来、凭什么算数」。behavior_catalog.py 是声明层：为每个行为条目定义类型化的 fact/relation 谓词与禁止推断，只有满足契约的 Evidence 行才构成支撑；semantic_predicates.py 提供被行为目录、数据流与报告共用的 API 语义分类词汇表，避免每层各写一套符号判断。检索侧刻意做成有界且不泄露样本内容：evidence_index.py 只为不可变静态 Evidence 生成规范化、有界的检索键，只保存归一化后的 selector，不复制样本字符串或反编译文本；evidence_recovery.py 在已序列化的 Evidence 行上定义证据投递漏斗（PRODUCED → … → ACCEPTED_AS_SUPPORT）、基于 selector 的 BoundedEvidenceRepository，以及按调查问题打分并裁剪上下文的 QuestionCentricRetriever。",
+    "nodeIds": [
+      "file:src/threat_report_agent/behavior_catalog.py",
+      "file:src/threat_report_agent/semantic_predicates.py",
+      "file:src/threat_report_agent/evidence_index.py",
+      "file:src/threat_report_agent/evidence_recovery.py"
+    ]
+  },
+  {
+    "order": 10,
+    "title": "机制方法学与 HOW 的单一出口",
+    "description": "有了证据，还需要一套可审计、与实现细节解耦的判断规则。methodology.py 用 Signal→FactMatch→AttributionAssessment→AnalysisProfile 这条中间语言，把「像哪个家族」「是否应排除」变成规则化评估，而不把 PE/Ghidra 细节写进判断逻辑；pma_static_plan.py 依 PMA 口径从 PE、导入、节区与字符串事实推导有序静态梯级，并区分哪些条目可以升级为调查 seed（也就是上一步循环的输入）。dataflow.py 补上关键的一跳 —— 把解码产物与真正消费它的 API 参数或数据引用绑定成对象级关系，「解码了但没人用」不构成机制；persist_how.py 则是持久化机制 HOW Claim 的唯一出口：把排序后的 Ghidra 符号与已恢复字段转成 HOW Claim 规格并盖写进 Analysis Snapshot，回答「HOW 从哪里来」。",
+    "nodeIds": [
+      "file:src/threat_report_agent/methodology.py",
+      "file:src/threat_report_agent/pma_static_plan.py",
+      "file:src/threat_report_agent/dataflow.py",
+      "file:src/threat_report_agent/persist_how.py"
+    ]
+  },
+  {
+    "order": 11,
+    "title": "模型网关与版本化 Prompt 资源",
+    "description": "模型的调用被收敛到一个网关与一个注册表。model_gateway.py 统一 provider 契约与协议分支（含 Anthropic 风格调用），负责重试与 fallback、结构化输出解析与候选打分、token/延迟审计，并把结果包装为 ModelResponse、AtomicClaimEnvelope 与 DynamicPlanEnvelope；prompts.py 按 id+version 取用 Prompt，build_messages 组装成 System/User 消息序列。prompts/manifest.json 是版本清单，登记 triage-agent、static-analysis-agent、analysis-planner-agent、analyst-report-agent 四个系统提示词的 id、版本与文件名 —— Prompt 在本项目里是有版本、可追溯的资源，而不是散落的字符串。planning-system-v1.md 值得精读：它明确规定 Unicorn/Speakeasy/Qiling 属于静态分析而非沙箱或动态样本执行、规划器不得自我授权、NO_NEW_EVIDENCE 之后不得重放同一 selector。",
+    "nodeIds": [
+      "file:src/threat_report_agent/model_gateway.py",
+      "file:src/threat_report_agent/prompts.py",
+      "config:src/threat_report_agent/prompts/manifest.json",
+      "document:src/threat_report_agent/prompts/planning-system-v1.md"
+    ]
+  },
+  {
+    "order": 12,
+    "title": "辨析：谁才是现行 planner，以及模型为何不能自我授权",
+    "description": "这是本仓库最容易误解的地方，值得单独一步说清。agents.py（早期 TriageAgent/StaticAnalysisAgent）、orchestration.py（基于 langgraph 的静态调查编排原型，含 QuestionCompiler、StaticInvestigationOrchestrator）和 turn_lifecycle.py（长时轮次的有界生命周期状态机 IDLE→ANALYSIS_RUNNING→…）都是历史实现：它们仍在仓库里、也可能仍被引用，但都不是现行调查 planner —— 现行是 service._run_investigation_loop + investigation.DeepMiningPlanner（第 4 步）。把这些模块误当 planner 会直接读错架构，所以看到 QuestionCompiler、InvestigationPlan 或会话状态机之类的名字时，先确认调用方，再判断它是否在现行路径上。policy.py 则是模型之外的那道裁决门：它加载内置 preset（任务类型、默认广度/深度、资源上限、完成条件、允许模块与工具，见 policies/preset-commands.json）与工具策略，由 PolicyRegistry.authorize 决定一个 Action Proposal 是否放行 —— Action Proposal 不能自行授予工具权限或样本执行能力。",
+    "nodeIds": [
+      "file:src/threat_report_agent/agents.py",
+      "file:src/threat_report_agent/orchestration.py",
+      "file:src/threat_report_agent/turn_lifecycle.py",
+      "file:src/threat_report_agent/policy.py"
+    ]
+  },
+  {
+    "order": 13,
+    "title": "报告层、过程视图与状态语义",
+    "description": "最后一步看结论如何出闸。reporting.py 从 Analysis Snapshot 生成 V3 Report Document，装配机制投影、行为发现、唯一执行线程、运行序列与评估并渲染 Markdown；报告只挑选分析员材料，原始 Evidence/ToolRun 行保留在 trace 与 Evidence Explorer 中。analyst_report.py 是官方分析员 markdown 报告的 overlay：依据行为目录、PMA 静态规则与本样本证据规划章节主题，渲染后再跑静态措辞合规检查，CANDIDATE 机制只作为已恢复静态事实被叙述，绝不升级为 VERIFIED。analysis_trace.py 把一次分析运行投影成结构化、脱敏的过程视图（intake/triage/extraction/gate/completion 阶段加来源链接），只暴露可观察步骤与证据链接，绝不包含模型 prompt、原始响应、密钥或私有思维链。status.py 则把两个常被混为一谈的维度分开：Task Lifecycle（PENDING/RUNNING/…）描述流程阶段，Analysis Outcome（COMPLETE/PARTIAL/BLOCKED/UNSUPPORTED）描述分析完整度，Claim 另有 CANDIDATE/VERIFIED/DISPUTED/REJECTED —— 三者语义不同，不可互相替代。",
+    "nodeIds": [
+      "file:src/threat_report_agent/reporting.py",
+      "file:src/threat_report_agent/analyst_report.py",
+      "file:src/threat_report_agent/analysis_trace.py",
+      "file:src/threat_report_agent/status.py"
+    ],
+    "languageLesson": "status.py 把「合法迁移」做成数据表（TASK_TRANSITIONS）而不是散落的 if 分支：transition_task 只做一次查表校验。用独立枚举表达并存的多个维度（流程阶段 / 分析完整度 / Claim 状态），比用单一状态机把不同语义压进一条状态链更容易扩展，也更难被误用。"
+  }
+]

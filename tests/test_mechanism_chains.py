@@ -1,5 +1,8 @@
+import inspect
+
 from threat_report_agent.agents import StaticAnalysisAgent
 from threat_report_agent.prompts import PromptRegistry
+from threat_report_agent.service import AnalysisService
 from threat_report_agent.static_analysis import (
     analyze_xor_decode_window,
     build_cross_function_chains,
@@ -8,6 +11,7 @@ from threat_report_agent.static_analysis import (
     resolve_static_data_strings,
     verify_xor_decode_candidate,
     decode_windows_process_creation_flags,
+    unique_plausible_creation_flag,
 )
 from threat_report_agent.simulation_adapters import static_phase_simulation_evidence
 
@@ -160,6 +164,89 @@ def test_process_creation_flags_do_not_overclaim_suspended_or_console_modes() ->
     assert result["contains_create_suspended"] is False
     assert result["contains_create_new_console"] is False
     assert result["runtime_effect_proven"] is False
+
+
+def test_credible_creation_flags_rejects_timeout_and_infinite_immediates() -> None:
+    """G1 §5.4: only a credible dwCreationFlags immediate may become HOW.
+
+    ``0x000f4240`` is 1,000,000 ms (a WaitForSingleObject timeout). Its bit 19
+    coincides with EXTENDED_STARTUPINFO_PRESENT, so the coarse plausibility table
+    accepts it; the credibility gate must not.
+    """
+    from threat_report_agent.static_analysis import (
+        credible_windows_process_creation_flags,
+        plausible_windows_process_creation_flags,
+    )
+
+    assert credible_windows_process_creation_flags(0x00080000)
+    assert credible_windows_process_creation_flags(0x09080008)
+    assert not credible_windows_process_creation_flags(0x000F4240)
+    assert not credible_windows_process_creation_flags(0xFFFFFFFF)
+    assert not credible_windows_process_creation_flags(0)
+    # The coarse predicate is deliberately unchanged (callers still rely on it).
+    assert plausible_windows_process_creation_flags(0x000F4240)
+
+
+def test_trace_path_does_not_stamp_timeout_immediate_as_creation_flags() -> None:
+    """G1 §5.4: the TRACE_API_ARGUMENT add-site must consult the credibility gate."""
+    from threat_report_agent.service import plausible_traced_creation_flags
+
+    assert plausible_traced_creation_flags(0x00080000) == 0x00080000
+    assert plausible_traced_creation_flags(0x000F4240) is None
+    assert plausible_traced_creation_flags(0xFFFFFFFF) is None
+    assert plausible_traced_creation_flags(None) is None
+
+    source = inspect.getsource(AnalysisService)
+    assert "plausible_traced_creation_flags(parsed_flags)" in source
+    # The old INFINITE/INVALID_HANDLE-only exclusion must be gone.
+    assert "parsed_flags not in {0xFFFFFFFF, 0xFFFFFFFE}" not in source
+
+
+def test_unique_plausible_creation_flag_ignores_timeouts_and_mixed_immediates() -> None:
+    assert unique_plausible_creation_flag(
+        ("PUSH 0x09080008", "CALL CreateProcessW"),
+    ) == "0x09080008"
+    assert unique_plausible_creation_flag(
+        ("MOV ECX, 0xffffffff", "PUSH 0x09080008", "CALL CreateProcessW"),
+    ) == "0x09080008"
+    assert unique_plausible_creation_flag(
+        ("PUSH 0x08000008", "PUSH 0x09080008", "CALL CreateProcessW"),
+    ) is None
+
+
+def test_function_mechanism_facts_decode_createprocess_flags_from_push_immediates() -> None:
+    """Ghidra keeps the flag immediate on PUSH/MOV, not on the CALL line."""
+    function = _function("CreateProcessW")
+    function["instructions"] = [
+        {"address": "140001010", "text": "PUSH 0x09080008"},
+        {"address": "140001012", "text": "PUSH 0x0"},
+        {"address": "140001014", "text": "CALL dword ptr [CreateProcessW]"},
+    ]
+    facts = derive_function_mechanism_facts(function, subject="sample.exe")
+    flag_fact = next(item for item in facts if item.kind == "process_creation_flags")
+    decoded = flag_fact.value["flags"][0]
+    assert decoded["value"] == "0x09080008"
+    assert "CREATE_NO_WINDOW" in decoded["set_flags"]
+    assert "EXTENDED_STARTUPINFO_PRESENT" in decoded["set_flags"]
+    assert decoded["contains_create_suspended"] is False
+    assert decoded["contains_create_new_console"] is False
+
+
+def test_function_mechanism_facts_do_not_decode_infinite_as_create_suspended() -> None:
+    """WaitForSingleObject(0xffffffff) is not dwCreationFlags=CREATE_SUSPENDED."""
+    function = _function("CreateProcessW")
+    function["instructions"] = [
+        {"address": "140001010", "text": "PUSH 0x09080008"},
+        {"address": "140001012", "text": "CALL WaitForSingleObject"},
+        {"address": "140001018", "text": "MOV ECX, 0xffffffff"},
+        {"address": "14000101e", "text": "CALL dword ptr [CreateProcessW]"},
+    ]
+    facts = derive_function_mechanism_facts(function, subject="sample.exe")
+    flag_fact = next(item for item in facts if item.kind == "process_creation_flags")
+    values = [str(item.get("value")) for item in flag_fact.value["flags"] if isinstance(item, dict)]
+    assert "0x09080008" in values
+    assert "0xffffffff" not in values
+    assert all(item.get("contains_create_suspended") is False for item in flag_fact.value["flags"])
 
 
 def test_function_mechanism_facts_capture_process_flag_semantics() -> None:

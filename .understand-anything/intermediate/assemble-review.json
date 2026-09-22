@@ -1,0 +1,288 @@
+{
+  "reviewer": "assemble-reviewer",
+  "phase": 3,
+  "projectRoot": "D:\\threat report agent",
+  "reviewedGraph": ".understand-anything/intermediate/assembled-graph.json",
+  "scope": "仅 src/threat_report_agent/（66 个扫描文件）；tests/、docs/、threat-dsh-workbench/、scripts/、release-artifacts/ 有意不在范围内",
+  "graphAfterReview": {
+    "nodes": 518,
+    "edges": 1087
+  },
+  "fixedSectionOk": true,
+  "nodesRecovered": 0,
+  "edgesRestored": 0,
+  "crossBatchEdgesAdded": 0,
+  "typesRemapped": 0,
+  "complexityRemapped": 0,
+  "notes": [
+    "merge 脚本 Fixed 段仅 4 条 tested_by 丢弃，没有任何 ID 归一化或复杂度映射条目：批次构建阶段已产出规范 ID 与合法复杂度值，ID 修正率 0%，远低于契约里的 30% 上游告警线。",
+    "复杂度分布 simple 160 / moderate 196 / complex 162，无未知值、无单一取值畸高，无需人工映射。",
+    "518 个节点全部带 id / summary / tags / complexity；无重复节点 id、无重复 (source,target,type) 边、assemble 后无悬挂边（0 条）；1087 条边 direction 全为 forward，weight 取值仅 0.5/0.6/0.7/0.8/1 五档。",
+    "防幻觉检查：452 个 function/class 节点的符号名在对应源文件中全部真实存在（0 例编造符号）；lineRange 全部满足 start<=end 且不超过文件总行数（0 例越界）。",
+    "覆盖检查：66 个扫描文件全部有节点（57 file + 5 config + 4 document）；不含任何 tests/** 节点，符合既定范围决策。",
+    "跨批次 imports 边已完整：scan-result.importMap 的 66 个条目共 116 条关系，全部存在于图中（缺失 0），且图中不存在 importMap 之外的 imports 边（多余 0），故 crossBatchEdgesAdded=0，无需补边。",
+    "唯一孤立节点是 file:src/threat_report_agent/__init__.py（仅一行包级 docstring，无导入方），属预期，不是数据缺陷。",
+    "图中存在 1 条跨文件 exports 边 file:status.py -> class:product_certification.py:AnalysisResultClass；经源码核实为真实再导出（status.py:5 `from threat_report_agent.product_certification import AnalysisResultClass`、status.py:7 `AnalysisClass = AnalysisResultClass`），属有意为之，不应被后续 reviewer 当作错误清除。",
+    "受控模拟、活体 planner、analysis_trace、遗留 UI、Task Lifecycle/Analysis Outcome 与 CANDIDATE 五条语义红线逐条核查通过，未发现必须修复的口径违规（详见 redLineChecks）。",
+    "口径相邻提醒：deep_analysis_quality._s4_orchestration_status 的 summary 写作「S4（编排/动态）」；S0–S4 是仓库自述的静态升级阶梯，S4 在 investigation_protocol.py / reporting.py 中一律称 orchestration（编排闭合），「动态」二字在源码与 docs/code-map.md 中从未与 S4 搭配。建议改为「S4（编排闭合）」。仅措辞不精确，不构成把模拟器写成动态分析的违规。",
+    "重要：.understand-anything/tmp/phase4-architecture-input.json 是在本次复核之前、由未回填 filePath 的 assembled-graph.json 生成的（含 fileNodes 66 / importEdges 116 / allEdges 1087）。若下游仍依赖该快照，请在本次修复后重新生成，否则拿不到回填的 filePath 字段。"
+  ],
+  "issues": [
+    {
+      "id": "AR-01",
+      "severity": "minor",
+      "blocking": false,
+      "fixed": true,
+      "category": "上游批次字段缺失",
+      "title": "76 个 function/class 节点缺少 filePath 字段",
+      "detail": "518 个节点中有 76 个（全部为 function/class 节点，来自 analysis_task_orchestration.py、models.py、evidence_recovery.py、evidence_index.py、investigation_ledger.py 等批次）没有 filePath 键，键序为 (id,type,name,lineRange,summary,tags,complexity)，与其余 442 个节点使用的规范键序不一致。它们的 id 前缀已经携带完整文件路径，因此可确定性回填。",
+      "evidence": [
+        "键序统计：76 个节点缺 filePath；442 个节点含 filePath",
+        ".understand-anything/tmp/ar_filepath_filled.json 列出全部 76 条回填映射"
+      ],
+      "suggestion": "已按 id 的路径段回填 filePath（回填值全部命中 scan-result.files 白名单，且与 id 路径 100% 一致），并把 filePath 插回 name 之后以恢复规范键序。",
+      "action": "applied"
+    },
+    {
+      "id": "AR-02",
+      "severity": "minor",
+      "blocking": false,
+      "fixed": false,
+      "category": "术语口径（措辞）",
+      "title": "「S4（编排/动态）」把静态升级阶梯写成了动态",
+      "detail": "function:src/threat_report_agent/deep_analysis_quality.py:_s4_orchestration_status 的 summary 为「判定 S4（编排/动态）阶梯状态，并借助 s4_closed_has_audit_trail 确认必须真有审计轨迹才允许算作 CLOSED。」S0–S4 在 investigation_protocol.py:1 被定义为「S0-S4 static upgrade ladder」，reporting.py:9770 的小节标题是「#### S4 orchestration」，docs/behavior-driven-investigation-plan-reviewed-20260907.md 称之为「S4 编排闭合」。「动态」二字在源码与文档中从不与 S4 搭配；本仓库另有 product_certification.static_wording_violations 专门拦截把结果说成动态执行的措辞。",
+      "evidence": [
+        "src/threat_report_agent/investigation_protocol.py:1",
+        "src/threat_report_agent/reporting.py:9770",
+        "docs/behavior-driven-investigation-plan-reviewed-20260907.md:349",
+        "docs/code-map.md"
+      ],
+      "suggestion": "把该节点 summary 中的「S4（编排/动态）」改为「S4（编排闭合）」。属于单点措辞，不涉及模拟器描述，故未擅自改动内容，交由上游确认口径后处理。",
+      "action": "reported-only"
+    },
+    {
+      "id": "AR-03",
+      "severity": "info",
+      "blocking": false,
+      "fixed": false,
+      "category": "已知召回缺口",
+      "title": "4 条 calls 边因目标函数未被采样而丢弃",
+      "detail": "详见 knownRecallGaps。这是超大文件「只取最重要节点」策略的必然结果，不是错误边：4 个目标函数在源码中确实存在（investigation.py:88、static_analysis.py:1680、reporting.py:9830、reporting.py:9850），只是没有对应节点。按任务约束不编造节点补边。",
+      "evidence": [
+        "merge stderr Could not fix 段 4 条",
+        "grep 结果：4 个目标函数均存在于对应源文件"
+      ],
+      "suggestion": "保留现状并在下游以「已知召回缺口」对待；若后续需要，应由超大文件补采节点批次解决，而不是在 assemble 阶段造节点。",
+      "action": "reported-only"
+    },
+    {
+      "id": "AR-04",
+      "severity": "info",
+      "blocking": false,
+      "fixed": false,
+      "category": "语义口径（可读性）",
+      "title": "orchestration.py 类级 summary 仅靠 legacy 标签表达「非现行 planner」",
+      "detail": "orchestration.py 的模块级 summary 已明确写「它是历史编排实现，现行 planner 是 service._run_investigation_loop + DeepMiningPlanner」，agents.py 与 turn_lifecycle.py 同样明确；但 orchestration.py 下的 QuestionCompiler / DeterministicSeedRanker / QuestionCentricContextBuilder / StaticInvestigationOrchestrator 四个类级 summary 只描述了各自职责，未重复该限定，仅由 tags 中的 legacy 表达。风险很低（模块级已点明且有 legacy 标签），记录以便后续 reviewer 不误判为「把原型写成主 planner」。",
+      "evidence": [
+        "file:src/threat_report_agent/orchestration.py",
+        "class:src/threat_report_agent/orchestration.py:QuestionCompiler 等 4 个类节点 tags 含 legacy"
+      ],
+      "suggestion": "可选：在类级 summary 末尾补一句「属历史实现，非现行 planner」。非阻塞。",
+      "action": "reported-only"
+    },
+    {
+      "id": "AR-05",
+      "severity": "info",
+      "blocking": false,
+      "fixed": false,
+      "category": "风格一致性",
+      "title": "controlled_emulation.py 使用英文标签，与多数模块的中文标签不一致",
+      "detail": "file:src/threat_report_agent/controlled_emulation.py 的 tags 为 emulation/validation/placeholder/evidence，而同类模块多用中文标签（如 static_simulation.py 用「静态抽象执行/无样本执行」）。仅风格差异，tags 已准确，不影响语义判读。",
+      "evidence": [
+        "file:src/threat_report_agent/controlled_emulation.py",
+        "file:src/threat_report_agent/static_simulation.py"
+      ],
+      "suggestion": "统一标签语言（可选项，非阻塞）。",
+      "action": "reported-only"
+    },
+    {
+      "id": "AR-06",
+      "severity": "info",
+      "blocking": false,
+      "fixed": false,
+      "category": "已核实非缺陷",
+      "title": "4 条 tested_by 边被丢弃属范围决策结果",
+      "detail": "tests/ 不在本次分析范围，因此图中没有 test 节点，merge 脚本的 tested_by linker 丢弃 4 条孤立端点边是预期行为。图中最终 tested_by 边 0 条、带 tested 标签节点 0 个，符合预期，不作为缺陷上报。",
+      "evidence": [
+        "merge stderr Fixed 段：4 × tested_by edges dropped",
+        "图中 tested_by 边数 = 0"
+      ],
+      "suggestion": "无需处理。",
+      "action": "expected"
+    }
+  ],
+  "appliedFixes": [
+    {
+      "type": "node-metadata-backfill",
+      "count": 76,
+      "field": "filePath",
+      "detail": "为 76 个缺 filePath 的 function/class 节点按 id 路径段回填 filePath，并恢复规范键序 (id,type,name,filePath[,lineRange],summary,tags,complexity[,languageNotes])。回填路径全部命中 scan-result.files 白名单。",
+      "verification": "回填后 nodes=518 / edges=1087 不变；缺 filePath 节点 0；filePath 与 id 路径不一致节点 0；符号存在性与 lineRange 复检仍全通过。",
+      "backup": ".understand-anything/tmp/assembled-graph.pre-review-backup.json",
+      "mappingFile": ".understand-anything/tmp/ar_filepath_filled.json"
+    }
+  ],
+  "knownRecallGaps": [
+    {
+      "edge": "class:src/threat_report_agent/ghidra_adapter.py:GhidraHeadlessRunner -> function:src/threat_report_agent/static_analysis.py:function_fuzzy_fingerprint",
+      "type": "calls",
+      "missingTarget": "function:src/threat_report_agent/static_analysis.py:function_fuzzy_fingerprint",
+      "targetExistsInSource": true,
+      "sourceLocation": "src/threat_report_agent/static_analysis.py:1680",
+      "cause": "static_analysis.py（6458 行）按「只取最重要节点」策略处理，未穷举函数，因此该目标函数没有节点，边被丢弃。"
+    },
+    {
+      "edge": "function:src/threat_report_agent/main.py:create_app -> function:src/threat_report_agent/reporting.py:markdown_to_docx",
+      "type": "calls",
+      "missingTarget": "function:src/threat_report_agent/reporting.py:markdown_to_docx",
+      "targetExistsInSource": true,
+      "sourceLocation": "src/threat_report_agent/reporting.py:9830",
+      "cause": "reporting.py（9894 行）同一策略，markdown_to_docx 未成为节点。"
+    },
+    {
+      "edge": "function:src/threat_report_agent/main.py:create_app -> function:src/threat_report_agent/reporting.py:markdown_to_pdf",
+      "type": "calls",
+      "missingTarget": "function:src/threat_report_agent/reporting.py:markdown_to_pdf",
+      "targetExistsInSource": true,
+      "sourceLocation": "src/threat_report_agent/reporting.py:9850",
+      "cause": "同 reporting.py 节点欠采样。"
+    },
+    {
+      "edge": "function:src/threat_report_agent/main.py:create_app -> function:src/threat_report_agent/investigation.py:normalize_target_selector",
+      "type": "calls",
+      "missingTarget": "function:src/threat_report_agent/investigation.py:normalize_target_selector",
+      "targetExistsInSource": true,
+      "sourceLocation": "src/threat_report_agent/investigation.py:88",
+      "cause": "investigation.py（7803 行）同一策略，normalize_target_selector 未成为节点。"
+    }
+  ],
+  "redLineChecks": [
+    {
+      "id": "RL1",
+      "title": "受控模拟不得被写成动态分析 / 沙箱执行 / 样本已运行",
+      "verdict": "pass",
+      "evidence": [
+        "file:controlled_emulation.py：「不运行 Temporal/Docker，也不执行样本。」",
+        "function:service.py:_emit_controlled_emulation：「它是镜像内受控模拟，不是动态分析，也不代表样本已在宿主或沙箱中运行。」",
+        "file:simulation_adapters.py：「worker 结果证据性质为 EMULATION_OBSERVED，绝不产生 DYNAMIC_OBSERVED。」",
+        "function:simulation_adapters.py:evidence_nature_for_simulation_status：「…记为 EMULATION_OBSERVED；策略拒绝、占位或缺少 rootfs 保持 STATIC_INFERRED；永不产生 DYNAMIC_OBSERVED。」",
+        "file:static_simulation.py：「它不执行样本字节，结果显式标注 runtime_observed=False。」",
+        "file:emulation_plan.py：「产出的是计划与窗口，不是在宿主上执行样本。」",
+        "file:tool_execution.py / class:StaticToolActivities：「受控模拟在隔离 worker 上运行，本类自身不执行提交的样本。」",
+        "document:prompts/planning-system-v1.md 与 static-analysis-system-v1.md：「明确规定 Unicorn/Speakeasy/Qiling 属于静态分析而非沙箱或动态样本执行」；同口径亦见 file:static_analysis.py、function:recover_static_xor_configs、function:derive_static_mechanism_links、function:reporting.py:build_runtime_sequence（「这是静态推导出的顺序，不代表样本已运行」）。",
+        "全文扫描：「动态」共 11 处、「沙箱」5 处，除 1 处措辞瑕疵（见 AR-02 的 S4 表述）外，其余全部出现在否定式表述或仓库词汇表/枚举名（DYNAMIC_OBSERVED、DynamicPlanEnvelope 等）中，无一处把模拟器描述为动态分析。"
+      ],
+      "caveat": "相邻措辞瑕疵见 AR-02（S4「编排/动态」），不涉及模拟器，非阻塞。"
+    },
+    {
+      "id": "RL2",
+      "title": "现行 planner 必须是 service._run_investigation_loop + investigation.DeepMiningPlanner；orchestration.py / agents.py / turn_lifecycle.py 不是",
+      "verdict": "pass",
+      "evidence": [
+        "file:agents.py：「它不是现行活体调查 planner —— 现行为 service._run_investigation_loop + DeepMiningPlanner。」（tags 含 legacy）",
+        "file:orchestration.py：「它是历史编排实现，现行 planner 是 service._run_investigation_loop + DeepMiningPlanner。」（tags 含 legacy）",
+        "file:turn_lifecycle.py：「它并非现行调查 planner（现行是 service._run_investigation_loop + DeepMiningPlanner）。」（tags 含 legacy）",
+        "file:service.py 与 function:service.py:_run_investigation_loop：「现行活体调查循环（约 3400 行）：…调用 DeepMiningPlanner.plan_actions 获取下一步」",
+        "class:investigation.py:DeepMiningPlanner：「确定性的证据优先深挖前沿规划器…本身只产出目录动作，不执行任何东西。」",
+        "file:analysis_task_orchestration.py：「DeepMiningPlanner 仍是唯一的动作提出者，本模块不做第二个 planner。」",
+        "document:prompts/planning-system-v1.md：「活体调查规划器（service._run_investigation_loop + DeepMiningPlanner）的系统提示词」",
+        "class:service.py:AnalysisService 亦以「（历史的）StaticInvestigationOrchestrator」限定该原型。"
+      ],
+      "caveat": "orchestration.py 的 4 个类级 summary 未重复该限定、仅靠 legacy 标签（见 AR-04，info 级）。"
+    },
+    {
+      "id": "RL3",
+      "title": "analysis_trace.py 只暴露可观察步骤与来源链接，不含模型私有思维链",
+      "verdict": "pass",
+      "evidence": [
+        "file:analysis_trace.py：「按 intake/triage/extraction/gate/completion 阶段组织可观察步骤…它只暴露可观察工作流与证据链接，绝不包含模型 prompt、原始响应、密钥或私有思维链。」",
+        "function:analysis_trace.py:_compact_model_call：「把模型调用压缩成用途、协议、耗时与结果摘要，剔除 prompt 与原始响应。」",
+        "function:analysis_trace.py:_safe_details：「过滤审计事件 details 中的敏感键，只放行可安全外显的字段。」"
+      ],
+      "caveat": null
+    },
+    {
+      "id": "RL4",
+      "title": "static/（app.js / index.html / styles.css）是遗留兼容 UI，主界面在范围外的 threat-dsh-workbench/",
+      "verdict": "pass",
+      "evidence": [
+        "file:static/app.js：「遗留兼容 UI 的前端脚本（并非主产品界面，见 docs/legacy-retirement.md）」",
+        "file:static/index.html：「遗留兼容 UI 的单页外壳（由 main.py 的根路由返回）…生产入口已迁至 threat-dsh-workbench。」",
+        "file:static/styles.css：「遗留兼容 UI 的样式表」",
+        "三个节点 tags 均含「遗留界面」。"
+      ],
+      "caveat": null
+    },
+    {
+      "id": "RL5",
+      "title": "Task Lifecycle 与 Analysis Outcome 是两个独立维度；CANDIDATE 不得被写成已验证",
+      "verdict": "pass",
+      "evidence": [
+        "file:status.py：「Task Lifecycle（PENDING/RUNNING/…）描述流程阶段，Analysis Outcome（COMPLETE/PARTIAL/BLOCKED/UNSUPPORTED）描述分析完整度，两者语义不同、不可混为一谈；Claim 状态含 CANDIDATE/VERIFIED/DISPUTED/REJECTED。」",
+        "class:product_certification.py:AnalysisResultClass：「…与 task lifecycle 明确分离。」",
+        "file:mechanism_ready.py 与 function:inspect_mechanism_ready：「critical_ready 会额外排除 status 为 CANDIDATE 的行，因此 CANDIDATE 永远不会被计为 critical_ready。」",
+        "function:reporting.py:build_static_link_mechanism_projections：「结果一律保持 CANDIDATE，不得绕过专家验证器或 Claim Gate。」",
+        "file:attack_mapping.py / function:map_behavior_claim：「输出始终是 candidate 映射」/「结果始终标记为 candidate」。",
+        "file:deep_analysis_quality.py：「绝不把 candidate 变成 verified claim。」",
+        "file:analyst_report.py：「CANDIDATE 机制只作已恢复静态事实叙述而不升级为 VERIFIED。」；function:_verification_note「明确区分已验证与 CANDIDATE」"
+      ],
+      "caveat": null
+    }
+  ],
+  "scopeNotes": [
+    "tests/、docs/、threat-dsh-workbench/、scripts/、release-artifacts/ 等目录有意不在范围内；图中无 tests/** 节点属预期行为，未建议补 test 节点。",
+    "merge 脚本报告的 4 条 tested_by edges dropped (orphan endpoint) 是本范围决策的直接结果，属预期，不计入 issues（见 AR-06）。",
+    "docs/code-map.md 提到的 tool-worker/、threat-dsh-workbench/ 缺节点同属范围外；范围内模块（含 static/）已全部覆盖。",
+    "本次未编造任何节点来补 4 条被丢弃的 calls 边（遵任务约束），仅在 knownRecallGaps 中如实记录缺口与成因。"
+  ],
+  "stats": {
+    "nodes": 518,
+    "edges": 1087,
+    "nodeTypes": {
+      "function": 295,
+      "class": 157,
+      "file": 57,
+      "config": 5,
+      "document": 4
+    },
+    "edgeTypes": {
+      "contains": 452,
+      "exports": 354,
+      "calls": 127,
+      "imports": 116,
+      "configures": 11,
+      "related": 10,
+      "documents": 10,
+      "depends_on": 7
+    },
+    "complexity": {
+      "simple": 160,
+      "moderate": 196,
+      "complex": 162
+    },
+    "scannedFiles": 66,
+    "filesWithNodes": 66,
+    "symbolNodes": 452,
+    "hallucinatedSymbols": 0,
+    "danglingEdges": 0,
+    "duplicateNodeIds": 0,
+    "duplicateEdgeKeys": 0,
+    "orphanNodes": 1,
+    "importMapEntries": 66,
+    "importMapRelations": 116,
+    "importsEdgesInGraph": 116,
+    "importsEdgesMissing": 0,
+    "importsEdgesExtra": 0,
+    "testedByEdges": 0
+  }
+}

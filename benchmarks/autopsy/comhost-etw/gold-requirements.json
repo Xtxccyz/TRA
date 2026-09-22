@@ -1,0 +1,11 @@
+{
+  "mechanism_id":"comhost-etw-patch",
+  "mechanism_type":"ETW_PATCH",
+  "run_status":"BLOCKED_REAL_RUN",
+  "requirements":[
+    {"id":"GE-01","semantic_requirement":"EtwEventWrite identity"},
+    {"id":"GE-02","semantic_requirement":"VirtualProtect target"},
+    {"id":"GE-03","semantic_requirement":"33 C0 C3 patch bytes"},
+    {"id":"GE-04","semantic_requirement":"restore and FlushInstructionCache"}
+  ]
+}

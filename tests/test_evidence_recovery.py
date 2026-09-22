@@ -26,6 +26,7 @@ from threat_report_agent.models import (
     ToolRun,
 )
 from threat_report_agent.service import AnalysisService
+from threat_report_agent.static_analysis import recover_static_xor_configs
 from threat_report_agent.status import EvidenceNature
 
 
@@ -548,7 +549,52 @@ def test_pcode_action_emits_semantic_source_sink_slice(test_settings) -> None:
     assert value["sinks"][0]["api"] == "LoadLibraryW"
 
 
-def test_decode_result_links_same_function_static_consumer(test_settings) -> None:
+def test_derived_function_call_preserves_entry_anchor_from_parser_context(test_settings) -> None:
+    """Parser ``entry`` anchors remain usable for later function-local actions."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    source_rows = [
+        SimpleNamespace(
+            id="ctx-entry-only",
+            kind="function_context",
+            value={
+                "name": "spawn_worker",
+                "entry": "0x140001000",
+                "call_targets": [{"target_name": "CreateProcessW", "from": "0x140001020"}],
+            },
+            # This is the shape emitted by the Ghidra persistence path.
+            anchor={"type": "function_context", "entry": "0x140001000", "rva": 4096},
+        )
+    ]
+    action = ActionSpec(
+        id="callees-entry-only",
+        action_type=ActionType.GET_CALLEES,
+        thread_id="thread-entry-only",
+        hypothesis_id="hypothesis-entry-only",
+        artifact_id="artifact-entry-only",
+        parameters={"target": "spawn_worker"},
+        target_selector={"target": "spawn_worker"},
+        expected_evidence_kinds=("function_call",),
+    )
+
+    observations = service._derive_investigation_observations(source_rows, action)
+
+    derived = next(item for item in observations if item["kind"] == "function_call")
+    assert derived["anchor"]["function_entry"] == "0x140001000"
+    assert derived["anchor"]["rva"] == "4096"
+
+
+@pytest.mark.parametrize("consumer_kind,consumer_anchor", [
+    ("function_call", {"function_entry": "0x140003000"}),
+    ("function_call", {"function_entry": "0x140008000"}),
+    ("import_symbol", {}),
+])
+def test_decode_result_does_not_link_api_cooccurrence(
+    test_settings, consumer_kind, consumer_anchor
+) -> None:
     service = AnalysisService(
         test_settings,
         Database(test_settings.database_url),
@@ -569,9 +615,9 @@ def test_decode_result_links_same_function_static_consumer(test_settings) -> Non
         ),
         SimpleNamespace(
             id="decode-consumer",
-            kind="function_call",
+            kind=consumer_kind,
             value={"api": "LoadLibraryW", "from": "0x140003020"},
-            anchor={"function_entry": "0x140003000"},
+            anchor=consumer_anchor,
         ),
     ]
     action = ActionSpec(
@@ -591,10 +637,965 @@ def test_decode_result_links_same_function_static_consumer(test_settings) -> Non
     assert observations and observations[0]["kind"] == "decode_result"
     value = observations[0]["value"]
     assert value["verification_status"] == "VERIFIED_STATIC_DATA"
-    assert value["consumer_status"] == "LINKED_STATIC"
-    assert value["consumer_candidates"][0]["api"] == "LoadLibraryW"
-    assert "decode-consumer" in value["consumer_evidence_ids"]
-    assert "decode-consumer" in value["derivation"]["input_evidence_ids"]
+    assert value["consumer_status"] == "NOT_IDENTIFIED"
+    assert value["consumer_evidence_ids"] == []
+    assert "decode-consumer" not in value["derivation"]["input_evidence_ids"]
+
+
+def test_decode_result_links_only_a_traced_decoded_output_buffer(test_settings) -> None:
+    """B01: API co-location becomes a consumer only after exact value flow."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    output_buffer = {
+        "artifact_id": "artifact-1",
+        "address_space": "artifact-1",
+        "address": 0x5000,
+        "length": 24,
+    }
+    source_rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            kind="mechanism_decode_window",
+            value={
+                "memory_addresses": [0],
+                "key_candidates": [0x41],
+                "output_buffer": output_buffer,
+                "verification_result": {
+                    "status": "VERIFIED_STATIC_DATA",
+                    "decoded_text": "https://example.invalid/gate",
+                },
+            },
+            anchor={"function_entry": "0x140003000"},
+        ),
+        # This is the decisive relation: a resolved argument trace cites the
+        # decoder producer and the exact same output-buffer identity.
+        SimpleNamespace(
+            id="loadlibrary-argument",
+            kind="api_argument_trace",
+            value={
+                "api": "LoadLibraryW",
+                "callsite": "0x140003020",
+                "argument_index": 0,
+                "resolved": True,
+                "producer_evidence_id": "decode-producer",
+                "source_role": "decoded_output",
+                "source_buffer": dict(output_buffer),
+            },
+            anchor={"function_entry": "0x140003000", "callsite": "0x140003020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="decode-output-flow",
+        action_type=ActionType.DECODE_CANDIDATE,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        parameters={"target": "xor"},
+        target_selector={"target": "xor"},
+        expected_evidence_kinds=("decode_result",),
+    )
+
+    observations = service._derive_investigation_observations(source_rows, action)
+
+    result = next(item for item in observations if item["kind"] == "decode_result")
+    assert result["value"]["consumer_status"] == "LINKED_STATIC"
+    assert result["value"]["consumer_evidence_ids"] == ["loadlibrary-argument"]
+    assert result["value"]["consumer_candidates"][0]["api"] == "LoadLibraryW"
+
+
+def test_decode_result_rejects_trace_for_a_different_buffer(test_settings) -> None:
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    producer_buffer = {
+        "artifact_id": "artifact-1",
+        "address_space": "artifact-1",
+        "address": 0x5000,
+        "length": 24,
+    }
+    source_rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            kind="mechanism_decode_window",
+            value={
+                "output_buffer": producer_buffer,
+                "verification_result": {"status": "VERIFIED_STATIC_DATA"},
+            },
+            anchor={"function_entry": "0x140003000"},
+        ),
+        SimpleNamespace(
+            id="wrong-buffer-argument",
+            kind="api_argument_trace",
+            value={
+                "api": "LoadLibraryW",
+                "callsite": "0x140003020",
+                "argument_index": 0,
+                "resolved": True,
+                "producer_evidence_id": "decode-producer",
+                "source_role": "decoded_output",
+                "source_buffer": {**producer_buffer, "address": 0x6000},
+            },
+            anchor={"function_entry": "0x140003000", "callsite": "0x140003020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="decode-wrong-output-flow",
+        action_type=ActionType.DECODE_CANDIDATE,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        parameters={"target": "xor"},
+        target_selector={"target": "xor"},
+        expected_evidence_kinds=("decode_result",),
+    )
+
+    observations = service._derive_investigation_observations(source_rows, action)
+
+    result = next(item for item in observations if item["kind"] == "decode_result")
+    assert result["value"]["consumer_status"] == "NOT_IDENTIFIED"
+    assert result["value"]["consumer_evidence_ids"] == []
+
+
+def test_decode_candidate_does_not_give_the_first_xor_config_to_a_second_buffer(
+    test_settings,
+) -> None:
+    """T1: two recovered XOR buffers; only the traced buffer is the LoadLibrary consumer."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    table = bytes(range(0x10, 0x20))
+    first = b"http://203.0.113.9/payload.exe"
+    second = b"http://198.51.100.7/unused.dll"
+
+    def encode(plain: bytes) -> bytes:
+        return bytes(
+            byte ^ table[index % 16] ^ ((3 + index * 7) & 0xFF)
+            for index, byte in enumerate(plain)
+        )
+
+    payload = table + encode(first) + (b"\x00" * 48) + table + encode(second)
+    pe = {
+        "image_base": 0x140000000,
+        "sections": [
+            {
+                "name": ".rdata",
+                "virtual_address": 0x4C000,
+                "virtual_size": len(payload),
+                "raw_size": len(payload),
+                "raw_offset": 0,
+            }
+        ],
+    }
+    hits = recover_static_xor_configs(payload, pe)
+    assert len(hits) >= 2
+    addr_a = hits[0]["output_buffer"]["address"]
+    addr_b = hits[1]["output_buffer"]["address"]
+    assert addr_a != addr_b
+    source_rows = [
+        SimpleNamespace(
+            id="decode-a",
+            artifact_id="artifact-1",
+            kind="encoded_blob",
+            value={"verification_result": {"status": "UNVERIFIED_STATIC_CANDIDATE"}},
+            anchor={"function_entry": "0x140003000"},
+        ),
+        SimpleNamespace(
+            id="decode-b",
+            artifact_id="artifact-1",
+            kind="encoded_blob",
+            value={"verification_result": {"status": "UNVERIFIED_STATIC_CANDIDATE"}},
+            anchor={"function_entry": "0x140008000"},
+        ),
+        SimpleNamespace(
+            id="loadlibrary-argument",
+            artifact_id="artifact-1",
+            kind="api_argument_trace",
+            value={
+                "api": "LoadLibraryW",
+                "callsite": "0x140003020",
+                "arguments": [
+                    {"index": 0, "value": hex(int(addr_a)), "resolved": True},
+                ],
+            },
+            anchor={"function_entry": "0x140003000", "callsite": "0x140003020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="decode-two-buffers",
+        action_type=ActionType.DECODE_CANDIDATE,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        parameters={"target": "xor"},
+        target_selector={"target": "xor"},
+        expected_evidence_kinds=("decode_result",),
+    )
+    observations = service._derive_investigation_observations(
+        source_rows,
+        action,
+        artifact_content=payload,
+        pe_summary=pe,
+    )
+    results = [item for item in observations if item["kind"] == "decode_result"]
+    statused = [item for item in results if "consumer_status" in item["value"]]
+    assert len(statused) == 2
+    linked = [item for item in statused if item["value"].get("consumer_status") == "LINKED_STATIC"]
+    unidentified = [
+        item for item in statused if item["value"].get("consumer_status") == "NOT_IDENTIFIED"
+    ]
+    assert len(linked) == 1
+    assert linked[0]["value"]["consumer_candidates"][0]["api"] == "LoadLibraryW"
+    assert len(unidentified) == 1
+    texts = " ".join(str(item["value"]) for item in results)
+    assert "unused.dll" in texts or "payload.exe" in texts
+
+
+def test_trace_api_argument_stamps_decoded_output_when_operand_is_output_buffer(test_settings) -> None:
+    """B01 live path: TRACE_API_ARGUMENT emits the exact-buffer consumer row."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    output_buffer = {
+        "address_space": "image",
+        "address": 0x140005000,
+        "length": 24,
+    }
+    rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            artifact_id="artifact-1",
+            kind="encoded_blob",
+            value={
+                "output_buffer": output_buffer,
+                "memory_addresses": [0x140005000],
+                "verification_result": {
+                    "status": "VERIFIED_STATIC_DATA",
+                    "virtual_address": 0x140005000,
+                    "length": 24,
+                },
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="ctx-1",
+            artifact_id="artifact-1",
+            kind="function_context",
+            value={
+                "name": "FUN_decode",
+                "entry": "0x401000",
+                "call_targets": [{"target_name": "LoadLibraryW", "from": "0x401020"}],
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="ins-1",
+            artifact_id="artifact-1",
+            kind="function_instruction_window",
+            value={
+                "instructions": [
+                    {"address": "0x401010", "text": "LEA RCX, [0x140005000]"},
+                    {"address": "0x401020", "text": "CALL LoadLibraryW"},
+                ]
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="call-1",
+            artifact_id="artifact-1",
+            kind="function_call",
+            value={"api": "LoadLibraryW", "from": "0x401020"},
+            anchor={"function_entry": "0x401000", "callsite": "0x401020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="trace-decoded-output",
+        action_type=ActionType.TRACE_API_ARGUMENT,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        target_selector={"target": "LoadLibraryW"},
+        expected_evidence_kinds=("api_argument_trace",),
+        source_evidence_ids=("decode-producer", "ctx-1", "ins-1", "call-1"),
+    )
+    observations = service._derive_investigation_observations(rows, action)
+    linked = [
+        item["value"]
+        for item in observations
+        if item["kind"] == "api_argument_trace"
+        and item["value"].get("source_role") == "decoded_output"
+    ]
+    assert len(linked) == 1
+    assert linked[0]["producer_evidence_id"] == "decode-producer"
+    assert linked[0]["source_buffer"] == {**output_buffer, "artifact_id": "artifact-1"}
+    assert linked[0]["argument_index"] == 0
+    assert linked[0]["resolved"] is True
+    assert any(
+        item["kind"] == "value_flow"
+        and item["value"].get("relation") == "output_to_consumer"
+        for item in observations
+    )
+    assert next(
+        item["nature"]
+        for item in observations
+        if item["kind"] == "api_argument_trace" and item["value"].get("source_role") == "decoded_output"
+    ) == "STATIC_INFERRED"
+
+
+def test_trace_createprocess_command_buffer_emits_decode_process_join(test_settings) -> None:
+    """C3: TRACE must Join decoder output to CreateProcess when lpCommandLine is that buffer."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    output_buffer = {
+        "address_space": "image",
+        "address": 0x140005000,
+        "length": 24,
+    }
+    rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            artifact_id="artifact-1",
+            kind="encoded_blob",
+            value={
+                "output_buffer": output_buffer,
+                "memory_addresses": [0x140005000],
+                "verification_result": {
+                    "status": "VERIFIED_STATIC_DATA",
+                    "virtual_address": 0x140005000,
+                    "length": 24,
+                    "decoded_text": "FoxitPDFReader.exe",
+                },
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="ctx-1",
+            artifact_id="artifact-1",
+            kind="function_context",
+            value={
+                "name": "FUN_launch",
+                "entry": "0x401000",
+                "call_targets": [{"target_name": "CreateProcessW", "from": "0x401020"}],
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="ins-1",
+            artifact_id="artifact-1",
+            kind="function_instruction_window",
+            value={
+                "instructions": [
+                    {"address": "0x401010", "text": "LEA RDX, [0x140005000]"},
+                    {"address": "0x401020", "text": "CALL CreateProcessW"},
+                ]
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="call-1",
+            artifact_id="artifact-1",
+            kind="function_call",
+            value={"api": "CreateProcessW", "from": "0x401020"},
+            anchor={"function_entry": "0x401000", "callsite": "0x401020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="trace-createprocess-join",
+        action_type=ActionType.TRACE_API_ARGUMENT,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        target_selector={"target": "CreateProcessW"},
+        expected_evidence_kinds=("api_argument_trace",),
+        source_evidence_ids=("decode-producer", "ctx-1", "ins-1", "call-1"),
+    )
+    observations = service._derive_investigation_observations(rows, action)
+    joined = [
+        item["value"]
+        for item in observations
+        if item["kind"] == "value_flow"
+        and item["value"].get("relation") == "decode_output_to_process_command"
+    ]
+    assert joined, "same-buffer CreateProcess command must mint decode_output_to_process_command"
+    assert joined[0]["output_buffer"]["address"] == 0x140005000
+    assert joined[0]["command_buffer"]["address"] == 0x140005000
+    assert joined[0]["source_evidence_id"] == "decode-producer"
+    assert joined[0]["target_evidence_id"] in {"call-1", "ctx-1"}
+
+
+def test_trace_virtualalloc_emits_decode_output_consumer(test_settings) -> None:
+    """C3: TRACE joins CryptoAPI/decode output to VirtualAlloc on the same buffer."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    output_buffer = {
+        "address_space": "image",
+        "address": 0x14005A000,
+        "length": 0x1000,
+    }
+    rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            artifact_id="artifact-1",
+            kind="encoded_blob",
+            value={
+                "output_buffer": output_buffer,
+                "memory_addresses": [0x14005A000],
+                "verification_result": {
+                    "status": "VERIFIED_STATIC_DATA",
+                    "virtual_address": 0x14005A000,
+                    "length": 0x1000,
+                },
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="ctx-1",
+            artifact_id="artifact-1",
+            kind="function_context",
+            value={
+                "name": "FUN_crypt",
+                "entry": "0x401000",
+                "call_targets": [{"target_name": "VirtualAlloc", "from": "0x401020"}],
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="ins-1",
+            artifact_id="artifact-1",
+            kind="function_instruction_window",
+            value={
+                "instructions": [
+                    {"address": "0x401010", "text": "LEA RCX, [0x14005A000]"},
+                    {"address": "0x401020", "text": "CALL VirtualAlloc"},
+                ]
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="call-1",
+            artifact_id="artifact-1",
+            kind="function_call",
+            value={"api": "VirtualAlloc", "from": "0x401020"},
+            anchor={"function_entry": "0x401000", "callsite": "0x401020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="trace-virtualalloc-join",
+        action_type=ActionType.TRACE_API_ARGUMENT,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        target_selector={"target": "VirtualAlloc"},
+        expected_evidence_kinds=("api_argument_trace",),
+        source_evidence_ids=("decode-producer", "ctx-1", "ins-1", "call-1"),
+    )
+    observations = service._derive_investigation_observations(rows, action)
+    joined = [
+        item["value"]
+        for item in observations
+        if item["kind"] == "value_flow"
+        and item["value"].get("relation") == "output_to_consumer"
+    ]
+    assert joined, "same-buffer VirtualAlloc must mint output_to_consumer"
+    assert joined[0]["output_buffer"]["address"] == 0x14005A000
+    assert joined[0].get("api") == "VirtualAlloc" or joined[0].get("consumer") == "VirtualAlloc"
+    assert "executed" not in str(joined[0]).casefold()
+
+
+def test_trace_api_argument_does_not_treat_ciphertext_va_as_decoded_output(test_settings) -> None:
+    """B01: an encoded-blob VA without output_buffer is not a consumer link."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    rows = [
+        SimpleNamespace(
+            id="cipher-only",
+            artifact_id="artifact-1",
+            kind="encoded_blob",
+            value={"memory_addresses": [0x140005000], "length": 24},
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="ctx-1",
+            artifact_id="artifact-1",
+            kind="function_context",
+            value={
+                "name": "FUN_decode",
+                "entry": "0x401000",
+                "call_targets": [{"target_name": "LoadLibraryW", "from": "0x401020"}],
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="ins-1",
+            artifact_id="artifact-1",
+            kind="function_instruction_window",
+            value={
+                "instructions": [
+                    {"address": "0x401010", "text": "LEA RCX, [0x140005000]"},
+                    {"address": "0x401020", "text": "CALL LoadLibraryW"},
+                ]
+            },
+            anchor={"function_entry": "0x401000"},
+        ),
+        SimpleNamespace(
+            id="call-1",
+            artifact_id="artifact-1",
+            kind="function_call",
+            value={"api": "LoadLibraryW", "from": "0x401020"},
+            anchor={"function_entry": "0x401000", "callsite": "0x401020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="trace-cipher-only",
+        action_type=ActionType.TRACE_API_ARGUMENT,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        target_selector={"target": "LoadLibraryW"},
+        expected_evidence_kinds=("api_argument_trace",),
+        source_evidence_ids=("cipher-only", "ctx-1", "ins-1", "call-1"),
+    )
+    observations = service._derive_investigation_observations(rows, action)
+    assert not any(
+        item["kind"] == "api_argument_trace" and item["value"].get("source_role") == "decoded_output"
+        for item in observations
+    )
+
+
+def test_decode_result_links_nested_argument_window_to_output_buffer(test_settings) -> None:
+    """DECODE_CANDIDATE may run after TRACE and still recover exact-buffer identity."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    output_buffer = {
+        "address_space": "image",
+        "address": 0x140005000,
+        "length": 24,
+    }
+    source_rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            kind="encoded_blob",
+            value={
+                "output_buffer": output_buffer,
+                "verification_result": {
+                    "status": "VERIFIED_STATIC_DATA",
+                    "decoded_text": "https://example.invalid/gate",
+                    "virtual_address": 0x140005000,
+                    "length": 24,
+                },
+            },
+            anchor={"function_entry": "0x140003000"},
+        ),
+        SimpleNamespace(
+            id="nested-trace",
+            kind="api_argument_trace",
+            value={
+                "api": "LoadLibraryW",
+                "callsite": "0x140003020",
+                "arguments": [
+                    {"index": 0, "register": "RCX", "value": "0x140005000", "resolved": True},
+                ],
+                "resolved": False,
+            },
+            anchor={"function_entry": "0x140003000", "callsite": "0x140003020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="decode-nested-window",
+        action_type=ActionType.DECODE_CANDIDATE,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        parameters={"target": "xor"},
+        target_selector={"target": "xor"},
+        expected_evidence_kinds=("decode_result",),
+    )
+    observations = service._derive_investigation_observations(source_rows, action)
+    result = next(item for item in observations if item["kind"] == "decode_result")
+    assert result["value"]["consumer_status"] == "LINKED_STATIC"
+    assert result["value"]["consumer_candidates"][0]["api"] == "LoadLibraryW"
+
+
+def test_decode_candidate_emits_process_join_when_command_buffer_matches(test_settings) -> None:
+    """C3: DECODE_CANDIDATE mints decode_output_to_process_command for lpCommandLine."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    output_buffer = {
+        "address_space": "image",
+        "address": 0x140005000,
+        "length": 24,
+    }
+    source_rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            kind="encoded_blob",
+            value={
+                "output_buffer": output_buffer,
+                "verification_result": {
+                    "status": "VERIFIED_STATIC_DATA",
+                    "decoded_text": "FoxitPDFReader.exe",
+                    "virtual_address": 0x140005000,
+                    "length": 24,
+                },
+            },
+            anchor={"function_entry": "0x140003000"},
+        ),
+        SimpleNamespace(
+            id="nested-trace",
+            kind="api_argument_trace",
+            value={
+                "api": "CreateProcessW",
+                "callsite": "0x140003020",
+                "arguments": [
+                    {"index": 1, "name": "lpCommandLine", "value": "0x140005000", "resolved": True},
+                ],
+                "resolved": False,
+            },
+            anchor={"function_entry": "0x140003000", "callsite": "0x140003020"},
+        ),
+    ]
+    action = ActionSpec(
+        id="decode-process-join",
+        action_type=ActionType.DECODE_CANDIDATE,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        parameters={"target": "xor"},
+        target_selector={"target": "xor"},
+        expected_evidence_kinds=("decode_result",),
+    )
+    observations = service._derive_investigation_observations(source_rows, action)
+    joined = [
+        item["value"]
+        for item in observations
+        if item["kind"] == "value_flow"
+        and item["value"].get("relation") == "decode_output_to_process_command"
+    ]
+    assert joined
+    assert joined[0]["output_buffer"]["address"] == 0x140005000
+    assert joined[0]["command_buffer"]["address"] == 0x140005000
+
+
+def test_decode_candidate_links_output_pointer_loaded_into_a_call(test_settings) -> None:
+    """Resume-style decode windows never emit api_argument_trace; the CALL still consumes the VA."""
+    from threat_report_agent.behavior_catalog import BehaviorCatalog
+
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    output_buffer = {
+        "address_space": "image",
+        "address": 0x140005000,
+        "length": 24,
+        "artifact_id": "artifact-1",
+    }
+    source_rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            artifact_id="artifact-1",
+            kind="encoded_blob",
+            value={
+                "output_buffer": output_buffer,
+                "verification_result": {
+                    "status": "VERIFIED_STATIC_DATA",
+                    "formula": "key_table_modulo_xor_counter",
+                    "key_table": [1, 2, 3],
+                    "plaintext_hex": "687474703a2f2f6578616d706c652e696e76616c6964",
+                    "ciphertext_hex": "00" * 22,
+                    "output_hash": "a" * 64,
+                    "output_buffer": output_buffer,
+                    "decoded_text": "http://example.invalid",
+                    "virtual_address": 0x140005000,
+                    "length": 24,
+                },
+            },
+            anchor={"function_entry": "0x140003000"},
+        ),
+        SimpleNamespace(
+            id="ins-1",
+            artifact_id="artifact-1",
+            kind="function_instruction_window",
+            value={
+                "entry": "0x140003000",
+                "instructions": [
+                    {"address": "0x140003010", "text": "LEA RCX, [0x140005000]"},
+                    {"address": "0x140003017", "text": "CALL WinHttpConnect"},
+                ],
+            },
+            anchor={"function_entry": "0x140003000"},
+        ),
+    ]
+    action = ActionSpec(
+        id="decode-pointer-consumer",
+        action_type=ActionType.DECODE_CANDIDATE,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        parameters={"target": "xor"},
+        target_selector={"target": "xor"},
+        expected_evidence_kinds=("decode_result",),
+    )
+    observations = service._derive_investigation_observations(source_rows, action)
+    result = next(
+        item
+        for item in observations
+        if item["kind"] == "decode_result" and item["value"].get("consumer_status")
+    )
+    assert result["value"]["consumer_status"] == "LINKED_STATIC"
+    assert result["value"]["consumer_candidates"][0]["api"] == "WinHttpConnect"
+    assert any(
+        item["kind"] == "value_flow" and item["value"].get("relation") == "output_to_consumer"
+        for item in observations
+    )
+    catalog_rows = [
+        {
+            "id": row.id,
+            "kind": row.kind,
+            "nature": "STATIC_OBSERVED",
+            "value": row.value if isinstance(row.value, dict) else {},
+        }
+        for row in source_rows
+    ]
+    catalog_rows.extend(
+        {
+            "id": f"obs-{index}",
+            "kind": item["kind"],
+            "nature": item.get("nature") or "STATIC_DERIVED",
+            "value": item["value"],
+        }
+        for index, item in enumerate(observations)
+    )
+    evaluation = BehaviorCatalog().evaluate("config-and-crypto", catalog_rows)
+    assert "output_to_consumer" not in evaluation.missing
+    assert "algorithm" not in evaluation.missing
+
+
+def test_decode_candidate_links_rdata_xref_without_argument_register(test_settings) -> None:
+    """A same-VA data xref is a locator, not an object-level decode consumer."""
+    from threat_report_agent.behavior_catalog import BehaviorCatalog
+
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    output_buffer = {
+        "address_space": "image",
+        "address": 0x14004C8E1,
+        "length": 31,
+        "artifact_id": "artifact-1",
+    }
+    source_rows = [
+        SimpleNamespace(
+            id="decode-producer",
+            artifact_id="artifact-1",
+            kind="encoded_blob",
+            value={
+                "output_buffer": output_buffer,
+                "verification_result": {
+                    "status": "VERIFIED_STATIC_DATA",
+                    "formula": "key_table_modulo_xor_counter",
+                    "key_table": [182, 144, 1, 106],
+                    "counter_initial": 3,
+                    "counter_step": 7,
+                    "plaintext_hex": "687474703a2f2f6578616d706c652e696e76616c6964",
+                    "ciphertext_hex": "00" * 22,
+                    "output_hash": "b" * 64,
+                    "output_buffer": output_buffer,
+                    "decoded_text": "http://example.invalid",
+                    "virtual_address": 0x14004C8E1,
+                    "length": 31,
+                },
+            },
+            anchor={"rva": "0x4c8e1"},
+        ),
+        SimpleNamespace(
+            id="xref-1",
+            artifact_id="artifact-1",
+            kind="data_reference",
+            value={
+                "from": "0x140003010",
+                "to": "0x14004c8e1",
+                "target_name": "DAT_14004c8e1",
+            },
+            anchor={"function_entry": "0x140003000", "callsite": "0x140003010"},
+        ),
+        SimpleNamespace(
+            id="ins-unrelated",
+            artifact_id="artifact-1",
+            kind="function_instruction_window",
+            value={
+                "entry": "0x140003000",
+                "instructions": [
+                    {"address": "0x140003000", "text": "MOV RAX, RAX"},
+                    {"address": "0x140003003", "text": "RET"},
+                ],
+            },
+            anchor={"function_entry": "0x140003000"},
+        ),
+    ]
+    action = ActionSpec(
+        id="decode-xref-consumer",
+        action_type=ActionType.DECODE_CANDIDATE,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        parameters={"target": "xor"},
+        target_selector={"target": "xor"},
+        expected_evidence_kinds=("decode_result",),
+    )
+    observations = service._derive_investigation_observations(source_rows, action)
+    result = next(
+        item
+        for item in observations
+        if item["kind"] == "decode_result" and item["value"].get("consumer_status")
+    )
+    assert result["value"]["consumer_status"] == "NOT_IDENTIFIED"
+    assert result["value"]["consumer_candidates"][0]["evidence_id"] == "xref-1"
+    assert not any(
+        item["kind"] == "value_flow" and item["value"].get("relation") == "output_to_consumer"
+        for item in observations
+    )
+    catalog_rows = [
+        {
+            "id": row.id,
+            "kind": row.kind,
+            "nature": "STATIC_OBSERVED",
+            "value": row.value if isinstance(row.value, dict) else {},
+        }
+        for row in source_rows
+    ]
+    catalog_rows.extend(
+        {
+            "id": f"obs-{index}",
+            "kind": item["kind"],
+            "nature": item.get("nature") or "STATIC_DERIVED",
+            "value": item["value"],
+        }
+        for index, item in enumerate(observations)
+    )
+    evaluation = BehaviorCatalog().evaluate("config-and-crypto", catalog_rows)
+    assert "output_to_consumer" in evaluation.missing
+
+
+def test_trace_api_argument_skips_ghidra_string_labels(test_settings) -> None:
+    """Ghidra s_/DAT_ labels are data names, not recovered WinHTTP APIs."""
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    rows = [
+        SimpleNamespace(
+            id="ins-1",
+            artifact_id="artifact-1",
+            kind="function_instruction_window",
+            value={
+                "instructions": [
+                    {
+                        "address": "0x140003010",
+                        "text": "CALL s_winhttp_export_not_found_14004c66f",
+                    }
+                ]
+            },
+            anchor={"function_entry": "0x140003000"},
+        ),
+        SimpleNamespace(
+            id="call-1",
+            artifact_id="artifact-1",
+            kind="function_call",
+            value={
+                "api": "s_winhttp_export_not_found_14004c66f",
+                "from": "0x140003010",
+            },
+            anchor={"function_entry": "0x140003000", "callsite": "0x140003010"},
+        ),
+    ]
+    action = ActionSpec(
+        id="trace-label",
+        action_type=ActionType.TRACE_API_ARGUMENT,
+        thread_id="thread-1",
+        hypothesis_id="hypothesis-1",
+        artifact_id="artifact-1",
+        target_selector={"target": "s_winhttp_export_not_found_14004c66f"},
+        expected_evidence_kinds=("api_argument_trace",),
+        source_evidence_ids=("ins-1", "call-1"),
+    )
+    observations = service._derive_investigation_observations(rows, action)
+    traces = [
+        item
+        for item in observations
+        if item["kind"] == "api_argument_trace"
+        and "s_winhttp" in str(item["value"].get("api") or "").casefold()
+    ]
+    assert traces == []
+
+
+def test_return_value_action_recovers_caller_argument_flow(test_settings) -> None:
+    service = AnalysisService(
+        test_settings, Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    rows = [
+        SimpleNamespace(
+            id="producer-context", kind="function_context",
+            value={"name": "decode_config", "entry": "0x2000",
+                   "call_targets": [{"target_name": "helper", "from": "0x2005"}]},
+            anchor={"function_entry": "0x2000"},
+        ),
+        SimpleNamespace(
+            id="caller-context", kind="function_context",
+            value={"name": "load_config", "entry": "0x1000", "architecture": "x86_64",
+                   "call_targets": [{"target_name": "decode_config", "from": "0x1000"},
+                                    {"target_name": "LoadLibraryW", "from": "0x1010"}]},
+            anchor={"function_entry": "0x1000"},
+        ),
+        SimpleNamespace(
+            id="caller-instructions", kind="function_instruction_window",
+            value={"instructions": [
+                {"address": "0x1000", "text": "CALL decode_config"},
+                {"address": "0x1005", "text": "MOV RCX, RAX"},
+                {"address": "0x1010", "text": "CALL LoadLibraryW"},
+            ]}, anchor={"function_entry": "0x1000"},
+        ),
+    ]
+    action = ActionSpec(
+        id="trace-return", action_type=ActionType.TRACE_RETURN_VALUE,
+        thread_id="thread-1", hypothesis_id="hypothesis-1", artifact_id="artifact-1",
+        parameters={"target": "decode_config"}, expected_evidence_kinds=("value_flow",),
+        source_evidence_ids=("producer-context",),
+    )
+    observations = service._derive_investigation_observations(rows, action)
+    flow = next(row["value"] for row in observations if row["kind"] == "value_flow")
+    assert flow["consumers"] == ["LoadLibraryW"]
+    assert flow["links"][0]["producer_callsite"] == "0x1000"
+    assert flow["links"][0]["argument_index"] == 0
+    assert "caller-instructions" in flow["derivation"]["input_evidence_ids"]
 
 
 def test_global_string_action_returns_artifact_local_string_observations(test_settings) -> None:

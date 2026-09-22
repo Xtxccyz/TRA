@@ -7,6 +7,12 @@ This document preserves the original seven waves and final gate, while making ev
 security, attribution and environment prerequisites executable. The original plan remains
 unchanged as the source proposal; this file is the implementation and acceptance authority.
 
+Task amendment, 2026-09-07: see
+[Behavior-driven investigation review and task plan](behavior-driven-investigation-plan-reviewed-20260907.md).
+It prioritizes evidence-relation correctness, first-request investigation and unified behavior
+reports, and specifies a separately gated controlled-emulation profile. It does not mark the
+remaining release gates complete or enable execution in the existing static-only profile.
+
 ## 1. Product objective
 
 The release must support the complete static-only user path:

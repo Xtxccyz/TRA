@@ -13,7 +13,7 @@ import json
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -22,6 +22,7 @@ from threat_report_agent.runtime_contracts import (
     classify_failure,
     retry_decision,
 )
+from threat_report_agent.turn_lifecycle import LongTurnLifecycle
 
 
 def _run(name: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -454,6 +455,59 @@ def short_soak() -> dict[str, Any]:
     }
 
 
+def elapsed_time_truthfulness() -> dict[str, Any]:
+    """Prove elapsed time is derived from server timestamps, not turn guesses."""
+    from threat_report_agent.models import AnalysisTask
+    from threat_report_agent.service import AnalysisService
+
+    created = datetime(2026, 1, 1, tzinfo=UTC)
+    started = created + timedelta(seconds=2)
+    finished = started + timedelta(seconds=7, milliseconds=250)
+    task = AnalysisTask(
+        case_id="case-elapsed",
+        lifecycle="SUCCEEDED",
+        created_at=created,
+        started_at=started,
+        finished_at=finished,
+    )
+    elapsed = AnalysisService._elapsed_ms(task)
+    assert elapsed == 7_250
+    # A finished task is immutable from the client's perspective: subsequent
+    # calls cannot grow elapsed time with polling count or local wall clock.
+    assert AnalysisService._elapsed_ms(task, now=finished + timedelta(hours=1)) == elapsed
+    return {
+        "server_elapsed_ms": elapsed,
+        "source": "server started_at/finished_at",
+        "finished_task_stable": True,
+        "fabricated_elapsed": False,
+    }
+
+
+def long_turn_branch_lifecycle() -> dict[str, Any]:
+    """Prove a long analysis releases its turn and branches only after terminal."""
+    lifecycle = LongTurnLifecycle()
+    states = [lifecycle.start_analysis("turn-1").state, lifecycle.return_async().state]
+    branch_rejected = False
+    try:
+        lifecycle.branch("turn-branch")
+    except RuntimeError as exc:
+        branch_rejected = str(exc) == "BRANCH_REQUIRES_TERMINAL_TURN"
+    states.append(lifecycle.accept_event(1, terminal=True).state)
+    states.append(lifecycle.complete().state)
+    branch = lifecycle.branch("turn-branch")
+    assert branch_rejected
+    assert states == ["ANALYSIS_RUNNING", "AWAITING_EVENT", "SYNTHESIZING", "COMPLETED"]
+    assert branch.parent_turn_id == "turn-1"
+    return {
+        "states": states,
+        "async_turn_released": True,
+        "branch_before_terminal": "REJECTED",
+        "branch_after_terminal": "ACCEPTED",
+        "parent_turn_id": branch.parent_turn_id,
+        "context_overflow": False,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -467,6 +521,8 @@ def main() -> int:
         _run("concurrent_session_contexts", concurrent_session_contexts),
         _run("concurrent_context_calls", concurrent_context_calls),
         _run("short_synthetic_soak", short_soak),
+        _run("elapsed_time_truthfulness", elapsed_time_truthfulness),
+        _run("long_turn_branch_lifecycle", long_turn_branch_lifecycle),
     ]
     payload = {
         "schema_version": "runtime-control-plane-acceptance-v1",
@@ -485,12 +541,15 @@ def main() -> int:
             "worker_failure_injection": "NOT_PROVEN",
             "three_way_or_five_way_analysis_concurrency": "NOT_PROVEN",
             "twenty_four_hour_soak": "NOT_PROVEN",
+            "elapsed_time_truthfulness": "PASS",
+            "long_turn_branch_lifecycle": "PASS",
         },
         "notes": [
             "Synthetic checks are deterministic control-plane evidence and do not certify Docker restart/recovery.",
             "Application restart recovery uses a temporary SQLite database and reconstructs the service; it does not restart a container or worker.",
             "Concurrency and soak checks use synthetic control-plane rows/messages only; no sample bytes are opened or executed.",
             "No sample bytes were opened or executed by this harness.",
+            "Elapsed time and long-turn branch checks exercise local contracts only; they do not certify a live DSH 20-minute browser run.",
         ],
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

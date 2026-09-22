@@ -10,7 +10,23 @@ __pycache__/
 dist/
 build/
 .scratch/
+.scratch-t4-tmp/
+# Generated RUN OUTPUT, not source: sample-derived analysis dumps (task views, report and CLI payloads).
+# MEASURED: 358 files / 129.1 MB, largest single file 46.5 MB. Committing these would put sample-derived
+# content into git history permanently, where deleting it later does not remove it.
+release-artifacts/
+# Dated blind-test RUN DUMPS. MEASURED: comhost-20260826 alone is ~172 MB of raw analysis traces
+# (04-analysis-trace 81 MB, 05-audit-events 40 MB, 03-system-report 38 MB) derived from a sample.
+blind-tests/
+# Third-party threat-intelligence documents, not ours to redistribute: 安天《白象的舞步》(.mhtml 6.3 MB)
+# and 《APT-C-00（海莲花）组织最新技战术升级分析》(.pdf 4.4 MB).
+resource and plan/
+# Generated reports.
+reports/
 .tmp/
 tmp/
 node_modules/
 threat-dsh-workbench/node_modules/
+_sat_debug/
+ghidra-verification/
+*.bak-before-zh

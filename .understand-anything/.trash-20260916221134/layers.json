@@ -1,0 +1,131 @@
+[
+  {
+    "id": "layer:api",
+    "name": "接入层",
+    "description": "HTTP 与进程入口外壳：main.py 的 create_app 注册 workbench 会话、Evidence 查询、Report 修订与审批、审计封存等全部 FastAPI 路由，cli.py 提供 analyze/worker/seal-audit-day 子命令，auth.py 提供 Principal 与 require_permission 鉴权原语，__init__.py 声明控制面包；并由 main.py 根路由返回 static/ 下的遗留兼容单页 UI（index.html、app.js、styles.css，生产入口已迁至范围外的 threat-dsh-workbench）。本层只做请求解析、鉴权、路由装配与展示，不含任何分析判定逻辑。",
+    "nodeIds": [
+      "file:src/threat_report_agent/main.py",
+      "file:src/threat_report_agent/cli.py",
+      "file:src/threat_report_agent/auth.py",
+      "file:src/threat_report_agent/__init__.py",
+      "file:src/threat_report_agent/static/index.html",
+      "file:src/threat_report_agent/static/app.js",
+      "file:src/threat_report_agent/static/styles.css"
+    ]
+  },
+  {
+    "id": "layer:service",
+    "name": "服务层",
+    "description": "Analysis Task 全生命周期编排：service.py 是约 2.8 万行的巨型服务模块，承载提交与样本包展开、Artifact/ToolRun 注册、静态分析与受控模拟派发、Evidence 与 Claim 链接、Analysis Snapshot 冻结、Report Revision，并内含现行活体调查 planner 入口 _run_investigation_loop（配合 investigation.DeepMiningPlanner）；analysis_task_orchestration.py 决定 persist HOW skip、调查循环路径（READY/BOUNDARY 优先于预算、预算优先于 DeepMiningPlanner）与工作账本饱和/受控模拟交错；intake.py 负责 zip/7z 递归展开、路径安全与配额校验，并在需要人工确认时抛出 IntakeGateRequired。",
+    "nodeIds": [
+      "file:src/threat_report_agent/service.py",
+      "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "file:src/threat_report_agent/intake.py"
+    ]
+  },
+  {
+    "id": "layer:static-analysis",
+    "name": "静态分析内核",
+    "description": "从字节到静态事实的取证内核，同为「不执行样本」边界的实现处：static_analysis.py 做 PE 解析、XOR/解码恢复、动态 API 解析与间接调用跟踪，static_simulation.py 在受限步数内做静态抽象执行，ghidra_adapter.py 与 ghidra_scripts/ExportStaticFacts.java 构成 Ghidra headless 的调用与导出两端，simulation_adapters.py 提供 Unicorn/Speakeasy/Qiling adapter 与 IsolatedSimulationRunner 隔离 seam，tool_execution.py 以 Temporal workflow/activity 承载 ToolRun 并强制工具白名单，function_simhash.py 与 function_similarity.py 提供函数指纹与有界相似度检索。",
+    "nodeIds": [
+      "file:src/threat_report_agent/static_analysis.py",
+      "file:src/threat_report_agent/static_simulation.py",
+      "file:src/threat_report_agent/ghidra_adapter.py",
+      "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "file:src/threat_report_agent/simulation_adapters.py",
+      "file:src/threat_report_agent/tool_execution.py",
+      "file:src/threat_report_agent/function_simhash.py",
+      "file:src/threat_report_agent/function_similarity.py"
+    ]
+  },
+  {
+    "id": "layer:investigation",
+    "name": "调查与证据引擎",
+    "description": "行为驱动调查的中枢，把静态事实升级为有证据支撑的 Claim：investigation.py 定义 ActionType/ActionSpec、版本化 Playbook、ClaimGate 与各机制验证器并由 InvestigationLoopDriver 驱动 Hypothesis→Action→Evidence→Verification 有界循环；investigation_ledger.py 是每个问题一行的状态账本（仍有 OPEN/DEFERRED 时拒绝判定完成），investigation_protocol.py 给出十问槽位与 S0–S4 静态升级阶梯，behavior_catalog.py 声明「什么算证据」的 fact/relation 谓词契约，evidence_index.py 与 evidence_recovery.py 提供规范化有界检索键与问题驱动投递漏斗，persist_how.py 是持久化机制 HOW Claim 的单一出口，dataflow.py 完成解码产物到真实消费者的对象级 Join。",
+    "nodeIds": [
+      "file:src/threat_report_agent/investigation.py",
+      "file:src/threat_report_agent/investigation_ledger.py",
+      "file:src/threat_report_agent/investigation_protocol.py",
+      "file:src/threat_report_agent/behavior_catalog.py",
+      "file:src/threat_report_agent/evidence_index.py",
+      "file:src/threat_report_agent/evidence_recovery.py",
+      "file:src/threat_report_agent/persist_how.py",
+      "file:src/threat_report_agent/dataflow.py"
+    ]
+  },
+  {
+    "id": "layer:methodology",
+    "name": "机制方法学与受控模拟规划",
+    "description": "规则化的分析方法学与「计划而非执行」的模拟规划：methodology.py 以 Signal→FactMatch→AttributionAssessment→AnalysisProfile 中间语言把「像哪个家族/是否排除」变成可审计的规则化评估并与 PE/Ghidra 细节解耦；pma_static_plan.py 依 PMA 口径从 PE、导入、节区与字符串事实推导有序静态梯级并判定可升级为调查 seed 的条目；emulation_plan.py 推导可交给隔离 worker 的 Unicorn/Speakeasy 片段窗口，controlled_emulation.py 区分 DEFERRED_TO_WORKER 占位与真实 simulation_result 并判断是否仍有未覆盖窗口——两模块都不在宿主执行样本。",
+    "nodeIds": [
+      "file:src/threat_report_agent/methodology.py",
+      "file:src/threat_report_agent/pma_static_plan.py",
+      "file:src/threat_report_agent/emulation_plan.py",
+      "file:src/threat_report_agent/controlled_emulation.py"
+    ]
+  },
+  {
+    "id": "layer:model-runtime",
+    "name": "模型网关、Agent 运行时与 Prompt 资源",
+    "description": "模型面向层及其版本化资源：model_gateway.py 统一 provider 契约、重试/fallback、结构化输出解析与 token 审计，prompts.py 连同 prompts/manifest.json 与四份系统提示词模板（triage、static-analysis、planning、analyst-report）构成按 id+version 取用的 PromptRegistry，agent_runtime.py 提供经 ContextBudgetManager 约束、以不可变 AgentEvent 记录的有界单轮模型执行；agents.py、orchestration.py、turn_lifecycle.py 是历史编排实现（langgraph 原型与旧 triage agent，均非现行 planner）；analysis_trace.py 输出脱敏的分析过程投影，attack_mapping.py 把 Claim 映射为 ATT&CK candidate 技术。",
+    "nodeIds": [
+      "file:src/threat_report_agent/model_gateway.py",
+      "file:src/threat_report_agent/prompts.py",
+      "file:src/threat_report_agent/analysis_trace.py",
+      "file:src/threat_report_agent/attack_mapping.py",
+      "file:src/threat_report_agent/agent_runtime.py",
+      "file:src/threat_report_agent/agents.py",
+      "file:src/threat_report_agent/orchestration.py",
+      "file:src/threat_report_agent/turn_lifecycle.py",
+      "config:src/threat_report_agent/prompts/manifest.json",
+      "document:src/threat_report_agent/prompts/triage-system-v1.md",
+      "document:src/threat_report_agent/prompts/static-analysis-system-v1.md",
+      "document:src/threat_report_agent/prompts/planning-system-v1.md",
+      "document:src/threat_report_agent/prompts/analyst-report-system-v1.md"
+    ]
+  },
+  {
+    "id": "layer:reporting",
+    "name": "报告层",
+    "description": "把不可变快照投影为分析员可读交付物并为其打分：reporting.py 从 Analysis Snapshot 装配 V3 Report Document（机制投影、行为发现、唯一执行线程、运行序列、评估）并渲染 Markdown，analyst_report.py 依据行为目录、PMA 静态规则与本样本证据规划章节并渲染官方分析员报告 overlay（渲染后跑静态措辞合规检查，CANDIDATE 只叙述为已恢复静态事实而不升级），gold_output_bar.py 按 PE 信息、导入名、参数化调用序列、解码常量等检查项做量化 gold bar 评分，deep_analysis_quality.py 做确定性对抗式过度声明检查与报告深度评分并降级不达标结论。",
+    "nodeIds": [
+      "file:src/threat_report_agent/reporting.py",
+      "file:src/threat_report_agent/analyst_report.py",
+      "file:src/threat_report_agent/gold_output_bar.py",
+      "file:src/threat_report_agent/deep_analysis_quality.py"
+    ]
+  },
+  {
+    "id": "layer:quality-gate",
+    "name": "质量门与产品契约",
+    "description": "模型之外的判定、契约与治理，保证结论不得越过证据：contracts.py 以 FrozenContract 定义四通道输入、ActionProposal、InvestigationThread、Hypothesis、Mechanism 等不可变形状，status.py 区分 Task Lifecycle 与分析完整度并含 Claim 的 CANDIDATE/VERIFIED/DISPUTED/REJECTED，runtime_contracts.py 管理上下文预算、失败分类与重试判定，policy.py 用 preset 与工具策略裁决 Action Proposal（模型不能自行授予工具权限或样本执行能力），validation.py 是 Claim 写入前的 Claim-Evidence 守卫，mechanism_ready.py/mechanism_completeness.py 给出机制就绪 façade（CANDIDATE 永不计入 critical_ready）与八字段语义完整度打分，product_certification.py 定义制品矩阵、AnalysisResultClass 与发布门禁，semantic_predicates.py 提供被行为目录、数据流与报告共用的 API 语义分类判据。",
+    "nodeIds": [
+      "file:src/threat_report_agent/contracts.py",
+      "file:src/threat_report_agent/status.py",
+      "file:src/threat_report_agent/runtime_contracts.py",
+      "file:src/threat_report_agent/policy.py",
+      "file:src/threat_report_agent/validation.py",
+      "file:src/threat_report_agent/mechanism_ready.py",
+      "file:src/threat_report_agent/mechanism_completeness.py",
+      "file:src/threat_report_agent/product_certification.py",
+      "file:src/threat_report_agent/semantic_predicates.py"
+    ]
+  },
+  {
+    "id": "layer:infrastructure",
+    "name": "持久化、配置与知识资源",
+    "description": "运行时基础设施与声明式资源：models.py 与 database.py 构成 SQLAlchemy 持久层（Case/AnalysisTask/Artifact/ToolRun/Evidence/Claim/Relation/ReportRevision 等表、幂等列迁移与审计不可变/数据守卫），content_store.py 管理 Content Blob 的本地与 S3/MinIO 实现并签发受限访问凭据，secret_store.py 以 GATE_SECRET_KEY 派生 Fernet 密钥加密保存归档密码，config.py 集中环境驱动的运行时配置（数据库、内容存储、各角色任务队列、模型预算、受控模拟上限与 Ghidra/JDK 探测），observability.py 提供 OTel tracer、JSON 结构化日志与 Prometheus 指标；本层同时容纳被运行时加载的声明式资源——knowledge/ 下版本化 ATT&CK 快照与企业技术索引，policies/ 下工具策略清单与任务预设清单。",
+    "nodeIds": [
+      "file:src/threat_report_agent/models.py",
+      "file:src/threat_report_agent/database.py",
+      "file:src/threat_report_agent/content_store.py",
+      "file:src/threat_report_agent/secret_store.py",
+      "file:src/threat_report_agent/config.py",
+      "file:src/threat_report_agent/observability.py",
+      "config:src/threat_report_agent/knowledge/attack-snapshot.yaml",
+      "config:src/threat_report_agent/knowledge/attack-enterprise-index.json",
+      "config:src/threat_report_agent/policies/tool-policy.json",
+      "config:src/threat_report_agent/policies/preset-commands.json"
+    ]
+  }
+]

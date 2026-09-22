@@ -22,9 +22,12 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 FINAL_ROUND = ROOT / "release-artifacts" / "final-round"
 DEFAULT_OUTPUT = FINAL_ROUND / "final-completion-stage-gate-generated.json"
-DEFAULT_TASK_VIEW_PATH = ROOT / ".scratch" / "final-completion-live-20260904" / "comhost-task-view-d114e2d4.json"
-DEFAULT_BASELINE_PATH = FINAL_ROUND / "comhost-static-baseline-postdeploy-20260904.json"
-DEFAULT_ISSUE_REGISTER_PATH = FINAL_ROUND / "issue-register-20260904.json"
+# Keep the command-line gate bound to the newest completed static run. Older
+# artifacts remain available for historical comparison but must not silently
+# become the release identity for a new invocation.
+DEFAULT_TASK_VIEW_PATH = ROOT / ".scratch" / "final-completion-live-20260904" / "comhost-task-view-current-r2.json"
+DEFAULT_BASELINE_PATH = FINAL_ROUND / "comhost-static-baseline-current-20260905.json"
+DEFAULT_ISSUE_REGISTER_PATH = FINAL_ROUND / "issue-register-20260905.json"
 
 _SOURCE_TIMESTAMP_RE = re.compile(rb'"generated_at"\s*:\s*"([^"\\]+)"')
 _MISSING = object()
@@ -59,11 +62,11 @@ DEFAULT_GATE_EVIDENCE_SOURCES: dict[str, tuple[Path, ...]] = {
         FINAL_ROUND / "model-effectiveness-real-20260902.json",
     ),
     "analysis_depth_gate": (
-        FINAL_ROUND / "report-depth-comhost-20260902-r2.json",
+        FINAL_ROUND / "report-depth-comhost-current-20260905.json",
         FINAL_ROUND / "resume-regression-summary-20260904.json",
     ),
     "report_depth_gate": (
-        FINAL_ROUND / "report-depth-comhost-20260902-r2.json",
+        FINAL_ROUND / "report-depth-comhost-current-20260905.json",
         FINAL_ROUND / "resume-regression-summary-20260904.json",
     ),
     "browser_e2e": (FINAL_ROUND / "browser-e2e-20260902.json",),
@@ -534,6 +537,17 @@ def _image_digest() -> str | None:
 
 def _baseline_identity(baseline: dict[str, Any]) -> tuple[str | None, str | None]:
     """Read the source identity from either baseline schema revision."""
+    # Current baseline writers bind identity at the document root.  Keep the
+    # older nested repository form for existing manifests, but prefer the
+    # artifact's own identity so a fresh run is not silently attributed to a
+    # separate historical manifest.
+    top_level_commit = baseline.get("git_commit") or baseline.get("backend_commit")
+    top_level_tree = baseline.get("git_tree") or baseline.get("backend_tree")
+    if top_level_commit or top_level_tree:
+        return (
+            str(top_level_commit) if top_level_commit else None,
+            str(top_level_tree) if top_level_tree else None,
+        )
     repository = baseline.get("repository")
     if not isinstance(repository, dict):
         return None, None
@@ -687,7 +701,7 @@ def _artifact_metadata(
 def build_gate(
     *,
     baseline_path: Path = DEFAULT_BASELINE_PATH,
-    semantic_path: Path = FINAL_ROUND / "comhost-semantic-differential-postdeploy-20260904.json",
+    semantic_path: Path = FINAL_ROUND / "comhost-semantic-differential-current-20260905.json",
     sbom_path: Path = FINAL_ROUND / "threat-report-agent-api-sbom-20260904.json",
     cve_path: Path = FINAL_ROUND / "threat-report-agent-api-cve-scan-20260904.json",
     ruff_path: Path | None = None,
@@ -696,7 +710,7 @@ def build_gate(
     pytest_summary: str | None = None,
     pytest_summary_path: Path | None = None,
     baseline_manifest_path: Path = FINAL_ROUND / "baseline-manifest.json",
-    format_debt_path: Path = FINAL_ROUND / "ruff-format-debt-check-20260904.json",
+    format_debt_path: Path = FINAL_ROUND / "ruff-format-debt-check-20260905-current.json",
     readiness_path: Path | None = None,
     seeded_gate_path: Path | None = None,
     model_effectiveness_path: Path | None = None,
@@ -721,8 +735,8 @@ def build_gate(
     if baseline_path == DEFAULT_BASELINE_PATH:
         seeded_gate_path = seeded_gate_path or FINAL_ROUND / "comhost-c1-c4-fresh-20260902.json"
         model_effectiveness_path = model_effectiveness_path or FINAL_ROUND / "model-effectiveness-real-20260902.json"
-        analysis_depth_path = analysis_depth_path or FINAL_ROUND / "report-depth-comhost-20260902-r2.json"
-        report_depth_path = report_depth_path or FINAL_ROUND / "report-depth-comhost-20260902-r2.json"
+        analysis_depth_path = analysis_depth_path or FINAL_ROUND / "report-depth-comhost-current-20260905.json"
+        report_depth_path = report_depth_path or FINAL_ROUND / "report-depth-comhost-current-20260905.json"
         browser_e2e_path = browser_e2e_path or FINAL_ROUND / "browser-e2e-20260902.json"
         context_stress_path = context_stress_path or ROOT / "release-artifacts" / "context-window-stress.json"
         recovery_path = recovery_path or ROOT / "release-artifacts" / "round11.2" / "restart-recovery.json"
@@ -761,6 +775,16 @@ def build_gate(
     case_id = str(task_view.get("case_id") or "") or None
     commit = _git("rev-parse", "HEAD")
     tree = _git("rev-parse", "HEAD^{tree}")
+    # Semantic differential output drives the real C1-C4 projection, so it
+    # must carry the same immutable source identity as every other release
+    # acceptance artifact. Without this check, an old unbound PASS could close
+    # the semantic gate for a different checkout.
+    semantic_identity_error = _identity_error(
+        semantic,
+        label="Semantic differential",
+        commit=commit,
+        tree=tree,
+    )
     identity_source = baseline
     identity_path = baseline_path
     if not isinstance(baseline.get("repository"), dict) and baseline_manifest_path.exists():
@@ -918,7 +942,7 @@ def build_gate(
         for item in mechanisms
         if item.get("mechanism_id") in critical_ids
     }
-    critical_closed = len(critical_status) == len(critical_ids) and all(
+    critical_closed = semantic_identity_error is None and len(critical_status) == len(critical_ids) and all(
         status in {"SUPPORTED", "VERIFIED"} for status in critical_status.values()
     )
 
@@ -944,6 +968,8 @@ def build_gate(
             "Baseline manifest identity does not match the current HEAD/tree; "
             "a current release baseline is required."
         )
+    if semantic_identity_error:
+        blockers.append(semantic_identity_error)
     if format_debt_status != "PASS":
         blockers.append("Ruff format-debt gate is missing or not PASS.")
     blockers.extend(verification_identity_blockers)
@@ -1354,8 +1380,8 @@ def main() -> int:
     default_paths = {
         "seeded_gate": FINAL_ROUND / "comhost-c1-c4-fresh-20260902.json",
         "model_effectiveness": FINAL_ROUND / "model-effectiveness-real-20260902.json",
-        "analysis_depth": FINAL_ROUND / "report-depth-comhost-20260902-r2.json",
-        "report_depth": FINAL_ROUND / "report-depth-comhost-20260902-r2.json",
+        "analysis_depth": FINAL_ROUND / "report-depth-comhost-current-20260905.json",
+        "report_depth": FINAL_ROUND / "report-depth-comhost-current-20260905.json",
         "browser_e2e": FINAL_ROUND / "browser-e2e-20260902.json",
         "context_stress": ROOT / "release-artifacts" / "context-window-stress.json",
         "recovery": ROOT / "release-artifacts" / "round11.2" / "restart-recovery.json",
@@ -1368,7 +1394,7 @@ def main() -> int:
         "resume_regression": FINAL_ROUND / "resume-static-baseline-20260904.json",
         "issue_register": DEFAULT_ISSUE_REGISTER_PATH,
         "readiness": FINAL_ROUND / "readiness-20260904.json",
-        "format_debt": FINAL_ROUND / "ruff-format-debt-check-20260904.json",
+        "format_debt": FINAL_ROUND / "ruff-format-debt-check-20260905-current.json",
     }
 
     def selected(name: str) -> Path | None:

@@ -50,6 +50,14 @@
       "network_access": false
     },
     {
+      "name": "controlled-emulator",
+      "allowed_modules": ["static_triage", "decryption", "loader", "c2_network", "anti_analysis"],
+      "max_cpu_seconds": 60,
+      "max_memory_mb": 2048,
+      "sample_execution": false,
+      "network_access": false
+    },
+    {
       "name": "signal-extractor",
       "allowed_modules": ["static_triage", "decryption", "loader", "c2_network", "anti_analysis", "attribution"],
       "max_cpu_seconds": 180,

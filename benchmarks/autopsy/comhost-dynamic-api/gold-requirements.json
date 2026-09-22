@@ -1,0 +1,11 @@
+{
+  "mechanism_id":"comhost-dynamic-api",
+  "mechanism_type":"DYNAMIC_API_RESOLUTION",
+  "run_status":"BLOCKED_REAL_RUN",
+  "requirements":[
+    {"id":"GC-01","semantic_requirement":"encoded API/DLL input"},
+    {"id":"GC-02","semantic_requirement":"decoder or export hash resolver"},
+    {"id":"GC-03","semantic_requirement":"function pointer table"},
+    {"id":"GC-04","semantic_requirement":"WinHTTP consumer"}
+  ]
+}

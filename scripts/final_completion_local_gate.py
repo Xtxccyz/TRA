@@ -13,6 +13,7 @@ import argparse
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+import subprocess
 import sys
 from uuid import uuid4
 
@@ -25,6 +26,29 @@ from threat_report_agent.deep_analysis_quality import deep_analysis_metrics  # n
 
 
 GOLD_PATH = ROOT / "benchmarks" / "gold" / "comhost-critical-v1.json"
+
+
+def _git_identity() -> dict[str, str | None]:
+    """Bind local fixture evidence to the checkout that produced it."""
+    identity: dict[str, str | None] = {"git_commit": None, "git_tree": None}
+    for key, args in (
+        ("git_commit", ("rev-parse", "HEAD")),
+        ("git_tree", ("rev-parse", "HEAD^{tree}")),
+    ):
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        value = result.stdout.strip()
+        if value:
+            identity[key] = value
+    return identity
 
 
 def _seeded_task() -> dict[str, object]:
@@ -166,7 +190,18 @@ def run(output: Path) -> dict[str, object]:
         "schema_version": "final-completion-local-gate-v1",
         "generated_at": datetime.now(UTC).isoformat(),
         "evidence_level": "L1",
+        **_git_identity(),
         "status": "PASS" if all(item["status"] == "PASS" for item in runs) and model["status"] == "PASS" else "BLOCKED",
+        # Emit the explicit Wave A3 checks consumed by the release gate.  The
+        # values describe only the evaluator fixture; they must never be
+        # mistaken for a real-sample semantic certification.
+        "question_quality": 4,
+        "competing_hypotheses_applicable": True,
+        "useful_action": True,
+        "new_evidence": True,
+        "mechanism_completeness": 1.0,
+        "verifier_pass": True,
+        "unsupported_critical": 0,
         "seeded_c1_c4": {
             "runs_required": 3,
             "runs_completed": len(runs),

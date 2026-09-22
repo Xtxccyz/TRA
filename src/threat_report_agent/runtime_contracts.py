@@ -131,7 +131,15 @@ def classify_failure(
 
     text = _exception_text(exc).casefold()
     name = type(exc).__name__.casefold()
-    if "model" in name or "provider" in name or "api" in name and "http" in text:
+    # An interrupted run is a worker-level failure and must stay retryable.  This
+    # is matched on an explicit marker rather than on a class-name substring: the
+    # first attempt relied on `"worker" in name`, which is False for
+    # `AnalysisRunOrphaned`, so the failure silently became the non-retryable
+    # `STATIC_WORKFLOW_ACTIVITY_FAILED` and the sample would never have been
+    # analysed again.  `code` is the stable contract, so match it directly.
+    if str(getattr(exc, "code", "")) == "ANALYSIS_RUN_ORPHANED":
+        code = "WORKER_FAILURE"
+    elif "model" in name or "provider" in name or "api" in name and "http" in text:
         code = "MODEL_FAILURE"
     elif "timeout" in name or "timeout" in text or "deadline" in text:
         code = "TIMEOUT_FAILURE"

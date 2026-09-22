@@ -1,0 +1,1121 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/simulation_adapters.py",
+      "type": "file",
+      "name": "simulation_adapters.py",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "summary": "受控模拟 adapter 层：提供 Unicorn/Speakeasy/Qiling/flare-emu adapter、能力探测与 SimulationExecutionPolicy，并通过 IsolatedSimulationRunner 作为隔离执行 seam —— 未获得策略许可或缺少 worker 隔离时返回真实拒绝而不执行。worker 结果证据性质为 EMULATION_OBSERVED，绝不产生 DYNAMIC_OBSERVED。",
+      "tags": [
+        "受控模拟",
+        "emulation-adapter",
+        "isolation",
+        "unicorn",
+        "qiling"
+      ],
+      "complexity": "complex",
+      "languageNotes": "adapter 通过 SIMULATOR_IMPORTS 延迟导入，缺少依赖时降级为 UNAVAILABLE 而不是导入失败；策略判定先于任何执行路径。"
+    },
+    {
+      "id": "class:src/threat_report_agent/simulation_adapters.py:SimulationCapability",
+      "type": "class",
+      "name": "SimulationCapability",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        27,
+        45
+      ],
+      "summary": "单个模拟器的能力描述：可用状态、版本、架构与限制原因，as_dict 便于审计与 workbench 展示。",
+      "tags": [
+        "受控模拟",
+        "capability",
+        "data-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/simulation_adapters.py:SimulationRequest",
+      "type": "class",
+      "name": "SimulationRequest",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        367,
+        395
+      ],
+      "summary": "一次受控模拟请求：模拟器名、worker 身份与镜像摘要、架构、入口地址、指令预算、超时、内存映射、输入字节与哈希。",
+      "tags": [
+        "受控模拟",
+        "request",
+        "data-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/simulation_adapters.py:SimulationExecutionPolicy",
+      "type": "class",
+      "name": "SimulationExecutionPolicy",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        399,
+        455
+      ],
+      "summary": "模拟执行策略：声明允许的模拟器、隔离方式、指令/超时/输出上限与是否启用，allows() 判定请求可否执行，调用方无法自我授权。",
+      "tags": [
+        "受控模拟",
+        "policy",
+        "isolation",
+        "resource-limits"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/simulation_adapters.py:SimulationResult",
+      "type": "class",
+      "name": "SimulationResult",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        535,
+        622
+      ],
+      "summary": "worker 模拟结果：状态、观察桶、限制、输入 sha256、工具版本、stop_reason、寄存器、worker 身份与 hook/stub API 列表；_observation_buckets 只做稳定归类而不发明语义事件。",
+      "tags": [
+        "受控模拟",
+        "result",
+        "observation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/simulation_adapters.py:IsolatedSimulationRunner",
+      "type": "class",
+      "name": "IsolatedSimulationRunner",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1370,
+        1500
+      ],
+      "summary": "隔离执行 seam：先按策略裁决请求，未获许可时返回 DISABLED_BY_POLICY/REJECTED 的真实拒绝；仅在存在 worker 隔离与显式执行许可时才调用注册的 adapter，并把请求边界信息附加到每个结果。",
+      "tags": [
+        "受控模拟",
+        "isolation",
+        "runner",
+        "seam"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:benign_pe32_ret",
+      "type": "function",
+      "name": "benign_pe32_ret",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        69,
+        109
+      ],
+      "summary": "合成最小 PE32 退出桩（ret）作为模拟器自检载荷，内容由代码生成而非用户样本，用于验证 adapter 通路可用。",
+      "tags": [
+        "受控模拟",
+        "fixture",
+        "pe32"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:linux_x86_64_exit_elf",
+      "type": "function",
+      "name": "linux_x86_64_exit_elf",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        112,
+        147
+      ],
+      "summary": "合成最小 x86_64 ELF exit 程序，用于 Qiling/Linux 通路自检。",
+      "tags": [
+        "受控模拟",
+        "fixture",
+        "elf"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:linux_elf_identity",
+      "type": "function",
+      "name": "linux_elf_identity",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        160,
+        170
+      ],
+      "summary": "从 payload 头部读取 ELF 架构与类别等身份信息，供 Qiling 选择执行路径。",
+      "tags": [
+        "elf",
+        "parsing",
+        "受控模拟"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:detect_simulation_capabilities",
+      "type": "function",
+      "name": "detect_simulation_capabilities",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        182,
+        232
+      ],
+      "summary": "探测各模拟器（Unicorn/Speakeasy/Qiling/flare-emu）的可用性与版本，返回 SimulationCapability 列表，使缺失能力被如实报告而不是静默跳过。",
+      "tags": [
+        "受控模拟",
+        "capability",
+        "detection"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:speakeasy_capability_matrix",
+      "type": "function",
+      "name": "speakeasy_capability_matrix",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        249,
+        328
+      ],
+      "summary": "按 Speakeasy 的模块/API 覆盖生成能力矩阵，说明哪些行为可在镜像内通过受控模拟观察、哪些必须停留在 UNKNOWN。",
+      "tags": [
+        "受控模拟",
+        "speakeasy",
+        "capability"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:static_phase_simulation_evidence",
+      "type": "function",
+      "name": "static_phase_simulation_evidence",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        331,
+        363
+      ],
+      "summary": "生成静态阶段可用的模拟能力证据：把能力探测结果转成 Evidence-ready 载荷，明确此时并未对样本执行模拟。",
+      "tags": [
+        "受控模拟",
+        "evidence",
+        "static-phase"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:evidence_nature_for_simulation_status",
+      "type": "function",
+      "name": "evidence_nature_for_simulation_status",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        486,
+        506
+      ],
+      "summary": "由模拟状态与停止原因推导证据性质：worker 真实执行的 SUCCEEDED/FAILED/UNMAPPED 记为 EMULATION_OBSERVED；策略拒绝、占位或缺少 rootfs 保持 STATIC_INFERRED；永不产生 DYNAMIC_OBSERVED。",
+      "tags": [
+        "受控模拟",
+        "evidence-nature",
+        "honesty"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:qiling_unavailable_observation",
+      "type": "function",
+      "name": "qiling_unavailable_observation",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        509,
+        531
+      ],
+      "summary": "当 Qiling 被策略允许但缺少固定 rootfs 时，如实记录 UNSUPPORTED 观察，避免把不可用伪装成已尝试的受控模拟。",
+      "tags": [
+        "受控模拟",
+        "qiling",
+        "honest-failure"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_unicorn_adapter",
+      "type": "function",
+      "name": "_unicorn_adapter",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        625,
+        832
+      ],
+      "summary": "Unicorn worker adapter：映射授权窗口内存与入口、设置寄存器与指令预算，采集 API stub 观察、寄存器输出与停止原因，形成 SimulationResult。",
+      "tags": [
+        "受控模拟",
+        "unicorn",
+        "adapter"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_input_guard",
+      "type": "function",
+      "name": "_input_guard",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        835,
+        852
+      ],
+      "summary": "校验模拟输入字节与其 sha256 是否一致或为空，避免对不匹配的内容做模拟并给出 INPUT_HASH_MISMATCH 类停止原因。",
+      "tags": [
+        "受控模拟",
+        "guard",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_unicorn_compat_mem_write",
+      "type": "function",
+      "name": "_unicorn_compat_mem_write",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        856,
+        874
+      ],
+      "summary": "兼容不同 Unicorn 版本的内存写入调用差异，使 adapter 在多种依赖版本下都能写入授权窗口。",
+      "tags": [
+        "受控模拟",
+        "unicorn",
+        "compatibility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_speakeasy_stop",
+      "type": "function",
+      "name": "_speakeasy_stop",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        877,
+        898
+      ],
+      "summary": "把 Speakeasy 的停止条件（指令预算、超时、显式 API 停止）映射为统一的 stop_reason，供证据性质推导使用。",
+      "tags": [
+        "受控模拟",
+        "speakeasy",
+        "stop-reason"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_speakeasy_adapter",
+      "type": "function",
+      "name": "_speakeasy_adapter",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        901,
+        994
+      ],
+      "summary": "Speakeasy worker adapter：配置入口、模块与预算后执行，并归一化观察、hook/stub API 与限制条件。",
+      "tags": [
+        "受控模拟",
+        "speakeasy",
+        "adapter"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_qiling_adapter",
+      "type": "function",
+      "name": "_qiling_adapter",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1027,
+        1076
+      ],
+      "summary": "Qiling adapter：依据 Linux ELF 身份与 rootfs 可用性选择进程内或子进程执行路径，并记录环境假设。",
+      "tags": [
+        "受控模拟",
+        "qiling",
+        "adapter"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_try_qiling_linux_in_process",
+      "type": "function",
+      "name": "_try_qiling_linux_in_process",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1079,
+        1127
+      ],
+      "summary": "在当前进程内尝试 Qiling Linux 模拟，失败时返回可回退的失败结果而不是抛出异常中断调查。",
+      "tags": [
+        "受控模拟",
+        "qiling",
+        "in-process"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_run_qiling_linux_subprocess",
+      "type": "function",
+      "name": "_run_qiling_linux_subprocess",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1130,
+        1200
+      ],
+      "summary": "在受控子进程中运行 Qiling 模拟，带墙钟超时与输出回收，避免不可控依赖影响服务进程。",
+      "tags": [
+        "受控模拟",
+        "qiling",
+        "subprocess",
+        "isolation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_run_qiling_linux",
+      "type": "function",
+      "name": "_run_qiling_linux",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1203,
+        1247
+      ],
+      "summary": "Qiling Linux 执行入口：优先进程内执行、必要时回退子进程，并把 payload 哈希与 rootfs 身份写入结果。",
+      "tags": [
+        "受控模拟",
+        "qiling",
+        "dispatch"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:_flare_emu_adapter",
+      "type": "function",
+      "name": "_flare_emu_adapter",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1250,
+        1273
+      ],
+      "summary": "flare-emu adapter：在授权窗口内执行并归一化观察与限制；不可用时返回明确的不支持结果。",
+      "tags": [
+        "受控模拟",
+        "flare-emu",
+        "adapter"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:simulation_policy_from_settings",
+      "type": "function",
+      "name": "simulation_policy_from_settings",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1283,
+        1313
+      ],
+      "summary": "由 Settings 构造 SimulationExecutionPolicy：解析允许的模拟器、隔离方式、worker 身份与各项预算上限。",
+      "tags": [
+        "受控模拟",
+        "policy",
+        "configuration"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:default_simulation_runner",
+      "type": "function",
+      "name": "default_simulation_runner",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1316,
+        1329
+      ],
+      "summary": "工厂函数：按策略与 execute_in_process 参数构造默认 IsolatedSimulationRunner，并注册可用的 adapter。",
+      "tags": [
+        "受控模拟",
+        "factory",
+        "runner"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/simulation_adapters.py:request_for_granted_window",
+      "type": "function",
+      "name": "request_for_granted_window",
+      "filePath": "src/threat_report_agent/simulation_adapters.py",
+      "lineRange": [
+        1332,
+        1367
+      ],
+      "summary": "把授权窗口（地址、字节、架构、内存映射）转换成 SimulationRequest，并绑定输入 sha256 与 worker 身份，作为受控模拟的唯一请求构造点。",
+      "tags": [
+        "受控模拟",
+        "request",
+        "window"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/static_simulation.py",
+      "type": "file",
+      "name": "static_simulation.py",
+      "filePath": "src/threat_report_agent/static_simulation.py",
+      "summary": "静态抽象执行：StaticAbstractExecutor 在受限步数与路径预算内遍历已持久化的静态事实行，识别调用引用与 API 形状、推导 API/数据流阶段并生成 SimulationTraceStep 轨迹。它不执行样本字节，结果显式标注 runtime_observed=False（simulation_kind=static_abstract_execution）。",
+      "tags": [
+        "静态抽象执行",
+        "data-flow",
+        "trace",
+        "无样本执行",
+        "evidence"
+      ],
+      "complexity": "complex",
+      "languageNotes": "StaticSimulationResult.runtime_observed 恒为 False 且 as_dict 带 predicted=True，保证下游不会把抽象执行误读成运行时观察。"
+    },
+    {
+      "id": "class:src/threat_report_agent/static_simulation.py:AbstractRegisterState",
+      "type": "class",
+      "name": "AbstractRegisterState",
+      "filePath": "src/threat_report_agent/static_simulation.py",
+      "lineRange": [
+        30,
+        40
+      ],
+      "summary": "抽象寄存器状态：记录寄存器到抽象值的映射，提供 set/get 与 as_dict 供轨迹序列化。",
+      "tags": [
+        "静态抽象执行",
+        "state",
+        "data-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/static_simulation.py:AbstractMemoryState",
+      "type": "class",
+      "name": "AbstractMemoryState",
+      "filePath": "src/threat_report_agent/static_simulation.py",
+      "lineRange": [
+        44,
+        52
+      ],
+      "summary": "抽象内存状态：记录地址到抽象值的映射，是数据流恢复的只读投影。",
+      "tags": [
+        "静态抽象执行",
+        "state",
+        "data-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/static_simulation.py:SimulationTraceStep",
+      "type": "class",
+      "name": "SimulationTraceStep",
+      "filePath": "src/threat_report_agent/static_simulation.py",
+      "lineRange": [
+        70,
+        90
+      ],
+      "summary": "抽象执行轨迹的单步记录：操作、API、输入输出、路径条件、来源锚点与置信度，是形成证据的最小单位。",
+      "tags": [
+        "静态抽象执行",
+        "trace",
+        "data-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/static_simulation.py:StaticSimulationResult",
+      "type": "class",
+      "name": "StaticSimulationResult",
+      "filePath": "src/threat_report_agent/static_simulation.py",
+      "lineRange": [
+        94,
+        125
+      ],
+      "summary": "抽象执行结果：轨迹步骤、路径条件、寄存器/内存状态、机制候选与 UNKNOWN/限制；runtime_observed 恒为 False，明确未运行样本。",
+      "tags": [
+        "静态抽象执行",
+        "result",
+        "honesty"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/static_simulation.py:StaticAbstractExecutor",
+      "type": "class",
+      "name": "StaticAbstractExecutor",
+      "filePath": "src/threat_report_agent/static_simulation.py",
+      "lineRange": [
+        133,
+        458
+      ],
+      "summary": "受限静态抽象执行器：按 max_steps/max_paths 预算遍历函数事实行，判定调用引用与 API 形状、追踪寄存器/内存抽象状态与路径条件，产出机制候选和 UNKNOWN 列表，全程不执行样本字节。",
+      "tags": [
+        "静态抽象执行",
+        "data-flow",
+        "bounded-execution"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_simulation.py:simulation_evidence_from_function",
+      "type": "function",
+      "name": "simulation_evidence_from_function",
+      "filePath": "src/threat_report_agent/static_simulation.py",
+      "lineRange": [
+        461,
+        482
+      ],
+      "summary": "把函数静态事实转成 Evidence-ready 的抽象执行载荷：附上 pcode slice 与间接函数指针链接，并明确不执行不可信输入；依赖缺失时降级为 static_only 占位。",
+      "tags": [
+        "静态抽象执行",
+        "evidence",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/validation.py",
+      "type": "file",
+      "name": "validation.py",
+      "filePath": "src/threat_report_agent/validation.py",
+      "summary": "Claim-Evidence 校验：validate_claim_evidence 检查证据 id 是否落在允许集合内、模块是否匹配、Evidence Nature 是否命中禁止集合，返回带理由与来源独立性的 ValidationResult，作为 Claim 写入前的守卫。",
+      "tags": [
+        "validation",
+        "claim-evidence",
+        "evidence-nature",
+        "guard"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/validation.py:validate_claim_evidence",
+      "type": "function",
+      "name": "validate_claim_evidence",
+      "filePath": "src/threat_report_agent/validation.py",
+      "lineRange": [
+        16,
+        52
+      ],
+      "summary": "校验 Claim 引用的证据集合：拒绝越权 id、模块不匹配与被禁止的 Evidence Nature，并返回含 decision、reason 与 source_independence 的 ValidationResult。",
+      "tags": [
+        "validation",
+        "claim-evidence",
+        "guard",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationCapability",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationExecutionPolicy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationResult",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:IsolatedSimulationRunner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:benign_pe32_ret",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:linux_x86_64_exit_elf",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:linux_elf_identity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:detect_simulation_capabilities",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:speakeasy_capability_matrix",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:static_phase_simulation_evidence",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:evidence_nature_for_simulation_status",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:qiling_unavailable_observation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_unicorn_adapter",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_input_guard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_unicorn_compat_mem_write",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_speakeasy_stop",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_speakeasy_adapter",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_qiling_adapter",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_try_qiling_linux_in_process",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_run_qiling_linux_subprocess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_run_qiling_linux",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_flare_emu_adapter",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:simulation_policy_from_settings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:default_simulation_runner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:request_for_granted_window",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:AbstractRegisterState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:AbstractMemoryState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:SimulationTraceStep",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:StaticSimulationResult",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:StaticAbstractExecutor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "function:src/threat_report_agent/static_simulation.py:simulation_evidence_from_function",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/validation.py",
+      "target": "function:src/threat_report_agent/validation.py:validate_claim_evidence",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationCapability",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationExecutionPolicy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationResult",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:IsolatedSimulationRunner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:benign_pe32_ret",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:linux_x86_64_exit_elf",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:linux_elf_identity",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:detect_simulation_capabilities",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:speakeasy_capability_matrix",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:static_phase_simulation_evidence",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:evidence_nature_for_simulation_status",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:qiling_unavailable_observation",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:simulation_policy_from_settings",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:default_simulation_runner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/simulation_adapters.py",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:request_for_granted_window",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:AbstractRegisterState",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:AbstractMemoryState",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:SimulationTraceStep",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:StaticSimulationResult",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "class:src/threat_report_agent/static_simulation.py:StaticAbstractExecutor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "function:src/threat_report_agent/static_simulation.py:simulation_evidence_from_function",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/validation.py",
+      "target": "function:src/threat_report_agent/validation.py:validate_claim_evidence",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/simulation_adapters.py:IsolatedSimulationRunner",
+      "target": "class:src/threat_report_agent/simulation_adapters.py:SimulationExecutionPolicy",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:static_phase_simulation_evidence",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:detect_simulation_capabilities",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:qiling_unavailable_observation",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_qiling_adapter",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_unicorn_adapter",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_input_guard",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_speakeasy_adapter",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_input_guard",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_speakeasy_adapter",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_unicorn_compat_mem_write",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_speakeasy_adapter",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_speakeasy_stop",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_qiling_adapter",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_input_guard",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_qiling_adapter",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:linux_elf_identity",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_qiling_adapter",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_run_qiling_linux",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_run_qiling_linux",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_try_qiling_linux_in_process",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_run_qiling_linux",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_run_qiling_linux_subprocess",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/simulation_adapters.py:_flare_emu_adapter",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:_input_guard",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/static_simulation.py:simulation_evidence_from_function",
+      "target": "class:src/threat_report_agent/static_simulation.py:StaticAbstractExecutor",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "file:src/threat_report_agent/static_analysis.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/threat_report_agent/static_simulation.py",
+      "target": "file:src/threat_report_agent/simulation_adapters.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

@@ -25,6 +25,7 @@ dependencies = [
   "python-multipart>=0.0.12,<1",
   "python-docx>=1.1,<2",
   "reportlab>=4.2,<5",
+  "py7zr>=0.21,<1",
   "sqlalchemy>=2.0,<3",
   "temporalio>=1.12,<2",
   "uvicorn[standard]>=0.30,<1",
@@ -39,6 +40,12 @@ dev = [
 
 fuzzy-hash = [
   "ppdeep>=20200505",
+]
+
+emulation = [
+  "unicorn>=1.0.2,<3",
+  "speakeasy-emulator>=1.5.11,<2",
+  "qiling>=1.4,<2",
 ]
 
 [project.scripts]
@@ -66,4 +73,5 @@ threat_report_agent = [
   "prompts/*.md",
   "ghidra_scripts/*.java",
   "knowledge/attack-snapshot.yaml",
+  "knowledge/attack-enterprise-index.json",
 ]

@@ -29,10 +29,16 @@ if (exposed.length) {
 const presetRoot = process.env.THREAT_DSH_PRESETS_ROOT ?? resolve('../threat-dsh-workbench/profiles/threat-static/agent-presets')
 const presetPath = resolve(presetRoot, 'threat-static', 'agent.cordis.yml')
 const preset = await readFile(presetPath, 'utf8')
-const presetForbidden = ['tool-bash', 'tool-pwsh', 'tool-fs', 'tool-fs-search', 'tool-web', 'tool-jobs', 'tool-workflow', 'tool-subagent', 'tool-subagent-fork', 'tool-skill', 'tool-goal', 'tool-todo', 'tool-ralph', 'tool-str-replace-editor', 'tool-ask-user']
+const presetForbidden = ['tool-bash', 'tool-pwsh', 'tool-fs', 'tool-fs-search', 'tool-web', 'tool-jobs', 'tool-workflow', 'tool-subagent', 'tool-subagent-fork', 'tool-skill', 'tool-goal', 'tool-ralph', 'tool-str-replace-editor']
 const leaked = presetForbidden.filter((id) => new RegExp(`(?:^|\\n)\\s*- id: ${id}\\b`).test(preset))
 if (leaked.length) {
   console.error(JSON.stringify({ preset: presetPath, forbidden_rows: leaked }, null, 2))
+  process.exit(1)
+}
+const requiredSafe = ['tool-todo', 'tool-ask-user']
+const missingSafe = requiredSafe.filter((id) => !new RegExp(`(?:^|\\n)\\s*- id: ${id}\\b`).test(preset))
+if (missingSafe.length) {
+  console.error(JSON.stringify({ preset: presetPath, missing_safe_rows: missingSafe }, null, 2))
   process.exit(1)
 }
 const defaultPreset = preset.match(/(?:^|\\n)\\s*default:\s*([^\\s#]+)/)?.[1]

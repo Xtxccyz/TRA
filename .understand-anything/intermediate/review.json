@@ -1,0 +1,29 @@
+{
+  "issues": [],
+  "warnings": [
+    "Node 'file:src/threat_report_agent/__init__.py' has no edges (orphan)"
+  ],
+  "stats": {
+    "totalNodes": 518,
+    "totalEdges": 1087,
+    "totalLayers": 9,
+    "tourSteps": 13,
+    "nodeTypes": {
+      "file": 57,
+      "class": 157,
+      "function": 295,
+      "document": 4,
+      "config": 5
+    },
+    "edgeTypes": {
+      "imports": 116,
+      "contains": 452,
+      "exports": 354,
+      "calls": 127,
+      "related": 10,
+      "depends_on": 7,
+      "configures": 11,
+      "documents": 10
+    }
+  }
+}

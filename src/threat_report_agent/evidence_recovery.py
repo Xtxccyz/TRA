@@ -14,7 +14,7 @@ import json
 import re
 from typing import Iterable, Mapping
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from threat_report_agent.evidence_index import canonical_selector, target_search_keys
@@ -139,16 +139,83 @@ _PRIMARY_KINDS = frozenset(
     }
 )
 
+_DEEP_CONTEXT_KINDS = frozenset({
+    "function_context", "function_instruction_window", "pcode_slice",
+    "api_argument_trace", "value_flow", "resolved_api", "decode_result",
+    "mechanism_decode_window", "abstract_execution_trace",
+})
+
 
 def canonical_token(value: object) -> str:
     return " ".join(str(value).casefold().split())
 
 
-def canonical_action_key(action_type: str, parameters: Mapping[str, object]) -> str:
-    """Return a target-sensitive de-duplication key for a static experiment."""
-    canonical_parameters = json.dumps(
-        dict(parameters), ensure_ascii=True, sort_keys=True, separators=(",", ":")
+_ACTION_SELECTOR_KEYS = frozenset(
+    {"target", "api", "function", "function_entry", "entry", "rva", "address"}
+)
+_FUNCTION_SELECTOR_KEYS = frozenset({"function", "function_entry", "entry", "rva", "address"})
+_FUNCTION_LOCATOR = re.compile(r"^(?:0x[0-9a-f]+|[0-9a-f]{5,}|fun_[0-9a-f]+|sub_[0-9a-f]+)$", re.IGNORECASE)
+
+
+def _canonical_action_selector(value: Mapping[str, object]) -> dict[str, str]:
+    """Normalize selector aliases without merging API and function scopes.
+
+    Historical actions used ``function_entry`` while the deep-mining planner
+    intentionally uses ``target`` for the same RVA.  The normal form makes
+    those queries dedupe, while an API name stays in a distinct scope so an
+    API-oriented query cannot suppress a function-oriented query by accident.
+    """
+    selector = {
+        str(key): item
+        for key, item in value.items()
+        if str(key) in _ACTION_SELECTOR_KEYS
+        and isinstance(item, (str, int))
+        and str(item).strip()
+    }
+    if not selector:
+        return {}
+    function_key = next((key for key in _FUNCTION_SELECTOR_KEYS if key in selector), None)
+    if function_key is not None:
+        return {
+            "scope": "function",
+            "target": canonical_token(selector[function_key]),
+        }
+    if "api" in selector:
+        return {"scope": "api", "target": canonical_token(selector["api"])}
+    target = canonical_token(selector["target"])
+    scope = (
+        "function"
+        if _FUNCTION_LOCATOR.fullmatch(target) or target in {"entry", "entrypoint", "main"}
+        else "symbol"
     )
+    return {"scope": scope, "target": target}
+
+
+def canonical_action_key(action_type: str, parameters: Mapping[str, object]) -> str:
+    """Return a target- and investigation-scope-sensitive action key.
+
+    ``action_scope`` is deliberately optional for backwards compatibility.
+    Legacy callers that only know the target keep their historical key, while
+    mechanism-scoped investigations can run the same action type against the
+    same function for independent questions (for example decode and process
+    execution) without suppressing one another.
+    """
+    payload = dict(parameters)
+    nested_selector = payload.get("target_selector")
+    if isinstance(nested_selector, Mapping):
+        normalized_selector = _canonical_action_selector(nested_selector)
+        if normalized_selector:
+            # Retain a single shape so old persisted ``function_entry``
+            # selectors dedupe against newer ``target`` RVAs.
+            payload = {"target_selector": normalized_selector}
+    else:
+        normalized_selector = _canonical_action_selector(payload)
+        if normalized_selector:
+            payload = {"target_selector": normalized_selector}
+    scope = parameters.get("action_scope")
+    if isinstance(scope, (str, int)) and str(scope).strip():
+        payload["action_scope"] = canonical_token(scope)
+    canonical_parameters = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(canonical_parameters.encode("utf-8")).hexdigest()[:20]
     return f"{str(action_type).upper()}:{digest}"
 
@@ -328,6 +395,11 @@ class BoundedEvidenceRepository:
         query_count = 0
         exact_limit = max(1, min(request.candidate_limit, 256))
         if selector_keys and "anchor-driven" in request.retrieval_modes:
+            priority = case(
+                (EvidenceSearchKey.kind.in_(tuple(sorted(_DEEP_CONTEXT_KINDS))), 0),
+                (EvidenceSearchKey.kind.in_(request.required_evidence_kinds), 1),
+                else_=2,
+            )
             exact_ids = session.scalars(
                 select(EvidenceSearchKey.evidence_id)
                 .where(
@@ -335,28 +407,13 @@ class BoundedEvidenceRepository:
                     EvidenceSearchKey.artifact_id == request.artifact_id,
                     EvidenceSearchKey.selector.in_(selector_keys),
                 )
-                .order_by(EvidenceSearchKey.evidence_id)
+                .group_by(EvidenceSearchKey.evidence_id, EvidenceSearchKey.kind)
+                .order_by(priority, EvidenceSearchKey.evidence_id)
                 .limit(exact_limit)
             ).all()
             candidate_ids.extend(str(item) for item in exact_ids)
             query_count += 1
-        remaining = request.candidate_limit - len(set(candidate_ids))
-        if remaining > 0 and request.required_evidence_kinds and "evidence-kind-driven" in request.retrieval_modes:
-            required_ids = session.scalars(
-                select(Evidence.id)
-                .where(
-                    Evidence.task_id == task_id,
-                    Evidence.artifact_id == request.artifact_id,
-                    Evidence.kind.in_(request.required_evidence_kinds),
-                )
-                .order_by(Evidence.id)
-                .limit(min(remaining, 256))
-            ).all()
-            candidate_ids.extend(str(item) for item in required_ids)
-            query_count += 1
         unique_ids = tuple(dict.fromkeys(candidate_ids))[: request.candidate_limit]
-        if not unique_ids:
-            return CandidateEvidenceBatch((), 0, query_count, selector_keys)
 
         # Expand from compact typed graph edges only. This never scans the
         # artifact ledger and it cannot turn untrusted natural-language text
@@ -364,7 +421,8 @@ class BoundedEvidenceRepository:
         rows = self._rows_for_ids(
             session, task_id=task_id, artifact_id=request.artifact_id, ids=unique_ids
         )
-        query_count += 1
+        query_count += bool(unique_ids)
+        rows_by_id = {row.id: row for row in rows}
         all_ids = list(unique_ids)
         graph_expansions: list[dict[str, object]] = []
         depths = (
@@ -385,10 +443,12 @@ class BoundedEvidenceRepository:
                 remaining = request.candidate_limit - len(set(all_ids))
                 edge_ids = session.scalars(
                     select(EvidenceSearchKey.evidence_id)
+                    .distinct()
                     .where(
                         EvidenceSearchKey.task_id == task_id,
                         EvidenceSearchKey.artifact_id == request.artifact_id,
                         EvidenceSearchKey.selector.in_(tuple(sorted(selectors))[:128]),
+                        EvidenceSearchKey.evidence_id.not_in(tuple(all_ids)),
                     )
                     .order_by(EvidenceSearchKey.evidence_id)
                     .limit(min(remaining, 128))
@@ -411,6 +471,7 @@ class BoundedEvidenceRepository:
                 )
                 query_count += 1
                 all_ids.extend(new_ids)
+                rows_by_id.update((row.id, row) for row in new_rows)
                 frontier_rows = new_rows
                 frontier = selectors
                 graph_expansions.append(
@@ -421,16 +482,29 @@ class BoundedEvidenceRepository:
                         "evidence_ids": [row.id for row in new_rows],
                     }
                 )
-        rows = self._rows_for_ids(
-            session,
-            task_id=task_id,
-            artifact_id=request.artifact_id,
-            ids=all_ids[: request.candidate_limit],
-        )
+        # Unrelated kind matches are discovery backfill, not a reason to skip
+        # the requested graph hops. Reuse loaded rows instead of fetching the
+        # whole candidate set again after expansion.
+        remaining = request.candidate_limit - len(rows_by_id)
+        if remaining > 0 and request.required_evidence_kinds and "evidence-kind-driven" in request.retrieval_modes:
+            required_rows = session.scalars(
+                select(Evidence)
+                .where(
+                    Evidence.task_id == task_id,
+                    Evidence.artifact_id == request.artifact_id,
+                    Evidence.kind.in_(request.required_evidence_kinds),
+                    Evidence.id.not_in(tuple(rows_by_id)),
+                )
+                .order_by(Evidence.id)
+                .limit(min(remaining, 256))
+            ).all()
+            rows_by_id.update((row.id, row) for row in required_rows)
+            query_count += 1
+        rows = tuple(rows_by_id[key] for key in sorted(rows_by_id))
         return CandidateEvidenceBatch(
             rows,
             len(rows),
-            query_count + 1,
+            query_count,
             selector_keys,
             tuple(graph_expansions),
         )
@@ -603,6 +677,8 @@ class QuestionCentricRetriever:
         selected_ids: set[str] = set()
         selected_by_kind: dict[str, int] = {}
         for kind, minimum in floors.items():
+            if len(selected) >= self.max_items:
+                break
             for item, is_core in scored:
                 if item.kind != kind or item.evidence_id in selected_ids:
                     continue

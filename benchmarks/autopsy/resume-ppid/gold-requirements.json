@@ -1,0 +1,13 @@
+{
+  "mechanism_id": "resume-ppid",
+  "mechanism_type": "PPID_SPOOFING",
+  "run_status": "BLOCKED_REAL_RUN",
+  "requirements": [
+    {"id":"GP-01","semantic_requirement":"explorer.exe selection"},
+    {"id":"GP-02","semantic_requirement":"OpenProcess(PROCESS_CREATE_PROCESS)"},
+    {"id":"GP-03","semantic_requirement":"PARENT_PROCESS attribute value flow"},
+    {"id":"GP-04","semantic_requirement":"CreateProcessW STARTUPINFOEX"},
+    {"id":"GP-05","semantic_requirement":"0x09080008 creation flags"}
+  ],
+  "negative_gold":["CREATE_SUSPENDED","CREATE_NEW_CONSOLE","process hollowing","remote injection"]
+}

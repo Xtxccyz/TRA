@@ -49,11 +49,11 @@ def test_mechanism_contract_has_typed_recovery_fields_and_score() -> None:
 
 def test_ppid_verifier_requires_semantic_chain_and_rejects_negative_gold() -> None:
     evidence = [
-        {"id": "e1", "kind": "function_call", "value": "explorer.exe Process32First"},
-        {"id": "e2", "kind": "function_call", "value": "OpenProcess(PROCESS_CREATE_PROCESS)"},
-        {"id": "e3", "kind": "function_call", "value": "UpdateProcThreadAttribute PROC_THREAD_ATTRIBUTE_PARENT_PROCESS"},
-        {"id": "e4", "kind": "function_call", "value": "CreateProcessW STARTUPINFOEX"},
-        {"id": "e5", "kind": "constant", "value": "0x09080008 CREATE_NO_WINDOW DETACHED_PROCESS"},
+        {"id": "e1", "kind": "function_call", "value": "explorer.exe Process32First", "anchor": {"function_entry": "0x1000"}},
+        {"id": "e2", "kind": "function_call", "value": "OpenProcess(PROCESS_CREATE_PROCESS)", "anchor": {"function_entry": "0x1000"}},
+        {"id": "e3", "kind": "function_call", "value": "UpdateProcThreadAttribute PROC_THREAD_ATTRIBUTE_PARENT_PROCESS", "anchor": {"function_entry": "0x1000"}},
+        {"id": "e4", "kind": "function_call", "value": "CreateProcessW STARTUPINFOEX", "anchor": {"function_entry": "0x1000"}},
+        {"id": "e5", "kind": "constant", "value": "0x09080008 CREATE_NO_WINDOW DETACHED_PROCESS", "anchor": {"function_entry": "0x1000"}},
     ]
     result = verify_mechanism("PPID_SPOOFING", evidence)
     assert result.status == "VERIFIED"

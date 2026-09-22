@@ -1,0 +1,13 @@
+{
+  "mechanism_id": "resume-xor",
+  "mechanism_type": "DECODE_CONFIG",
+  "run_status": "BLOCKED_REAL_RUN",
+  "requirements": [
+    {"id": "GX-01", "semantic_requirement": "cipher/data block"},
+    {"id": "GX-02", "semantic_requirement": "16-byte key table"},
+    {"id": "GX-03", "semantic_requirement": "counter=3"},
+    {"id": "GX-04", "semantic_requirement": "counter step=7"},
+    {"id": "GX-05", "semantic_requirement": "deterministic decode formula"},
+    {"id": "GX-06", "semantic_requirement": "decoded value and consumer"}
+  ]
+}

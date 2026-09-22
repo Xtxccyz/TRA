@@ -1,0 +1,18 @@
+# .understandignore — patterns excluded from /understand analysis
+# Scope decision (user-confirmed 2026-09-16): analyze ONLY src/threat_report_agent.
+# The rest of the repository (tests/, docs/, release-artifacts/, threat-dsh-workbench/,
+# scripts/, .scratch/, node_modules/) is excluded by the whitelist below.
+#
+# Whitelist form: ignore everything, then re-include the src/ chain.
+# Gitignore requires every parent directory of a re-included path to be
+# re-included as well, hence the explicit three lines.
+
+*
+!src/
+!src/threat_report_agent/
+!src/threat_report_agent/**
+
+# Within the scope, still drop caches and build byproducts (also covered by
+# the built-in defaults, listed here for visibility).
+src/threat_report_agent/__pycache__/
+src/threat_report_agent/**/*.pyc

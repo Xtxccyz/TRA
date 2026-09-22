@@ -1,0 +1,579 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/product_certification.py",
+      "type": "file",
+      "name": "product_certification.py",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "summary": "产品契约与离线认证 helper：定义受支持制品矩阵、AnalysisResultClass（FULL/BOUNDED/UNSUPPORTED/FAILED）与失败根因分类，并提供静态措辞合规检查、覆盖率与语义流/机制覆盖指标、语料切分校验、gold 评估与发布门禁。模块刻意不依赖数据库与 DSH 插件，不执行样本、不访问网络、也不把基准答案载入分析上下文。",
+      "tags": ["产品认证", "发布门禁", "覆盖率", "质量门"],
+      "complexity": "complex",
+      "languageNotes": "为了在导入期不依赖分析管线，对 mechanism_completeness / mechanism_ready 采用函数内延迟 import；结果类与根因用 StrEnum 表达，制品矩阵是 frozen dataclass 的常量元组。"
+    },
+    {
+      "id": "file:src/threat_report_agent/status.py",
+      "type": "file",
+      "name": "status.py",
+      "filePath": "src/threat_report_agent/status.py",
+      "summary": "产品状态枚举与任务状态机：Task Lifecycle（PENDING/RUNNING/…）描述流程阶段，Analysis Outcome（COMPLETE/PARTIAL/BLOCKED/UNSUPPORTED）描述分析完整度，两者语义不同、不可混为一谈；Claim 状态含 CANDIDATE/VERIFIED/DISPUTED/REJECTED。transition_task 依据 TASK_TRANSITIONS 表校验状态迁移。",
+      "tags": ["状态机", "枚举", "产品契约", "validation"],
+      "complexity": "moderate",
+      "languageNotes": "把 product_certification 的 AnalysisResultClass 重新导出为 AnalysisClass 别名，使本模块成为状态词汇的统一入口。"
+    },
+    {
+      "id": "class:src/threat_report_agent/product_certification.py:AnalysisResultClass",
+      "type": "class",
+      "name": "AnalysisResultClass",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [20, 26],
+      "summary": "产品级结果分类（FULL_STATIC_ANALYSIS / BOUNDED_STATIC_ANALYSIS / UNSUPPORTED_ARTIFACT / FAILED_ANALYSIS），与 task lifecycle 明确分离。",
+      "tags": ["enum", "结果分类", "产品契约"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/product_certification.py:FailureRootCause",
+      "type": "class",
+      "name": "FailureRootCause",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [33, 47],
+      "summary": "分析失败的根因分类枚举，覆盖制品、种子发现、提问、检索、交付、上下文质量、动作、工具结果、机制综合、验证器、ClaimGate、报告、边界分类与产品级失败。",
+      "tags": ["enum", "失败根因", "产品契约"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/product_certification.py:SupportedArtifact",
+      "type": "class",
+      "name": "SupportedArtifact",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [51, 57],
+      "summary": "受支持制品类别的描述记录：制品类、标签、要求级别、分析工具链、默认结果类与备注。",
+      "tags": ["data-model", "制品矩阵", "产品契约"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/product_certification.py:CorpusEntry",
+      "type": "class",
+      "name": "CorpusEntry",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [474, 498],
+      "summary": "gold 语料条目：样本 id、路径、sha256、类别、切分、期望结果类，以及关键机制、关键 IOC、negative_gold 与重要 unknown。",
+      "tags": ["data-model", "语料", "gold"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:supported_artifact_matrix",
+      "type": "function",
+      "name": "supported_artifact_matrix",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [90, 102],
+      "summary": "返回受支持制品矩阵的 JSON 安全副本。",
+      "tags": ["制品矩阵", "产品契约", "入口点"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:classify_artifact_result",
+      "type": "function",
+      "name": "classify_artifact_result",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [109, 158],
+      "summary": "依据检测类型、工具运行结果与限制条件，把一次分析归类为 FULL / BOUNDED / UNSUPPORTED / FAILED。",
+      "tags": ["结果分类", "入口点", "判定"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:aggregate_result_class",
+      "type": "function",
+      "name": "aggregate_result_class",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [161, 172],
+      "summary": "把多个制品的结果类聚合为整个提交的结果类。",
+      "tags": ["聚合", "结果分类", "入口点"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:static_wording_violations",
+      "type": "function",
+      "name": "static_wording_violations",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [183, 289],
+      "summary": "检查报告文本的措辞违规：把静态分析说成动态分析或沙箱执行、宣称样本已运行，以及把打包/损坏等静态边界说成产品失败。",
+      "tags": ["措辞合规", "质量门", "静态分析"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:analysis_coverage",
+      "type": "function",
+      "name": "analysis_coverage",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [292, 380],
+      "summary": "汇总分析覆盖率指标：制品解析、代码恢复、函数覆盖、数据引用覆盖、机制调查、验证覆盖、报告综合与流水线完成度。",
+      "tags": ["覆盖率", "指标", "入口点"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:semantic_flow_metrics",
+      "type": "function",
+      "name": "semantic_flow_metrics",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [383, 439],
+      "summary": "从机制行计算语义流节点/边与行为流指标，机制是否计入 critical 的口径取自 inspect_mechanism_ready。",
+      "tags": ["语义流", "指标", "入口点"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:mechanism_coverage_metrics",
+      "type": "function",
+      "name": "mechanism_coverage_metrics",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [442, 470],
+      "summary": "计算机制覆盖指标，只把 critical_ready 的机制计入覆盖分子。",
+      "tags": ["机制覆盖", "指标", "入口点"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:sha256_file",
+      "type": "function",
+      "name": "sha256_file",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [501, 506],
+      "summary": "以分块方式计算文件的 sha256 摘要。",
+      "tags": ["哈希", "语料", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:validate_corpus_split",
+      "type": "function",
+      "name": "validate_corpus_split",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [509, 533],
+      "summary": "校验 gold 语料的切分约束：类别分布、样本重复、sha256 格式与 split 取值。",
+      "tags": ["语料", "validation", "gold"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:evaluate_gold",
+      "type": "function",
+      "name": "evaluate_gold",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [540, 577],
+      "summary": "对照 gold 期望评估实际分析结果，产出结果类匹配率、机制与 IOC 召回等指标。",
+      "tags": ["gold", "评估", "认证"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/product_certification.py:release_gate",
+      "type": "function",
+      "name": "release_gate",
+      "filePath": "src/threat_report_agent/product_certification.py",
+      "lineRange": [580, 673],
+      "summary": "发布门禁：按最小/最大阈值检查认证指标，产出 blocker 清单与是否放行的结论。",
+      "tags": ["发布门禁", "认证", "入口点"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/status.py:TaskLifecycle",
+      "type": "class",
+      "name": "TaskLifecycle",
+      "filePath": "src/threat_report_agent/status.py",
+      "lineRange": [15, 23],
+      "summary": "任务生命周期枚举（PENDING / RUNNING / WAITING_GATE / PAUSED / FINALIZING / SUCCEEDED / FAILED / CANCELLED），描述流程阶段而不是分析完整度。",
+      "tags": ["enum", "状态机", "task-lifecycle"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/status.py:ToolRunStatus",
+      "type": "class",
+      "name": "ToolRunStatus",
+      "filePath": "src/threat_report_agent/status.py",
+      "lineRange": [26, 32],
+      "summary": "工具运行状态枚举（QUEUED / RUNNING / SUCCEEDED / FAILED / TIMED_OUT / CANCELLED）。",
+      "tags": ["enum", "tool-run", "状态"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/status.py:AnalysisOutcome",
+      "type": "class",
+      "name": "AnalysisOutcome",
+      "filePath": "src/threat_report_agent/status.py",
+      "lineRange": [35, 39],
+      "summary": "分析完整度枚举（COMPLETE / PARTIAL / BLOCKED / UNSUPPORTED），与 Task Lifecycle 描述的是不同维度。",
+      "tags": ["enum", "analysis-outcome", "状态"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/status.py:EvidenceNature",
+      "type": "class",
+      "name": "EvidenceNature",
+      "filePath": "src/threat_report_agent/status.py",
+      "lineRange": [42, 48],
+      "summary": "证据性质枚举：STATIC_OBSERVED / STATIC_DERIVED / STATIC_INFERRED / BACKGROUND_REPORTED / EMULATION_OBSERVED / DYNAMIC_OBSERVED。",
+      "tags": ["enum", "evidence", "证据性质"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/status.py:ClaimStatus",
+      "type": "class",
+      "name": "ClaimStatus",
+      "filePath": "src/threat_report_agent/status.py",
+      "lineRange": [55, 59],
+      "summary": "Claim 状态枚举；CANDIDATE 表示尚未验证的候选结论。",
+      "tags": ["enum", "claim", "状态"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/status.py:transition_task",
+      "type": "function",
+      "name": "transition_task",
+      "filePath": "src/threat_report_agent/status.py",
+      "lineRange": [103, 108],
+      "summary": "依据 TASK_TRANSITIONS 表校验并执行任务状态迁移，非法迁移抛出 InvalidStateTransition。",
+      "tags": ["状态机", "validation", "入口点"],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "class:src/threat_report_agent/product_certification.py:AnalysisResultClass",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "class:src/threat_report_agent/product_certification.py:FailureRootCause",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "class:src/threat_report_agent/product_certification.py:SupportedArtifact",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "class:src/threat_report_agent/product_certification.py:CorpusEntry",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:supported_artifact_matrix",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:classify_artifact_result",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:aggregate_result_class",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:static_wording_violations",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:analysis_coverage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:semantic_flow_metrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:mechanism_coverage_metrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:sha256_file",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:validate_corpus_split",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:evaluate_gold",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:release_gate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:TaskLifecycle",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:ToolRunStatus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:AnalysisOutcome",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:EvidenceNature",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:ClaimStatus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "function:src/threat_report_agent/status.py:transition_task",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "class:src/threat_report_agent/product_certification.py:AnalysisResultClass",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "class:src/threat_report_agent/product_certification.py:FailureRootCause",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "class:src/threat_report_agent/product_certification.py:SupportedArtifact",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "class:src/threat_report_agent/product_certification.py:CorpusEntry",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:supported_artifact_matrix",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:classify_artifact_result",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:aggregate_result_class",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:static_wording_violations",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:analysis_coverage",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:semantic_flow_metrics",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:mechanism_coverage_metrics",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:sha256_file",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:validate_corpus_split",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:evaluate_gold",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "function:src/threat_report_agent/product_certification.py:release_gate",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:TaskLifecycle",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:ToolRunStatus",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:AnalysisOutcome",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:EvidenceNature",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/status.py:ClaimStatus",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "function:src/threat_report_agent/status.py:transition_task",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "class:src/threat_report_agent/product_certification.py:AnalysisResultClass",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/status.py",
+      "target": "file:src/threat_report_agent/product_certification.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:src/threat_report_agent/product_certification.py:semantic_flow_metrics",
+      "target": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/product_certification.py:semantic_flow_metrics",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:has_semantic_value",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/product_certification.py:mechanism_coverage_metrics",
+      "target": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "file:src/threat_report_agent/mechanism_ready.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/threat_report_agent/product_certification.py",
+      "target": "file:src/threat_report_agent/mechanism_completeness.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ]
+}

@@ -1,0 +1,1631 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/persist_how.py",
+      "type": "file",
+      "name": "persist_how.py",
+      "filePath": "src/threat_report_agent/persist_how.py",
+      "summary": "Persist HOW 铸造：把排序后的 Ghidra 符号与已恢复字段转成 HOW Claim 规格并盖写进 Analysis Snapshot，是持久化机制「HOW 从哪里来」的单一出口。",
+      "tags": [
+        "persist-how",
+        "claim-minting",
+        "snapshot",
+        "recovery"
+      ],
+      "complexity": "complex",
+      "languageNotes": "单个 PersistHow 类承载全部私有恢复逻辑，模块底部以薄包装函数导出公共 API，避免调用方耦合两千行实现细节。"
+    },
+    {
+      "id": "class:src/threat_report_agent/persist_how.py:PersistHow",
+      "type": "class",
+      "name": "PersistHow",
+      "filePath": "src/threat_report_agent/persist_how.py",
+      "lineRange": [
+        44,
+        2134
+      ],
+      "summary": "Persist HOW 的实现核心：按 playbook 从证据行恢复进程命令、创建标志、父进程属性、线程、解码 Join 与环境探测等字段，产出 HOW 恢复行与 Claim 规格。",
+      "tags": [
+        "persist-how",
+        "recovery",
+        "claim-minting",
+        "how"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/persist_how.py:persist_how_claim_specs",
+      "type": "function",
+      "name": "persist_how_claim_specs",
+      "filePath": "src/threat_report_agent/persist_how.py",
+      "lineRange": [
+        2137,
+        2145
+      ],
+      "summary": "公共入口：由 artifact 路径与证据导出 Persist HOW 的 Claim 规格列表。",
+      "tags": [
+        "api-handler",
+        "persist-how",
+        "claim-minting"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/persist_how.py:stage_persist_how_claims",
+      "type": "function",
+      "name": "stage_persist_how_claims",
+      "filePath": "src/threat_report_agent/persist_how.py",
+      "lineRange": [
+        2148,
+        2160
+      ],
+      "summary": "把 HOW 规格转成待落库的 Claim 记录并推进 pending 队列。",
+      "tags": [
+        "persist-how",
+        "staging",
+        "claim"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/persist_how.py:stamp_persist_how_snapshot",
+      "type": "function",
+      "name": "stamp_persist_how_snapshot",
+      "filePath": "src/threat_report_agent/persist_how.py",
+      "lineRange": [
+        2163,
+        2177
+      ],
+      "summary": "把线程、playbook 与调查结果盖写进 Analysis Snapshot，使 HOW 结论随快照一同冻结。",
+      "tags": [
+        "snapshot",
+        "stamping",
+        "persist-how"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/persist_how.py:catalog_candidate_mechanism_fields",
+      "type": "function",
+      "name": "catalog_candidate_mechanism_fields",
+      "filePath": "src/threat_report_agent/persist_how.py",
+      "lineRange": [
+        2184,
+        2191
+      ],
+      "summary": "为行为目录命中的候选机制产出字段集合，连接目录条目与 HOW 恢复结果。",
+      "tags": [
+        "behavior-catalog",
+        "persist-how",
+        "projection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/persist_how.py:emit_ranked_symbols_then_stage",
+      "type": "function",
+      "name": "emit_ranked_symbols_then_stage",
+      "filePath": "src/threat_report_agent/persist_how.py",
+      "lineRange": [
+        2200,
+        2220
+      ],
+      "summary": "先按排序发出 Ghidra 符号证据，随后立即铸造并暂存 Persist HOW Claim；是 Persist HOW 跳过与 TIMEBOX 协同的关键入口。",
+      "tags": [
+        "persist-how",
+        "entry-point",
+        "emission",
+        "claim"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/threat_report_agent/pma_static_plan.py",
+      "type": "file",
+      "name": "pma_static_plan.py",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "summary": "PMA 静态计划生成：从 PE、导入、节区与字符串事实推导有序的静态分析梯级，并区分哪些条目可以升级为调查 seed。",
+      "tags": [
+        "pma",
+        "static-plan",
+        "planning",
+        "pe"
+      ],
+      "complexity": "complex",
+      "languageNotes": "计划项用 dataclass 的 as_dict 保持 planner 记录形状，另以独立函数产出 reporting 读取的快照形状，避免两种契约混用。"
+    },
+    {
+      "id": "class:src/threat_report_agent/pma_static_plan.py:StaticPlanItem",
+      "type": "class",
+      "name": "StaticPlanItem",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        387,
+        429
+      ],
+      "summary": "单个 PMA 静态计划条目：标题、理由、所需事实、调查分类、下一步静态动作、selector 与证据锚点。",
+      "tags": [
+        "static-plan",
+        "data-model",
+        "planning"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/pma_static_plan.py:build_pma_static_plan",
+      "type": "function",
+      "name": "build_pma_static_plan",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        467,
+        706
+      ],
+      "summary": "计划生成主入口：依据 PE/导入/节区/字符串事实输出有序静态计划，并在加壳闩锁与解包完成后切换导入来源。",
+      "tags": [
+        "static-plan",
+        "entry-point",
+        "planning",
+        "packer"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/pma_static_plan.py:static_analysis_plan_snapshot",
+      "type": "function",
+      "name": "static_analysis_plan_snapshot",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        709,
+        739
+      ],
+      "summary": "供 reporting 读取的计划信封：completed / UNKNOWN / next method 加 packer latch；缺失必需事实保持 UNKNOWN，空的 missing 只代表该梯级完成，绝不等于 HOW 闭环。",
+      "tags": [
+        "snapshot",
+        "reporting",
+        "static-plan"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/pma_static_plan.py:pma_dispatch_items",
+      "type": "function",
+      "name": "pma_dispatch_items",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        742,
+        784
+      ],
+      "summary": "筛选应升级为调查 seed 的计划条目；解包是唯一自动准入的 seed，隐蔽启动与对象图条目留在有序计划上，避免把 PE 头或 stub 导入当成函数锚点。",
+      "tags": [
+        "dispatch",
+        "seed",
+        "static-plan"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/pma_static_plan.py:blocks_payload_behavior_seed",
+      "type": "function",
+      "name": "blocks_payload_behavior_seed",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        787,
+        813
+      ],
+      "summary": "判断 stub IAT 线索是否必须被阻止成为 payload 调查线程（加壳闩锁生效且尚未解包时）。",
+      "tags": [
+        "validation",
+        "packer",
+        "seed"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/pma_static_plan.py:packer_latch_active",
+      "type": "function",
+      "name": "packer_latch_active",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        242,
+        249
+      ],
+      "summary": "判定加壳闩锁是否生效（存在加壳信号且尚未解包），是导入解释方式切换的开关。",
+      "tags": [
+        "packer",
+        "validation",
+        "static-plan"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/pma_static_plan.py:stub_import_names",
+      "type": "function",
+      "name": "stub_import_names",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        177,
+        179
+      ],
+      "summary": "返回仅来自 stub IAT 的导入名集合。",
+      "tags": [
+        "imports",
+        "utility",
+        "packer"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/pma_static_plan.py:reconstructed_import_names",
+      "type": "function",
+      "name": "reconstructed_import_names",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        275,
+        302
+      ],
+      "summary": "在解包完成后从重建的导入表恢复导入名，用于替代 stub IAT 的导入视图。",
+      "tags": [
+        "imports",
+        "unpack",
+        "recovery"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/pma_static_plan.py:iter_import_names",
+      "type": "function",
+      "name": "iter_import_names",
+      "filePath": "src/threat_report_agent/pma_static_plan.py",
+      "lineRange": [
+        137,
+        174
+      ],
+      "summary": "从 PE 事实行中迭代导入名，统一大小写与符号修饰。",
+      "tags": [
+        "imports",
+        "utility",
+        "normalization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/reporting.py",
+      "type": "file",
+      "name": "reporting.py",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "summary": "从 Analysis Snapshot 生成 V3 Report Document：装配机制投影、行为发现、唯一执行线程、运行序列与评估，并渲染分析员可读的 Markdown。报告只挑选分析员材料，原始 Evidence/ToolRun 行保留在 trace 与 Evidence Explorer 中。",
+      "tags": [
+        "reporting",
+        "projection",
+        "v3-document",
+        "markdown"
+      ],
+      "complexity": "complex",
+      "languageNotes": "近万行纯函数模块（无类）：build_* 产出 document 片段、_* 私有助手做字段与措辞清洗，V3 渲染与 legacy 渲染按 report_version 分流。"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:build_report_document",
+      "type": "function",
+      "name": "build_report_document",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        6419,
+        7744
+      ],
+      "summary": "报告装配主入口：由 Case、Task、Artifact、ToolRun、Evidence、Claim、Relation、机制与调查记录构造不可变的 V3 Report Document。",
+      "tags": [
+        "reporting",
+        "entry-point",
+        "v3-document",
+        "assembly"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:document_to_markdown",
+      "type": "function",
+      "name": "document_to_markdown",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        7747,
+        8083
+      ],
+      "summary": "文档到 Markdown 的分流渲染：report_version 为 3.0 且含 report_sections 时走 V3 渲染，否则回退 legacy 渲染器（仅供早于 V3 契约的老快照）。",
+      "tags": [
+        "reporting",
+        "markdown",
+        "rendering",
+        "compatibility"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:_document_to_v3_markdown",
+      "type": "function",
+      "name": "_document_to_v3_markdown",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        8866,
+        9827
+      ],
+      "summary": "V3 Markdown 渲染器：从不可变文档模型只挑选分析员材料渲染；行（rows）是内部投影格式，不是报告版面。",
+      "tags": [
+        "reporting",
+        "markdown",
+        "rendering",
+        "v3-document"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:_build_assessment",
+      "type": "function",
+      "name": "_build_assessment",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        5105,
+        5558
+      ],
+      "summary": "构建报告首页所需的简洁、有证据支撑的评估，并统一机制就绪与行为发现的口径。",
+      "tags": [
+        "reporting",
+        "assessment",
+        "summary"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:build_observed_mechanism_projections",
+      "type": "function",
+      "name": "build_observed_mechanism_projections",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        849,
+        1271
+      ],
+      "summary": "把高价值静态观察事实转成分析员可读的候选机制行；这些行刻意不是验证器 finding，而是在尚无闭合 Claim 时仍能解释具体路径、函数/RVA 与剩余静态边界。",
+      "tags": [
+        "projection",
+        "mechanism",
+        "candidate",
+        "reporting"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:build_static_link_mechanism_projections",
+      "type": "function",
+      "name": "build_static_link_mechanism_projections",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        476,
+        718
+      ],
+      "summary": "把专家级 STATIC_DERIVED 关联行投影为机制记录，使关联本身在不可变快照中可见；结果一律保持 CANDIDATE，不得绕过专家验证器或 Claim Gate。",
+      "tags": [
+        "projection",
+        "mechanism",
+        "candidate",
+        "static-analysis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:build_mechanism_projections",
+      "type": "function",
+      "name": "build_mechanism_projections",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        258,
+        465
+      ],
+      "summary": "从有证据支撑的 Claim 中恢复可审计的机制形状，用 Input→Transformation/Control→Condition→Output→Consumer→Side Effect 词汇归并重复行；在专家验证器接受之前始终是候选，完整性不代表运行时执行。",
+      "tags": [
+        "projection",
+        "mechanism",
+        "claim",
+        "reporting"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:build_behavior_findings",
+      "type": "function",
+      "name": "build_behavior_findings",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        2367,
+        2636
+      ],
+      "summary": "把有证据支撑的 Claim 与 Mechanism 投影为行为发现行，并接入调查线程与快照 ID。",
+      "tags": [
+        "reporting",
+        "behavior-findings",
+        "projection"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:build_runtime_sequence",
+      "type": "function",
+      "name": "build_runtime_sequence",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        4785,
+        4952
+      ],
+      "summary": "由行为发现、唯一线程、解码配置、进程标志与 PE 入口拼装运行序列视图；这是静态推导出的顺序，不代表样本已运行。",
+      "tags": [
+        "reporting",
+        "runtime-sequence",
+        "projection"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/reporting.py:build_unique_execution_threads",
+      "type": "function",
+      "name": "build_unique_execution_threads",
+      "filePath": "src/threat_report_agent/reporting.py",
+      "lineRange": [
+        4075,
+        4262
+      ],
+      "summary": "归并同一执行线程的多条证据（起始地址、参数、退出方式），产出唯一线程视图。",
+      "tags": [
+        "reporting",
+        "thread",
+        "deduplication",
+        "projection"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/semantic_predicates.py",
+      "type": "file",
+      "name": "semantic_predicates.py",
+      "filePath": "src/threat_report_agent/semantic_predicates.py",
+      "summary": "API 符号的语义分类词汇表：归一化导入与反编译命名，并按封闭分类法给出语义类别，供行为目录、数据流与报告共用同一判据。",
+      "tags": [
+        "semantic",
+        "api-classification",
+        "taxonomy",
+        "normalization"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "ApiSemantic 使用 StrEnum；normalize_api_symbol 明确拒绝模糊匹配，只剥离已知修饰前缀与 Ghidra 的 PTR_<API>_<addr> 十六进制后缀。"
+    },
+    {
+      "id": "class:src/threat_report_agent/semantic_predicates.py:ApiSemantic",
+      "type": "class",
+      "name": "ApiSemantic",
+      "filePath": "src/threat_report_agent/semantic_predicates.py",
+      "lineRange": [
+        15,
+        30
+      ],
+      "summary": "封闭的 API 语义分类枚举：进程创建、命令执行、网络传输、动态加载、内存保护、注册表写入、服务控制、计划任务、加密解码、环境与时间查询等。",
+      "tags": [
+        "enum",
+        "taxonomy",
+        "semantic"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/semantic_predicates.py:normalize_api_symbol",
+      "type": "function",
+      "name": "normalize_api_symbol",
+      "filePath": "src/threat_report_agent/semantic_predicates.py",
+      "lineRange": [
+        33,
+        46
+      ],
+      "summary": "归一化导入与反编译命名修饰：剥离 __imp_、j_、thunk_、stub_ 等前缀与 PTR_<API>_<十六进制地址> 后缀，不做模糊匹配以保持 API 身份精确。",
+      "tags": [
+        "normalization",
+        "api",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/semantic_predicates.py:classify_api_symbol",
+      "type": "function",
+      "name": "classify_api_symbol",
+      "filePath": "src/threat_report_agent/semantic_predicates.py",
+      "lineRange": [
+        110,
+        143
+      ],
+      "summary": "返回某个归一化符号最具体的分类法类别（按优先级判定，而不是首个命中）。",
+      "tags": [
+        "classification",
+        "semantic",
+        "api"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/semantic_predicates.py:semantic_category",
+      "type": "function",
+      "name": "semantic_category",
+      "filePath": "src/threat_report_agent/semantic_predicates.py",
+      "lineRange": [
+        174,
+        191
+      ],
+      "summary": "把分类法映射为静态链使用的紧凑类别（execution / network / dynamic_resolution / loader / persistence 等）。",
+      "tags": [
+        "classification",
+        "semantic",
+        "projection"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/static_analysis.py",
+      "type": "file",
+      "name": "static_analysis.py",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "summary": "字节级静态逆向核心：PE 解析、XOR 与解码恢复、动态 API 解析、进程创建参数与父进程属性恢复、间接调用跟踪、函数语义摘要，全部为静态推导，并在措辞上避免声明样本已执行。",
+      "tags": [
+        "static-analysis",
+        "pe",
+        "recovery",
+        "disassembly",
+        "decode"
+      ],
+      "complexity": "complex",
+      "languageNotes": "以 StaticFact / StaticResult 等 dataclass 统一事实与结果的形状；机制信号只在 API、字符串与函数组合自洽时才聚合产出。"
+    },
+    {
+      "id": "class:src/threat_report_agent/static_analysis.py:ClaimSpec",
+      "type": "class",
+      "name": "ClaimSpec",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        293,
+        303
+      ],
+      "summary": "静态分析产出的 Claim 草案：模块、主体、动作、对象、机制、条件、陈述与事实索引、置信度及 ATT&CK 映射。",
+      "tags": [
+        "static-analysis",
+        "claim",
+        "data-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:recover_dynamic_api_resolutions",
+      "type": "function",
+      "name": "recover_dynamic_api_resolutions",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        3145,
+        3596
+      ],
+      "summary": "从静态事实恢复 GetProcAddress 的显式过程名参数（x64 经 RDX/EDX），并在有限指令窗口内回溯。",
+      "tags": [
+        "recovery",
+        "dynamic-api",
+        "static-analysis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:analyze_bytes",
+      "type": "function",
+      "name": "analyze_bytes",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        6017,
+        6458
+      ],
+      "summary": "静态分析总入口：解析单个 artifact 并产出有界观察与语义视图；可选 string_xrefs 让节区感知的字符串质量投影具备 xref 信息，同时不破坏原始字符串证据契约。",
+      "tags": [
+        "entry-point",
+        "static-analysis",
+        "pe",
+        "orchestration"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:derive_mechanism_facts",
+      "type": "function",
+      "name": "derive_mechanism_facts",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        5491,
+        5812
+      ],
+      "summary": "把低层观察聚合为可作证据的机制信号；刻意保持确定性，不声明执行、也不因单个孤立 API 推断行为。",
+      "tags": [
+        "mechanism",
+        "aggregation",
+        "static-analysis",
+        "determinism"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:build_function_semantic_summary",
+      "type": "function",
+      "name": "build_function_semantic_summary",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        2764,
+        3056
+      ],
+      "summary": "为单个函数构建分析员可读的纯静态解释：只 Join 属于同一函数的调用、指令、数据引用与 CFG 行，并保持结果有界。",
+      "tags": [
+        "static-analysis",
+        "summary",
+        "projection"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:recover_process_creation_arguments",
+      "type": "function",
+      "name": "recover_process_creation_arguments",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        3747,
+        4010
+      ],
+      "summary": "Join CreateProcess 的命令行字符串与唯一创建标志立即数（x64 命令行在 RDX，导入常被渲染为 IAT thunk）。",
+      "tags": [
+        "recovery",
+        "process-execution",
+        "static-analysis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:recover_static_xor_configs",
+      "type": "function",
+      "name": "recover_static_xor_configs",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        768,
+        1029
+      ],
+      "summary": "对 PE 可读节区回放有界的滚动 XOR 家族；仅当解码字节包含配置标记（URL、常见 loader/网络 API、计划任务或 explorer）时保留命中。不执行样本。",
+      "tags": [
+        "decode",
+        "xor",
+        "static-analysis",
+        "config-recovery"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:trace_static_api_arguments",
+      "type": "function",
+      "name": "trace_static_api_arguments",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        2508,
+        2761
+      ],
+      "summary": "从有序指令视图恢复简单 API 参数的生产者；callsite 参数限定单次调用，避免合并多次调用的生产者而错挂常量。",
+      "tags": [
+        "static-analysis",
+        "argument-trace",
+        "dataflow"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:track_indirect_function_pointers",
+      "type": "function",
+      "name": "track_indirect_function_pointers",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        2137,
+        2375
+      ],
+      "summary": "恢复 resolver 输出到存储槽再到间接调用的抽象数据流链接，识别常见编译器形态，绝不把裸间接调用当作已解析。",
+      "tags": [
+        "static-analysis",
+        "dataflow",
+        "indirect-call"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:classify_pe_semantics",
+      "type": "function",
+      "name": "classify_pe_semantics",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        4229,
+        4428
+      ],
+      "summary": "依据字段访问与输出信号对面向 PE 的函数做语义分类。",
+      "tags": [
+        "classification",
+        "pe",
+        "static-analysis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:recover_parent_process_attribute",
+      "type": "function",
+      "name": "recover_parent_process_attribute",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        4013,
+        4164
+      ],
+      "summary": "恢复父进程属性相关的静态事实，支撑 PPID 伪造类机制的判定。",
+      "tags": [
+        "recovery",
+        "ppid",
+        "static-analysis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:cluster_static_seeds",
+      "type": "function",
+      "name": "cluster_static_seeds",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        1833,
+        1971
+      ],
+      "summary": "把静态证据聚成有界的调查种子簇，并限制每簇证据数量以抑制前沿膨胀。",
+      "tags": [
+        "clustering",
+        "seed",
+        "static-analysis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:projected_process_image_name",
+      "type": "function",
+      "name": "projected_process_image_name",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        3649,
+        3663
+      ],
+      "summary": "从候选值投影出进程映像名，供 HOW 恢复与报告展示统一口径。",
+      "tags": [
+        "projection",
+        "process",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static_analysis.py:decode_windows_process_creation_flags",
+      "type": "function",
+      "name": "decode_windows_process_creation_flags",
+      "filePath": "src/threat_report_agent/static_analysis.py",
+      "lineRange": [
+        151,
+        170
+      ],
+      "summary": "把 Windows 进程创建标志位解码为可读的名称集合。",
+      "tags": [
+        "decoding",
+        "process-execution",
+        "utility"
+      ],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "class:src/threat_report_agent/persist_how.py:PersistHow",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "class:src/threat_report_agent/persist_how.py:PersistHow",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:persist_how_claim_specs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:persist_how_claim_specs",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:stage_persist_how_claims",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:stage_persist_how_claims",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:stamp_persist_how_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:stamp_persist_how_snapshot",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:catalog_candidate_mechanism_fields",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:catalog_candidate_mechanism_fields",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:emit_ranked_symbols_then_stage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "function:src/threat_report_agent/persist_how.py:emit_ranked_symbols_then_stage",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "class:src/threat_report_agent/pma_static_plan.py:StaticPlanItem",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "class:src/threat_report_agent/pma_static_plan.py:StaticPlanItem",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:build_pma_static_plan",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:build_pma_static_plan",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:static_analysis_plan_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:static_analysis_plan_snapshot",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:pma_dispatch_items",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:pma_dispatch_items",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:blocks_payload_behavior_seed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:blocks_payload_behavior_seed",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:packer_latch_active",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:packer_latch_active",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:stub_import_names",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:stub_import_names",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:reconstructed_import_names",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:reconstructed_import_names",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:iter_import_names",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "function:src/threat_report_agent/pma_static_plan.py:iter_import_names",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_report_document",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_report_document",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:document_to_markdown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:document_to_markdown",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:_document_to_v3_markdown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:_build_assessment",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_observed_mechanism_projections",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_observed_mechanism_projections",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_static_link_mechanism_projections",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_static_link_mechanism_projections",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_mechanism_projections",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_mechanism_projections",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_behavior_findings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_behavior_findings",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_runtime_sequence",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_runtime_sequence",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_unique_execution_threads",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "function:src/threat_report_agent/reporting.py:build_unique_execution_threads",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/semantic_predicates.py",
+      "target": "class:src/threat_report_agent/semantic_predicates.py:ApiSemantic",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/semantic_predicates.py",
+      "target": "class:src/threat_report_agent/semantic_predicates.py:ApiSemantic",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/semantic_predicates.py",
+      "target": "function:src/threat_report_agent/semantic_predicates.py:normalize_api_symbol",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/semantic_predicates.py",
+      "target": "function:src/threat_report_agent/semantic_predicates.py:normalize_api_symbol",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/semantic_predicates.py",
+      "target": "function:src/threat_report_agent/semantic_predicates.py:classify_api_symbol",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/semantic_predicates.py",
+      "target": "function:src/threat_report_agent/semantic_predicates.py:classify_api_symbol",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/semantic_predicates.py",
+      "target": "function:src/threat_report_agent/semantic_predicates.py:semantic_category",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/semantic_predicates.py",
+      "target": "function:src/threat_report_agent/semantic_predicates.py:semantic_category",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "class:src/threat_report_agent/static_analysis.py:ClaimSpec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "class:src/threat_report_agent/static_analysis.py:ClaimSpec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:recover_dynamic_api_resolutions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:recover_dynamic_api_resolutions",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:analyze_bytes",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:analyze_bytes",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:derive_mechanism_facts",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:derive_mechanism_facts",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:build_function_semantic_summary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:build_function_semantic_summary",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:recover_process_creation_arguments",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:recover_process_creation_arguments",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:recover_static_xor_configs",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:recover_static_xor_configs",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:trace_static_api_arguments",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:trace_static_api_arguments",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:track_indirect_function_pointers",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:track_indirect_function_pointers",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:classify_pe_semantics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:classify_pe_semantics",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:recover_parent_process_attribute",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:recover_parent_process_attribute",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:cluster_static_seeds",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:cluster_static_seeds",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:projected_process_image_name",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:projected_process_image_name",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:decode_windows_process_creation_flags",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "function:src/threat_report_agent/static_analysis.py:decode_windows_process_creation_flags",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "file:src/threat_report_agent/dataflow.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "file:src/threat_report_agent/investigation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "file:src/threat_report_agent/models.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "file:src/threat_report_agent/reporting.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "file:src/threat_report_agent/semantic_predicates.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/persist_how.py",
+      "target": "file:src/threat_report_agent/static_analysis.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/pma_static_plan.py",
+      "target": "file:src/threat_report_agent/semantic_predicates.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/behavior_catalog.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/controlled_emulation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/investigation_protocol.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/investigation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/mechanism_completeness.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/product_certification.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/semantic_predicates.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/reporting.py",
+      "target": "file:src/threat_report_agent/static_analysis.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "file:src/threat_report_agent/dataflow.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "file:src/threat_report_agent/function_simhash.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "file:src/threat_report_agent/investigation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/static_analysis.py",
+      "target": "file:src/threat_report_agent/semantic_predicates.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:src/threat_report_agent/reporting.py:build_report_document",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:deep_analysis_metrics",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/reporting.py:build_behavior_findings",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:apply_adversarial_downgrades",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/reporting.py:_document_to_v3_markdown",
+      "target": "function:src/threat_report_agent/product_certification.py:static_wording_violations",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/reporting.py:build_mechanism_projections",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_completeness_score",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/reporting.py:build_runtime_sequence",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:is_empty_marker",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/persist_how.py:PersistHow",
+      "target": "class:src/threat_report_agent/investigation.py:Verifier",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/persist_how.py:PersistHow",
+      "target": "class:src/threat_report_agent/investigation.py:MechanismPlaybookRegistry",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/persist_how.py:PersistHow",
+      "target": "function:src/threat_report_agent/dataflow.py:catalog_decode_output_to_process_command_relation",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/persist_how.py:PersistHow",
+      "target": "function:src/threat_report_agent/static_analysis.py:projected_process_image_name",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/static_analysis.py:build_function_semantic_summary",
+      "target": "function:src/threat_report_agent/semantic_predicates.py:semantic_category",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/pma_static_plan.py:build_pma_static_plan",
+      "target": "function:src/threat_report_agent/semantic_predicates.py:normalize_api_symbol",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

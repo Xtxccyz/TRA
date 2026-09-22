@@ -18,6 +18,9 @@ _SELECTOR_FIELDS = frozenset(
         "name",
         "target",
         "target_name",
+        "target_function",
+        "from",
+        "to",
         "function",
         "function_name",
         "caller",
@@ -31,6 +34,52 @@ _SELECTOR_FIELDS = frozenset(
         "symbol",
     }
 )
+
+# Only evidence that can be addressed by an investigation selector needs an
+# entry in the derived exact-match index. Kind-driven retrieval still exposes
+# every other immutable row directly from the Evidence table.
+INDEXED_EVIDENCE_KINDS = frozenset(
+    {
+        "function",
+        "function_context",
+        "function_call",
+        "function_instruction_window",
+        "function_data_correlation",
+        "function_mechanism",
+        "function_ioc",
+        "function_interface",
+        "function_simhash",
+        "data_reference",
+        "xref",
+        "string",
+        "string_semantics",
+        "import_symbol",
+        "export_symbol",
+        "api_argument_trace",
+        "decode_candidate",
+        "decode_result",
+        "cross_function_chain",
+        "investigation_mechanism_link",
+        "static_mechanism_link",
+        "pcode_slice",
+        "value_flow",
+        "resolved_api",
+        "mechanism_decode_window",
+        "abstract_execution_trace",
+        "decompile_slice",
+        "code_api_call",
+        "cfg_block",
+        "constant",
+        "encoded_blob",
+        "decoded_artifact",
+        "mechanism_dynamic_api_link",
+        "mechanism_http_transport_link",
+        "mechanism_shell_output_link",
+        "mechanism_etw_patch_link",
+        "indirect_function_pointer_link",
+    }
+)
+MAX_SELECTORS_PER_EVIDENCE = 32
 
 
 def canonical_selector(value: object) -> str:
@@ -65,10 +114,21 @@ def _walk(value: object, *, key_hint: str = "", budget: int = 128) -> Iterable[s
 
 def evidence_search_keys(*, kind: str, value: object, anchor: object) -> tuple[str, ...]:
     """Return a compact exact-selector key set for one Evidence row."""
+    if canonical_selector(kind) not in INDEXED_EVIDENCE_KINDS:
+        return ()
     values = [f"kind:{canonical_selector(kind)}"]
+    # Function identity must survive verbose instruction/data payloads. An
+    # alphabetical cut of all tokens can otherwise discard every usable RVA.
+    for source in (anchor, value):
+        if isinstance(source, Mapping):
+            for key in ("function_entry", "entry", "function", "function_name", "rva", "address", "api", "name", "target_name", "target_function"):
+                item = source.get(key)
+                if isinstance(item, (str, int)) and str(item).strip():
+                    values.append(canonical_selector(item))
     values.extend(_walk(value))
     values.extend(_walk(anchor))
-    return tuple(sorted({value for value in values if value}))[:256]
+    selected = tuple(dict.fromkeys(value for value in values if value))[:MAX_SELECTORS_PER_EVIDENCE]
+    return tuple(sorted(selected))
 
 
 def target_search_keys(targets: Iterable[object]) -> tuple[str, ...]:
@@ -79,5 +139,8 @@ def target_search_keys(targets: Iterable[object]) -> tuple[str, ...]:
         if not normalized:
             continue
         keys.append(normalized)
-        keys.extend(canonical_selector(token) for token in _TOKEN.findall(normalized))
+        # Bare Ghidra addresses are single selectors. Tokenizing 14000c520
+        # into "c520" can retrieve unrelated text and exhaust the row budget.
+        if not re.fullmatch(r"(?:0x)?[0-9a-f]{5,}", normalized):
+            keys.extend(canonical_selector(token) for token in _TOKEN.findall(normalized))
     return tuple(sorted(set(key for key in keys if key)))[:128]

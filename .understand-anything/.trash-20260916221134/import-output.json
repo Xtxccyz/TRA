@@ -1,0 +1,217 @@
+{
+  "scriptCompleted": true,
+  "stats": {
+    "filesScanned": 66,
+    "filesWithImports": 25,
+    "totalEdges": 116
+  },
+  "importMap": {
+    "src/threat_report_agent/__init__.py": [],
+    "src/threat_report_agent/agent_runtime.py": [
+      "src/threat_report_agent/model_gateway.py",
+      "src/threat_report_agent/runtime_contracts.py"
+    ],
+    "src/threat_report_agent/agents.py": [
+      "src/threat_report_agent/prompts.py",
+      "src/threat_report_agent/static_analysis.py"
+    ],
+    "src/threat_report_agent/analysis_task_orchestration.py": [
+      "src/threat_report_agent/investigation_ledger.py",
+      "src/threat_report_agent/investigation.py",
+      "src/threat_report_agent/models.py"
+    ],
+    "src/threat_report_agent/analysis_trace.py": [
+      "src/threat_report_agent/deep_analysis_quality.py"
+    ],
+    "src/threat_report_agent/analyst_report.py": [
+      "src/threat_report_agent/behavior_catalog.py",
+      "src/threat_report_agent/investigation_protocol.py",
+      "src/threat_report_agent/mechanism_ready.py",
+      "src/threat_report_agent/product_certification.py"
+    ],
+    "src/threat_report_agent/attack_mapping.py": [],
+    "src/threat_report_agent/auth.py": [],
+    "src/threat_report_agent/behavior_catalog.py": [],
+    "src/threat_report_agent/cli.py": [
+      "src/threat_report_agent/config.py",
+      "src/threat_report_agent/content_store.py",
+      "src/threat_report_agent/database.py",
+      "src/threat_report_agent/service.py",
+      "src/threat_report_agent/tool_execution.py"
+    ],
+    "src/threat_report_agent/config.py": [],
+    "src/threat_report_agent/content_store.py": [],
+    "src/threat_report_agent/contracts.py": [],
+    "src/threat_report_agent/controlled_emulation.py": [],
+    "src/threat_report_agent/database.py": [],
+    "src/threat_report_agent/dataflow.py": [
+      "src/threat_report_agent/semantic_predicates.py"
+    ],
+    "src/threat_report_agent/deep_analysis_quality.py": [
+      "src/threat_report_agent/investigation_protocol.py",
+      "src/threat_report_agent/mechanism_completeness.py",
+      "src/threat_report_agent/mechanism_ready.py"
+    ],
+    "src/threat_report_agent/emulation_plan.py": [
+      "src/threat_report_agent/dataflow.py",
+      "src/threat_report_agent/investigation.py",
+      "src/threat_report_agent/static_analysis.py"
+    ],
+    "src/threat_report_agent/evidence_index.py": [],
+    "src/threat_report_agent/evidence_recovery.py": [
+      "src/threat_report_agent/evidence_index.py",
+      "src/threat_report_agent/models.py"
+    ],
+    "src/threat_report_agent/function_simhash.py": [],
+    "src/threat_report_agent/function_similarity.py": [
+      "src/threat_report_agent/function_simhash.py"
+    ],
+    "src/threat_report_agent/ghidra_adapter.py": [
+      "src/threat_report_agent/static_analysis.py"
+    ],
+    "src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java": [],
+    "src/threat_report_agent/gold_output_bar.py": [],
+    "src/threat_report_agent/intake.py": [],
+    "src/threat_report_agent/investigation_ledger.py": [],
+    "src/threat_report_agent/investigation_protocol.py": [],
+    "src/threat_report_agent/investigation.py": [
+      "src/threat_report_agent/behavior_catalog.py",
+      "src/threat_report_agent/controlled_emulation.py",
+      "src/threat_report_agent/dataflow.py",
+      "src/threat_report_agent/evidence_recovery.py",
+      "src/threat_report_agent/investigation_protocol.py",
+      "src/threat_report_agent/mechanism_completeness.py",
+      "src/threat_report_agent/pma_static_plan.py",
+      "src/threat_report_agent/semantic_predicates.py"
+    ],
+    "src/threat_report_agent/knowledge/attack-enterprise-index.json": [],
+    "src/threat_report_agent/knowledge/attack-snapshot.yaml": [],
+    "src/threat_report_agent/main.py": [
+      "src/threat_report_agent/auth.py",
+      "src/threat_report_agent/config.py",
+      "src/threat_report_agent/content_store.py",
+      "src/threat_report_agent/contracts.py",
+      "src/threat_report_agent/database.py",
+      "src/threat_report_agent/investigation.py",
+      "src/threat_report_agent/model_gateway.py",
+      "src/threat_report_agent/observability.py",
+      "src/threat_report_agent/reporting.py",
+      "src/threat_report_agent/service.py"
+    ],
+    "src/threat_report_agent/mechanism_completeness.py": [],
+    "src/threat_report_agent/mechanism_ready.py": [
+      "src/threat_report_agent/mechanism_completeness.py"
+    ],
+    "src/threat_report_agent/methodology.py": [],
+    "src/threat_report_agent/model_gateway.py": [
+      "src/threat_report_agent/config.py"
+    ],
+    "src/threat_report_agent/models.py": [
+      "src/threat_report_agent/evidence_index.py"
+    ],
+    "src/threat_report_agent/observability.py": [],
+    "src/threat_report_agent/orchestration.py": [
+      "src/threat_report_agent/contracts.py",
+      "src/threat_report_agent/policy.py"
+    ],
+    "src/threat_report_agent/persist_how.py": [
+      "src/threat_report_agent/dataflow.py",
+      "src/threat_report_agent/investigation.py",
+      "src/threat_report_agent/models.py",
+      "src/threat_report_agent/reporting.py",
+      "src/threat_report_agent/semantic_predicates.py",
+      "src/threat_report_agent/static_analysis.py"
+    ],
+    "src/threat_report_agent/pma_static_plan.py": [
+      "src/threat_report_agent/semantic_predicates.py"
+    ],
+    "src/threat_report_agent/policies/preset-commands.json": [],
+    "src/threat_report_agent/policies/tool-policy.json": [],
+    "src/threat_report_agent/policy.py": [
+      "src/threat_report_agent/contracts.py"
+    ],
+    "src/threat_report_agent/product_certification.py": [],
+    "src/threat_report_agent/prompts.py": [],
+    "src/threat_report_agent/prompts/analyst-report-system-v1.md": [],
+    "src/threat_report_agent/prompts/manifest.json": [],
+    "src/threat_report_agent/prompts/planning-system-v1.md": [],
+    "src/threat_report_agent/prompts/static-analysis-system-v1.md": [],
+    "src/threat_report_agent/prompts/triage-system-v1.md": [],
+    "src/threat_report_agent/reporting.py": [
+      "src/threat_report_agent/behavior_catalog.py",
+      "src/threat_report_agent/controlled_emulation.py",
+      "src/threat_report_agent/deep_analysis_quality.py",
+      "src/threat_report_agent/investigation_protocol.py",
+      "src/threat_report_agent/investigation.py",
+      "src/threat_report_agent/mechanism_completeness.py",
+      "src/threat_report_agent/product_certification.py",
+      "src/threat_report_agent/semantic_predicates.py",
+      "src/threat_report_agent/static_analysis.py"
+    ],
+    "src/threat_report_agent/runtime_contracts.py": [],
+    "src/threat_report_agent/secret_store.py": [],
+    "src/threat_report_agent/semantic_predicates.py": [],
+    "src/threat_report_agent/service.py": [
+      "src/threat_report_agent/agent_runtime.py",
+      "src/threat_report_agent/agents.py",
+      "src/threat_report_agent/analysis_task_orchestration.py",
+      "src/threat_report_agent/analysis_trace.py",
+      "src/threat_report_agent/analyst_report.py",
+      "src/threat_report_agent/attack_mapping.py",
+      "src/threat_report_agent/config.py",
+      "src/threat_report_agent/content_store.py",
+      "src/threat_report_agent/contracts.py",
+      "src/threat_report_agent/controlled_emulation.py",
+      "src/threat_report_agent/database.py",
+      "src/threat_report_agent/dataflow.py",
+      "src/threat_report_agent/deep_analysis_quality.py",
+      "src/threat_report_agent/emulation_plan.py",
+      "src/threat_report_agent/evidence_index.py",
+      "src/threat_report_agent/evidence_recovery.py",
+      "src/threat_report_agent/function_similarity.py",
+      "src/threat_report_agent/ghidra_adapter.py",
+      "src/threat_report_agent/intake.py",
+      "src/threat_report_agent/investigation_ledger.py",
+      "src/threat_report_agent/investigation_protocol.py",
+      "src/threat_report_agent/investigation.py",
+      "src/threat_report_agent/mechanism_completeness.py",
+      "src/threat_report_agent/mechanism_ready.py",
+      "src/threat_report_agent/methodology.py",
+      "src/threat_report_agent/model_gateway.py",
+      "src/threat_report_agent/models.py",
+      "src/threat_report_agent/orchestration.py",
+      "src/threat_report_agent/persist_how.py",
+      "src/threat_report_agent/pma_static_plan.py",
+      "src/threat_report_agent/policy.py",
+      "src/threat_report_agent/product_certification.py",
+      "src/threat_report_agent/prompts.py",
+      "src/threat_report_agent/reporting.py",
+      "src/threat_report_agent/runtime_contracts.py",
+      "src/threat_report_agent/secret_store.py",
+      "src/threat_report_agent/semantic_predicates.py",
+      "src/threat_report_agent/simulation_adapters.py",
+      "src/threat_report_agent/static_analysis.py",
+      "src/threat_report_agent/static_simulation.py",
+      "src/threat_report_agent/status.py",
+      "src/threat_report_agent/tool_execution.py",
+      "src/threat_report_agent/validation.py"
+    ],
+    "src/threat_report_agent/simulation_adapters.py": [],
+    "src/threat_report_agent/static_analysis.py": [
+      "src/threat_report_agent/dataflow.py",
+      "src/threat_report_agent/function_simhash.py",
+      "src/threat_report_agent/investigation.py",
+      "src/threat_report_agent/semantic_predicates.py"
+    ],
+    "src/threat_report_agent/static_simulation.py": [],
+    "src/threat_report_agent/static/app.js": [],
+    "src/threat_report_agent/static/index.html": [],
+    "src/threat_report_agent/static/styles.css": [],
+    "src/threat_report_agent/status.py": [
+      "src/threat_report_agent/product_certification.py"
+    ],
+    "src/threat_report_agent/tool_execution.py": [],
+    "src/threat_report_agent/turn_lifecycle.py": [],
+    "src/threat_report_agent/validation.py": []
+  }
+}

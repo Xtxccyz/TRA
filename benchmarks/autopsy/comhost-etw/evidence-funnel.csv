@@ -1,0 +1,5 @@
+gold_evidence_id,available,eligible,candidate,selected,delivered,referenced_by_model,attached_to_mechanism,verifier_consumed,accepted_as_support,exclusion_reason
+GE-01,,,,,,,,,,REAL_RUN_BLOCKED
+GE-02,,,,,,,,,,REAL_RUN_BLOCKED
+GE-03,,,,,,,,,,REAL_RUN_BLOCKED
+GE-04,,,,,,,,,,REAL_RUN_BLOCKED

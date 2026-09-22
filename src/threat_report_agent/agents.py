@@ -92,6 +92,7 @@ class StaticAnalysisAgent(_AgentBase):
             + indexes_by_kind.get("mechanism_decompression", [])
             + indexes_by_kind.get("mechanism_decompression_format", [])
             + indexes_by_kind.get("mechanism_decode", [])
+            + indexes_by_kind.get("mechanism_decode_window", [])
             + indexes_by_kind.get("mechanism_integrity_check", [])
         )
         mechanism_decryption_indexes = (
@@ -99,6 +100,7 @@ class StaticAnalysisAgent(_AgentBase):
             + indexes_by_kind.get("mechanism_decompression", [])
             + indexes_by_kind.get("mechanism_decompression_format", [])
             + indexes_by_kind.get("mechanism_decode", [])
+            + indexes_by_kind.get("mechanism_decode_window", [])
             + indexes_by_kind.get("mechanism_integrity_check", [])
         )
         loader_indexes = (
@@ -188,6 +190,11 @@ class StaticAnalysisAgent(_AgentBase):
                 for index in indexes_by_kind.get("mechanism_decode", [])
                 if isinstance(facts[index].value, dict)
             ]
+            decode_details.extend(
+                facts[index].value
+                for index in indexes_by_kind.get("mechanism_decode_window", [])
+                if isinstance(facts[index].value, dict)
+            )
             detail_parts: list[str] = []
             if resource_details:
                 detail_parts.append(
@@ -202,6 +209,15 @@ class StaticAnalysisAgent(_AgentBase):
                 constants = decode_details[0].get("algorithm_constants")
                 if constants:
                     detail_parts.append(f"custom XOR state constants {', '.join(map(str, constants))}")
+                verification = decode_details[0].get("verification_result")
+                if isinstance(verification, dict):
+                    decoded_strings = verification.get("decoded_strings")
+                    if isinstance(decoded_strings, list) and decoded_strings:
+                        detail_parts.append(
+                            "recovered strings: " + ", ".join(str(item) for item in decoded_strings[:4])
+                        )
+                    if verification.get("formula"):
+                        detail_parts.append(f"formula {verification['formula']}")
             detail_statement = "; ".join(detail_parts)
             claims.append(
                 ClaimSpec(
@@ -218,7 +234,7 @@ class StaticAnalysisAgent(_AgentBase):
                     (
                     f"{subject} contains a static resource/decompression/decode chain "
                         + (f"({detail_statement}) " if detail_statement else "")
-                        + "consistent with staged payload processing."
+                        + "as a candidate decode/transform window; recovered bytes are not a verified payload."
                         if mechanism_decryption_indexes
                         else f"{subject} contains indicators consistent with decoding or decryption logic."
                     ),
@@ -313,11 +329,20 @@ class StaticAnalysisAgent(_AgentBase):
                     ),
                     tuple(execution_indexes[:12]),
                     "MEDIUM",
-                    {
-                        "technique_id": "T1059",
-                        "name": "Command and Scripting Interpreter",
-                        "status": "candidate",
-                    },
+                    (
+                        {
+                            "technique_id": "T1059",
+                            "name": "Command and Scripting Interpreter",
+                            "status": "candidate",
+                        }
+                        if any(
+                            any(token in str(facts[index].value).casefold() for token in (
+                                "cmd.exe", "powershell", "wscript", "cscript", "rundll32", "regsvr32",
+                            ))
+                            for index in execution_indexes
+                        )
+                        else {}
+                    ),
                 )
             )
         if network_indexes:

@@ -18,6 +18,7 @@ from threat_report_agent.models import (
     AnalysisTask,
     Artifact,
     AuditSeal,
+    CaseRecord,
     ContentBlob,
     Evidence,
     ModelCall,
@@ -200,8 +201,15 @@ def test_structured_model_candidate_enters_report_without_becoming_verified(test
     assert model_claims
     assert all(item["status"] == "CANDIDATE" for item in model_claims)
     report = service.get_report_revision(result.report_revision_id)
-    assert "### Model-Synthesized Candidates" in report["markdown"]
+    # The published revision is the Chinese analyst body (`analyst_report.render_official_markdown`),
+    # not the English v3 ledger that `reporting._document_to_v3_markdown` produces, so the section is
+    # asserted by the heading the published renderer is contracted to emit. What the test is actually
+    # protecting is unchanged: the model's candidate reaches the reader WITHOUT being promoted to a
+    # verified finding, together with the mechanism chain and the unverified status that let an analyst
+    # judge it. Asserting the v3 heading here only proved which renderer was wired up.
+    assert "### 模型合成候选" in report["markdown"]
     assert "Input -> Transformation/Control" in report["markdown"]
+    assert "未过验证器" in report["markdown"]
 
 
 def test_background_context_is_first_class_evidence_but_not_claimable(test_settings) -> None:
@@ -306,6 +314,258 @@ def test_model_context_selection_is_fair_across_artifacts(test_settings) -> None
     assert len(selected) == 100
     assert any(item.artifact_id == "child" for item in selected)
     assert any(item.kind == "function" for item in selected)
+
+
+def test_investigation_execution_corpus_is_bounded_and_prioritizes_mechanisms(test_settings) -> None:
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+    rows = [
+        SimpleNamespace(id=f"string-{index}", kind="string", created_at=utcnow())
+        for index in range(20)
+    ] + [
+        SimpleNamespace(id=f"call-{index}", kind="function_call", created_at=utcnow())
+        for index in range(3)
+    ]
+
+    selected = service._select_investigation_execution_rows(rows, limit=5)
+
+    assert len(selected) == 5
+    assert [item.kind for item in selected[:3]] == ["function_call"] * 3
+
+
+def test_investigation_execution_sql_limit_keeps_high_signal_rows(test_settings) -> None:
+    """The database LIMIT must not hide function/call evidence behind strings."""
+    database = Database(test_settings.database_url)
+    service = AnalysisService(
+        test_settings,
+        database,
+        LocalContentStore(test_settings.content_store_path),
+    )
+    database.create_schema()
+    with database.session_factory.begin() as session:
+        session.add(CaseRecord(id="case-sql-priority", title="SQL priority"))
+        session.flush()
+        session.add(
+            AnalysisTask(
+                id="task-sql-priority",
+                case_id="case-sql-priority",
+                lifecycle="RUNNING",
+            )
+        )
+        session.flush()
+        session.add(
+            ContentBlob(
+                sha256="a" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/sql-priority",
+            )
+        )
+        session.flush()
+        session.add(
+            Artifact(
+                id="artifact-sql-priority",
+                task_id="task-sql-priority",
+                content_sha256="a" * 64,
+                logical_path="sample.exe",
+                detected_type="pe",
+            )
+        )
+        session.flush()
+        session.add(
+            ToolRun(
+                id="run-sql-priority",
+                task_id="task-sql-priority",
+                artifact_id="artifact-sql-priority",
+                tool_name="fixture",
+                tool_version="test",
+                status="SUCCEEDED",
+            )
+        )
+        session.flush()
+        session.add_all(
+            [
+                Evidence(
+                    id=f"string-sql-{index}",
+                    task_id="task-sql-priority",
+                    artifact_id="artifact-sql-priority",
+                    tool_run_id="run-sql-priority",
+                    module="static",
+                    kind="string",
+                    nature="STATIC_OBSERVED",
+                    value={"text": f"noise-{index}"},
+                    anchor={"type": "string"},
+                )
+                for index in range(20)
+            ]
+            + [
+                Evidence(
+                    id=f"call-sql-{index}",
+                    task_id="task-sql-priority",
+                    artifact_id="artifact-sql-priority",
+                    tool_run_id="run-sql-priority",
+                    module="static",
+                    kind="function_call",
+                    nature="STATIC_OBSERVED",
+                    value={"target_function": "VirtualAlloc"},
+                    anchor={"type": "function_call"},
+                )
+                for index in range(3)
+            ]
+        )
+        session.flush()
+        selected = service._load_investigation_execution_rows(
+            session,
+            task_id="task-sql-priority",
+            artifact_id="artifact-sql-priority",
+            action_kinds={"string", "function_call"},
+            limit=5,
+        )
+
+    assert len(selected) == 5
+    assert [item.kind for item in selected[:3]] == ["function_call"] * 3
+    assert all(item.task_id == "task-sql-priority" for item in selected)
+
+
+def test_investigation_execution_sql_limit_keeps_deep_semantic_rows(test_settings) -> None:
+    """Late semantic projections must survive a small working-set cap."""
+    database = Database(test_settings.database_url)
+    service = AnalysisService(
+        test_settings,
+        database,
+        LocalContentStore(test_settings.content_store_path),
+    )
+    database.create_schema()
+    with database.session_factory.begin() as session:
+        session.add(CaseRecord(id="case-sql-deep-priority", title="SQL deep priority"))
+        session.flush()
+        session.add(
+            AnalysisTask(
+                id="task-sql-deep-priority",
+                case_id="case-sql-deep-priority",
+                lifecycle="RUNNING",
+            )
+        )
+        session.flush()
+        session.add(
+            ContentBlob(
+                sha256="b" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/sql-deep-priority",
+            )
+        )
+        session.flush()
+        session.add(
+            Artifact(
+                id="artifact-sql-deep-priority",
+                task_id="task-sql-deep-priority",
+                content_sha256="b" * 64,
+                logical_path="sample.exe",
+                detected_type="pe",
+            )
+        )
+        session.flush()
+        session.add(
+            ToolRun(
+                id="run-sql-deep-priority",
+                task_id="task-sql-deep-priority",
+                artifact_id="artifact-sql-deep-priority",
+                tool_name="fixture",
+                tool_version="test",
+                status="SUCCEEDED",
+            )
+        )
+        session.flush()
+        session.add_all(
+            [
+                Evidence(
+                    id=f"string-deep-{index}",
+                    task_id="task-sql-deep-priority",
+                    artifact_id="artifact-sql-deep-priority",
+                    tool_run_id="run-sql-deep-priority",
+                    module="static",
+                    kind="string",
+                    nature="STATIC_OBSERVED",
+                    value={"text": f"noise-{index}"},
+                    anchor={"type": "string"},
+                )
+                for index in range(10)
+            ]
+            + [
+                Evidence(
+                    id="semantic-summary-deep",
+                    task_id="task-sql-deep-priority",
+                    artifact_id="artifact-sql-deep-priority",
+                    tool_run_id="run-sql-deep-priority",
+                    module="investigation",
+                    kind="function_semantic_summary",
+                    nature="STATIC_INFERRED",
+                    value={"function": "loader", "call_sequence": [{"api": "LoadLibraryW"}]},
+                    anchor={"function_entry": "0x401000"},
+                ),
+                Evidence(
+                    id="context-deep",
+                    task_id="task-sql-deep-priority",
+                    artifact_id="artifact-sql-deep-priority",
+                    tool_run_id="run-sql-deep-priority",
+                    module="static",
+                    kind="function_context",
+                    nature="STATIC_OBSERVED",
+                    value={"name": "loader", "entry": "0x401000"},
+                    anchor={"function_entry": "0x401000"},
+                ),
+                Evidence(
+                    id="pcode-deep",
+                    task_id="task-sql-deep-priority",
+                    artifact_id="artifact-sql-deep-priority",
+                    tool_run_id="run-sql-deep-priority",
+                    module="investigation",
+                    kind="pcode_slice",
+                    nature="STATIC_INFERRED",
+                    value={"operations": ["CALL LoadLibraryW"]},
+                    anchor={"function_entry": "0x401000"},
+                ),
+            ]
+        )
+        session.flush()
+        selected = service._load_investigation_execution_rows(
+            session,
+            task_id="task-sql-deep-priority",
+            artifact_id="artifact-sql-deep-priority",
+            action_kinds={"string", "function_context", "function_semantic_summary", "pcode_slice"},
+            limit=3,
+        )
+
+    assert [item.kind for item in selected] == [
+        "function_context",
+        "function_semantic_summary",
+        "pcode_slice",
+    ]
+
+
+def test_model_context_compaction_caps_serialized_evidence_without_dropping_api_identity() -> None:
+    """Planner prompts must remain provider-sized for dense Ghidra windows."""
+    value = {
+        "api": "GetProcAddress",
+        "instructions": [
+            {"address": f"0x{index:04x}", "text": "MOV RAX, " + "A" * 400}
+            for index in range(96)
+        ],
+        "call_targets": [
+            {"target_name": f"WinHttpFunction{index}", "metadata": "B" * 300}
+            for index in range(96)
+        ],
+    }
+
+    compact = AnalysisService._compact_model_value(value, limit=640)
+    encoded = json.dumps(compact, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+    assert len(encoded) <= 640
+    assert "GetProcAddress" in encoded.decode("utf-8")
 
 
 def test_model_planner_reorders_artifacts_and_records_policy_safe_plan(test_settings) -> None:
@@ -803,11 +1063,19 @@ def test_model_plan_is_executed_as_ordered_action_queue(test_settings) -> None:
         ),
     ]
     queue = service._build_execution_queue([pe_id, script_id], actions, artifacts)
-    assert [(item.artifact_id, item.tool_name) for item in queue] == [
-        (pe_id, "pe-parser"),
-        (pe_id, "ghidra-headless"),
-        (script_id, "script-parser"),
-    ]
+    shape = [(item.artifact_id, item.tool_name) for item in queue]
+    # Assert the SCHEDULING CONTRACT rather than the exact list: the deterministic baseline gained the
+    # PE specialist tools (see `_baseline_specialist_tools`), so pinning the full sequence made this
+    # test fail on a coverage improvement instead of on a scheduling regression. What must hold:
+    #   * both model-proposed actions survive the policy/compatibility gate,
+    #   * the declared dependency pe-parser -> ghidra-headless is ordered,
+    #   * the second artifact still gets its own parser.
+    assert (pe_id, "pe-parser") in shape
+    assert (pe_id, "ghidra-headless") in shape
+    assert (script_id, "script-parser") in shape
+    assert shape.index((pe_id, "pe-parser")) < shape.index((pe_id, "ghidra-headless")), (
+        f"pe-parser must be scheduled before its dependent ghidra-headless: {shape}"
+    )
 
 
 def test_model_plan_can_add_methodology_specialist_after_baseline(test_settings) -> None:
@@ -839,10 +1107,18 @@ def test_model_plan_can_add_methodology_specialist_after_baseline(test_settings)
             depends_on=[f"{artifact.id}:signal-extractor"],
         )
         queue = service._build_execution_queue([artifact.id], [signal_action, action], [artifact])
-        assert [(item.artifact_id, item.tool_name) for item in queue] == [
-            (artifact.id, "pe-parser"), (artifact.id, "signal-extractor"),
-            (artifact.id, "knowledge-fact-matcher"), (artifact.id, "ghidra-headless")
-        ]
+        shape = [(item.artifact_id, item.tool_name) for item in queue]
+        # The baseline now already contains knowledge-fact-matcher, so this test's original intent -
+        # "a model can still add a methodology specialist" - is verified by the specialist being
+        # present exactly once with its declared dependency ordered, not by the baseline staying small.
+        assert shape.count((artifact.id, "knowledge-fact-matcher")) == 1, (
+            f"the specialist must not be queued twice (baseline + model): {shape}"
+        )
+        assert (artifact.id, "signal-extractor") in shape
+        assert (artifact.id, "ghidra-headless") in shape
+        assert shape.index((artifact.id, "signal-extractor")) < shape.index(
+            (artifact.id, "knowledge-fact-matcher")
+        ), f"signal-extractor must precede its dependent knowledge-fact-matcher: {shape}"
 
 
 def test_replanning_request_contains_completed_actions(test_settings) -> None:
@@ -922,6 +1198,35 @@ def test_replanning_request_contains_completed_actions(test_settings) -> None:
     assert contexts[1]["completed_actions"][0]["action_key"].endswith(":script-parser")
 
 
+def test_first_runtime_planning_turn_sees_committed_static_evidence(test_settings, monkeypatch) -> None:
+    """The runtime planner must not run against the pre-parser empty frontier."""
+    settings = replace(test_settings, environment="demo", model_calls_enabled=True)
+    database = Database(settings.database_url)
+    service = AnalysisService(settings, database, LocalContentStore(settings.content_store_path))
+    database.create_schema()
+    observed: list[int] = []
+
+    def planner(task_id, artifacts, deterministic_actions, *, phase, completed_actions=None):
+        with database.session_factory() as session:
+            observed.append(
+                session.query(Evidence)
+                .filter(Evidence.task_id == task_id)
+                .count()
+            )
+        return [], []
+
+    monkeypatch.setattr(service, "_run_model_planning", planner)
+    case = service.create_case("planner evidence frontier")
+    service.analyze_submission(
+        case_id=case.id,
+        filename="loader.py",
+        content=b"import socket\nprint('static evidence')\n",
+    )
+
+    assert observed, "runtime analysis should perform a bounded planning turn"
+    assert observed[0] > 0, "the first planning turn must see persisted parser Evidence"
+
+
 def test_scheduler_allows_bounded_multi_turn_model_replanning_after_new_static_evidence(
     test_settings,
 ) -> None:
@@ -979,9 +1284,19 @@ def test_scheduler_allows_bounded_multi_turn_model_replanning_after_new_static_e
     )
 
     planning = service.task_view(result.task_id)["strategy_snapshot"]["dynamic_planning"]
-    assert planner_calls >= 3
-    assert len(planning["history"]) >= 3
-    assert all(item["completed_actions"] for item in planning["history"][1:])
+    # The second action-bearing turn is justified by Evidence produced by the
+    # first specialist action.  An empty-plan repair may make additional HTTP
+    # attempts, but it cannot authorize a third action or replay an existing
+    # one against the identical static frontier.
+    action_turns = [item for item in planning["history"] if item["actions"]]
+    assert planner_calls >= 2
+    assert len(action_turns) == 2
+    assert [item["actions"][0]["tool_name"] for item in action_turns] == [
+        "signal-extractor",
+        "c2-protocol-scanner",
+    ]
+    assert len({item["actions"][0]["planner_turn_id"] for item in action_turns}) == 2
+    assert all(item["completed_actions"] for item in action_turns[1:])
 
 
 def test_blind_v2_preserves_multiple_model_turns_without_reference_context(test_settings) -> None:

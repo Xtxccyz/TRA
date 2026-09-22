@@ -69,11 +69,16 @@ Desktop, then run:
 
     docker compose up --detach
 
-On Windows, double-click `Start-ThreatReportAgent.bat`. The launcher starts Docker
-Desktop when needed, waits for the Docker daemon, starts the Compose services and the
-pinned DSH `threat-static` Web profile, checks both health endpoints, and opens DSH on
-`http://127.0.0.1:3080/`. It never removes containers, images, or data volumes.
-Use `Start-ThreatReportAgent.bat -BuildApi` after changing Python or Web assets. The
+On Windows, double-click `Start-ThreatReportAgent.bat`. That is the normal start
+path: it starts Docker Desktop when needed, rebuilds the API and `emu-worker`
+images when backend Python or Compose files changed, starts Compose (including
+the isolated emulator worker), starts the pinned DSH `threat-static` profile,
+checks health, and opens `http://127.0.0.1:3080/`. Use
+`Start-ThreatReportAgent.bat -BuildApi` to force those image rebuilds. It never
+removes containers, images, or data volumes. The desktop shortcuts **Threat
+Report Agent** and the migrated **DSH Desktop** shortcut both point to this same
+product launcher; do not start the upstream `DSH Desktop.exe` directly, because
+it does not load the Threat Workbench profile. The
 launcher starts ordinary services from existing images and never rebuilds the Ghidra
 worker during a normal launch. To intentionally rebuild that worker after changing its
 Dockerfile or replacing the trusted local archive, use
@@ -82,23 +87,17 @@ serves only that file on a temporary loopback listener, and stops the listener w
 build completes. To stop the services without deleting data, double-click
 `Stop-ThreatReportAgent.bat` (it runs `docker compose stop`).
 
-The first-stage default is a deterministic static agent. The Web UI includes an
-authenticated **模型配置** panel for saving provider settings and API keys. Keys are sent
-over the same-origin API, encrypted at rest with `MODEL_CONFIG_SECRET_KEY` (or the
-deployment `GATE_SECRET_KEY` fallback), and never returned to the browser. The `.env`
-configuration remains useful for bootstrap and recovery. For example, a DeepSeek primary
-and GLM fallback (both OpenAI-compatible) can be supplied as:
+The first-stage default is a deterministic static agent. The product does not
+ship a backend analysis model. Use the authenticated **模型配置** panel to
+save the single provider, endpoint, model name, and API key that analysis,
+planning, and DSH `model/complete` will share. Keys are sent over the same-origin
+API, encrypted at rest with `MODEL_CONFIG_SECRET_KEY` (or the deployment
+`GATE_SECRET_KEY` fallback), and never returned to the browser. Optional `.env`
+`MODEL_PRIMARY_*` / `MODEL_FALLBACK_*` values are only a user-owned bootstrap;
+leave them empty unless you are recovering a deployment without the UI.
 
     MODEL_CONFIG_SECRET_KEY=replace-with-a-long-random-server-secret
     MODEL_CALLS_ENABLED=true
-    MODEL_PRIMARY_PROVIDER=deepseek
-    MODEL_PRIMARY_BASE_URL=https://api.deepseek.com/v1
-    MODEL_PRIMARY_MODEL=deepseek-chat
-    MODEL_PRIMARY_API_KEY=replace-me
-    MODEL_FALLBACK_PROVIDER=glm
-    MODEL_FALLBACK_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-    MODEL_FALLBACK_MODEL=glm-4-flash
-    MODEL_FALLBACK_API_KEY=replace-me
 
 The UI shows the active mode and whether credentials are configured. Provider credentials
 stay on the API server and are not copied into browser storage, task evidence, or reports.

@@ -1,0 +1,68 @@
+{
+  "version": "resume-mechanisms-v2",
+  "evaluator_only": true,
+  "source": "manual-evidence-audit-v1",
+  "mechanisms": [
+    {
+      "id": "resume-loading-chain",
+      "components": {
+        "entry": ["entrypoint"],
+        "input": ["WinHttpOpen"],
+        "side_effect": ["CreateProcess"],
+        "anchors": ["function_entry"]
+      }
+    },
+    {
+      "id": "resume-decoder-config-recovery",
+      "components": {
+        "input": ["encoded"],
+        "transformation": ["xor"],
+        "output": ["VERIFIED_STATIC_DATA"],
+        "anchors": ["function_entry"]
+      }
+    },
+    {
+      "id": "resume-ppid-process-chain",
+      "components": {
+        "entry": ["OpenProcess"],
+        "condition": ["UpdateProcThreadAttribute"],
+        "output": ["PROC_THREAD_ATTRIBUTE_PARENT_PROCESS"],
+        "side_effect": ["CreateProcess"],
+        "anchors": ["function_entry"]
+      }
+    },
+    {
+      "id": "resume-dynamic-resolver",
+      "components": {
+        "input": ["GetProcAddress"],
+        "consumer": ["LoadLibrary"],
+        "anchors": ["function_entry"]
+      }
+    },
+    {
+      "id": "resume-network-protocol",
+      "components": {
+        "input": ["WinHttpOpen"],
+        "consumer": ["WinHttpSendRequest"],
+        "side_effect": ["WinHttpReceiveResponse"],
+        "anchors": ["function_entry"]
+      }
+    },
+    {
+      "id": "resume-anti-analysis",
+      "components": {
+        "entry": ["GetTickCount64"],
+        "condition": ["0x493e1"],
+        "anchors": ["function_entry"]
+      }
+    },
+    {
+      "id": "resume-entrypoint-timeline",
+      "components": {
+        "entry": ["entrypoint"],
+        "consumer": ["function_call"],
+        "anchors": ["function_entry"]
+      }
+    }
+  ]
+}

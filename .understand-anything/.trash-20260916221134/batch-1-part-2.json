@@ -1,0 +1,673 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/service.py",
+      "type": "file",
+      "name": "service.py",
+      "filePath": "src/threat_report_agent/service.py",
+      "summary": "承载 Analysis Task 全生命周期的巨型服务模块（约 2.8 万行）：提交与样本包展开、Artifact/ToolRun 注册、静态分析与受控模拟派发、Evidence 与 Claim 链接、Analysis Snapshot 冻结、Report Revision 以及 DSH workbench 会话接口。现行活体调查 planner 入口是本模块的 _run_investigation_loop（配合 investigation.DeepMiningPlanner）。",
+      "tags": [
+        "service",
+        "analysis-task",
+        "workbench",
+        "orchestration",
+        "investigation-loop"
+      ],
+      "complexity": "complex",
+      "languageNotes": "单模块内含一个约 2.7 万行的 AnalysisService 类与若干模块级辅助函数；节点只覆盖 1 个 file 节点加少量关键入口，方法级细节需按方法名检索。"
+    },
+    {
+      "id": "class:src/threat_report_agent/service.py:AnalysisService",
+      "type": "class",
+      "name": "AnalysisService",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        1045,
+        28147
+      ],
+      "summary": "核心服务类：装配模型网关、Prompt 注册表、策略、证据仓储与（历史的）StaticInvestigationOrchestrator，并实现从创建 Case/Analysis Task、执行静态工具与受控模拟、链接 Claim 与 Evidence，到冻结 Analysis Snapshot、生成 Report Revision 与 workbench 接口的全部流程。",
+      "tags": [
+        "service",
+        "analysis-task",
+        "workbench",
+        "orchestration"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:_run_investigation_loop",
+      "type": "function",
+      "name": "_run_investigation_loop",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        8401,
+        11840
+      ],
+      "summary": "现行活体调查循环（约 3400 行）：按 frontier 与 work ledger 推进调查动作，调用 DeepMiningPlanner.plan_actions 获取下一步，交错受控模拟与模型规划回合，合并种子簇并收敛到饱和或预算上限。",
+      "tags": [
+        "investigation-loop",
+        "planner",
+        "work-ledger",
+        "core"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:_run_model_planning",
+      "type": "function",
+      "name": "_run_model_planning",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        13258,
+        14183
+      ],
+      "summary": "模型规划回合：准备调查前沿与有据可依的候选动作，让模型产出受约束的 action plan，校验后落地为可执行动作并记录模型调用与失败契约。",
+      "tags": [
+        "model-planning",
+        "action-plan",
+        "investigation-loop"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:_run_analysis",
+      "type": "function",
+      "name": "_run_analysis",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        2961,
+        3952
+      ],
+      "summary": "单次分析主体流程：注册 Artifact、按策略执行静态工具与分析器、固化 Evidence 与 Claim、触发受控模拟与模型增强，并最终冻结 Analysis Snapshot。",
+      "tags": [
+        "analysis-pipeline",
+        "tool-run",
+        "evidence",
+        "core"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:analyze_submission",
+      "type": "function",
+      "name": "analyze_submission",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        1949,
+        1975
+      ],
+      "summary": "提交分析入口：接收上传内容并创建对应的 Analysis Task（对 create_submission_task 的薄封装）。",
+      "tags": [
+        "entry-point",
+        "submission",
+        "api-handler"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:create_submission_task",
+      "type": "function",
+      "name": "create_submission_task",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        2175,
+        2289
+      ],
+      "summary": "创建 Analysis Task：校验并固化四通道输入（任务请求、样本包、背景上下文、知识快照），写入任务记录并形成启动时的不可变快照。",
+      "tags": [
+        "analysis-task",
+        "four-channel-input",
+        "entry-point"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:execute_submission_task",
+      "type": "function",
+      "name": "execute_submission_task",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        2290,
+        2393
+      ],
+      "summary": "执行已创建的提交任务：展开样本包（intake.expand_submission）、注册 Artifact 与 ToolRun、推进任务生命周期状态，并在 Gate 或失败时保留可审计的终止信息。",
+      "tags": [
+        "analysis-task",
+        "task-execution",
+        "intake",
+        "entry-point"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:workbench_start_static_analysis",
+      "type": "function",
+      "name": "workbench_start_static_analysis",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        24120,
+        24233
+      ],
+      "summary": "DSH workbench 启动静态分析的入口：校验会话与 Artifact 绑定关系后触发分析执行，并向 workbench 返回进度视图。",
+      "tags": [
+        "workbench",
+        "entry-point",
+        "session-binding"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:coalesce_investigation_seed_clusters",
+      "type": "function",
+      "name": "coalesce_investigation_seed_clusters",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        517,
+        654
+      ],
+      "summary": "模块级辅助函数：合并候选调查种子簇、去重证据并把每簇 evidence_ids 收敛到上限，供种子准入与预算计量使用。",
+      "tags": [
+        "investigation-seed",
+        "deduplication",
+        "utility"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/service.py:_emit_controlled_emulation",
+      "type": "function",
+      "name": "_emit_controlled_emulation",
+      "filePath": "src/threat_report_agent/service.py",
+      "lineRange": [
+        17855,
+        17985
+      ],
+      "summary": "在授权窗口内派发受控模拟：按 Settings 构造模拟执行策略与 runner、按窗口生成请求，执行隔离 worker 模拟并按状态推导证据性质（EMULATION_OBSERVED 或 STATIC_INFERRED）。它是镜像内受控模拟，不是动态分析，也不代表样本已在宿主或沙箱中运行。",
+      "tags": [
+        "受控模拟",
+        "emulation-dispatch",
+        "evidence-nature",
+        "investigation-loop"
+      ],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/agent_runtime.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/agents.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/analysis_task_orchestration.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/analysis_trace.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/analyst_report.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/attack_mapping.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/content_store.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/contracts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/controlled_emulation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/database.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/dataflow.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/emulation_plan.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/evidence_index.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/evidence_recovery.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/function_similarity.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/ghidra_adapter.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/intake.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/investigation_ledger.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/investigation_protocol.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/investigation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/mechanism_completeness.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/mechanism_ready.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/methodology.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/model_gateway.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/models.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/orchestration.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/persist_how.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/pma_static_plan.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/policy.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/product_certification.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/prompts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/reporting.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/runtime_contracts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/secret_store.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/semantic_predicates.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/simulation_adapters.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/static_analysis.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/static_simulation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/status.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/tool_execution.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "file:src/threat_report_agent/validation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "class:src/threat_report_agent/service.py:AnalysisService",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:_run_investigation_loop",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:_run_model_planning",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:_run_analysis",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:analyze_submission",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:create_submission_task",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:execute_submission_task",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:workbench_start_static_analysis",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:coalesce_investigation_seed_clusters",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:_emit_controlled_emulation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "class:src/threat_report_agent/service.py:AnalysisService",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:analyze_submission",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:create_submission_task",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:execute_submission_task",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/service.py",
+      "target": "function:src/threat_report_agent/service.py:workbench_start_static_analysis",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/service.py:AnalysisService",
+      "target": "class:src/threat_report_agent/orchestration.py:StaticInvestigationOrchestrator",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/service.py:AnalysisService",
+      "target": "class:src/threat_report_agent/secret_store.py:SecretCipher",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/service.py:AnalysisService",
+      "target": "class:src/threat_report_agent/agents.py:StaticAnalysisAgent",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/service.py:_run_investigation_loop",
+      "target": "class:src/threat_report_agent/investigation.py:DeepMiningPlanner",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/service.py:_run_investigation_loop",
+      "target": "function:src/threat_report_agent/service.py:coalesce_investigation_seed_clusters",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/service.py:execute_submission_task",
+      "target": "function:src/threat_report_agent/intake.py:expand_submission",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/service.py:_emit_controlled_emulation",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:default_simulation_runner",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/service.py:_emit_controlled_emulation",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:request_for_granted_window",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/service.py:_emit_controlled_emulation",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:evidence_nature_for_simulation_status",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/service.py:_emit_controlled_emulation",
+      "target": "function:src/threat_report_agent/simulation_adapters.py:simulation_policy_from_settings",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

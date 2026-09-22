@@ -179,6 +179,46 @@ _FORBIDDEN_RUNTIME_WORDING = (
     r"\bobserved at runtime\b", r"\bdynamic_observed\b",
 )
 
+#: Conservative rewrites that turn an unqualified runtime claim into a conditional one.
+#:
+#: ONE definition, shared by BOTH publication paths. MEASURED why that matters: the English path
+#: (`reporting._static_safe_text`) repaired model prose before checking it, while the published Chinese path
+#: (`analyst_report.render_official_markdown`) only RAISED. So a single `connected` written by the model
+#: destroyed the entire report - task `8e75f6dc` (白象) ended `FAILED_ANALYSIS` /
+#: `REPORT_SYNTHESIS_FAILURE` with `report_available: false`, discarding 5,988 evidence rows and 12 claims
+#: because of one word. `_static_safe_text`'s own docstring already stated the requirement this violated:
+#: "A single unqualified runtime verb must not abort an otherwise valid static report."
+#:
+#: Order matters: the more specific phrase must precede its own prefix (`executed successfully` before
+#: `executed`).
+_STATIC_RUNTIME_REWRITES: tuple[tuple[str, str], ...] = (
+    (r"\bconnected\b", "would connect"),
+    (r"\bdownloaded successfully\b", "would download"),
+    (r"\bexecuted successfully\b", "would execute"),
+    (r"\bprocess spawned\b", "process creation would occur"),
+    (r"\bregistry modification succeeded\b", "registry modification may succeed"),
+    (r"\bserver responded\b", "a server response would be expected"),
+    (r"\bc2 active\b", "C2 activity would be possible"),
+    (r"\bobserved at runtime\b", "would be observed at runtime"),
+    (r"\bdynamic_observed\b", "dynamic observation candidate"),
+    (r"\bpersisted successfully\b", "would persist"),
+    (r"\bexecuted\b", "would execute"),
+)
+
+
+def repair_static_runtime_wording(text: str) -> str:
+    """Rewrite unqualified runtime claims into conditional ones.
+
+    Callers must STILL run `static_wording_violations` on the result. This table is deliberately small and
+    does not cover every banned pattern, so a residue means the wording is genuinely unpublishable rather
+    than merely unqualified - and that difference must stay visible instead of being silently swallowed.
+    """
+    if not text:
+        return text
+    for pattern, replacement in _STATIC_RUNTIME_REWRITES:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
+
 
 def static_wording_violations(text: str) -> list[str]:
     """Find unqualified runtime claims in a static-only report."""
@@ -307,6 +347,9 @@ def analysis_coverage(
     semantic_flow_edges: int | None = None,
     behavior_flow_present: bool | None = None,
     coverage_applicable: bool | None = None,
+    artifact_verified_mechanism_coverage: float | None = None,
+    mechanism_count: int | None = None,
+    verified_mechanism_count: int | None = None,
 ) -> dict[str, object]:
     """Build separate pipeline and semantic coverage views.
 
@@ -366,6 +409,14 @@ def analysis_coverage(
         result["behavior_flow_present"] = bool(behavior_flow_present)
     if coverage_applicable is not None:
         result["coverage_applicable"] = bool(coverage_applicable)
+    if artifact_verified_mechanism_coverage is not None:
+        result["artifact_verified_mechanism_coverage"] = max(
+            0.0, min(1.0, float(artifact_verified_mechanism_coverage))
+        )
+    if mechanism_count is not None:
+        result["mechanism_count"] = max(0, int(mechanism_count))
+    if verified_mechanism_count is not None:
+        result["verified_mechanism_count"] = max(0, int(verified_mechanism_count))
     return result
 
 
@@ -377,10 +428,8 @@ def semantic_flow_metrics(mechanisms: Iterable[Mapping[str, object]]) -> dict[st
     input -> transformation/control -> output -> consumer.  Low-level CFG or
     instruction labels are intentionally ignored here.
     """
-    from threat_report_agent.mechanism_completeness import (
-        has_semantic_value,
-        mechanism_is_critical_ready,
-    )
+    from threat_report_agent.mechanism_completeness import has_semantic_value
+    from threat_report_agent.mechanism_ready import inspect_mechanism_ready
 
     eligible = 0
     participating = 0
@@ -392,7 +441,7 @@ def semantic_flow_metrics(mechanisms: Iterable[Mapping[str, object]]) -> dict[st
         status = str(mechanism.get("status", "")).upper()
         if status not in {"VERIFIED", "SUPPORTED", "CONFIRMED"}:
             continue
-        if not mechanism_is_critical_ready(mechanism):
+        if not inspect_mechanism_ready(mechanism).critical_ready:
             continue
         eligible += 1
         chain: list[str] = []
@@ -427,6 +476,37 @@ def semantic_flow_metrics(mechanisms: Iterable[Mapping[str, object]]) -> dict[st
         "relation_flow_coverage": participating / eligible if applicable else 0.0,
         "coverage_applicable": applicable,
         "behavior_flow_present": len(node_order) >= 3 and edge_count >= 2 and participating > 0,
+    }
+
+
+def mechanism_coverage_metrics(
+    mechanisms: Iterable[Mapping[str, object]],
+) -> dict[str, object]:
+    """Measure semantic closure at mechanism granularity.
+
+    An artifact can contain many independent mechanisms. Counting an artifact
+    as verified when only one mechanism is closed overstates coverage,
+    especially for PE samples with large candidate sets.
+    """
+    from threat_report_agent.mechanism_ready import inspect_mechanism_ready
+
+    rows = [
+        row
+        for row in mechanisms
+        if isinstance(row, Mapping)
+        and str(row.get("status", "")).upper() != "NOT_APPLICABLE"
+    ]
+    total = len(rows)
+    verified = sum(
+        1
+        for row in rows
+        if str(row.get("status", "")).upper() in {"VERIFIED", "SUPPORTED", "CONFIRMED"}
+        and inspect_mechanism_ready(row).critical_ready
+    )
+    return {
+        "mechanism_count": total,
+        "verified_mechanism_count": verified,
+        "verified_mechanism_coverage": verified / total if total else 0.0,
     }
 
 

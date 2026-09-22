@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('..', import.meta.url))
 
 test('resource views refresh from the shared session event stream instead of timers', async () => {
-  const views = ['threat-ui-overview', 'threat-ui-investigation', 'threat-ui-mechanisms', 'threat-ui-sample-timeline', 'threat-ui-evidence', 'threat-ui-report']
+  const views = ['threat-ui-overview', 'threat-ui-investigation', 'threat-ui-mechanisms', 'threat-ui-sample-timeline', 'threat-ui-evidence', 'threat-ui-report', 'threat-brand']
   for (const view of views) {
     const source = await readFile(resolve(root, 'packages', view, 'client.js'), 'utf8')
     assert.doesNotMatch(source, /setInterval\s*\(/, `${view} must not own a polling timer`)
-    assert.match(source, /onEvent/, `${view} must subscribe to session events`)
+    if (view !== 'threat-brand') assert.match(source, /onEvent/, `${view} must subscribe to session events`)
   }
 })
 
@@ -20,6 +20,13 @@ test('context store uses the bounded session wait protocol', async () => {
   assert.ok(source.includes('/analysis/wait'))
   assert.match(source, /onEvent/)
   assert.doesNotMatch(source, /setInterval\s*\(/)
+})
+
+test('event coordinator uses server wait protocol without a host timer', async () => {
+  const source = await readFile(resolve(root, 'packages/threat-session-events/src/index.ts'), 'utf8')
+  assert.match(source, /waitForAnalysisUpdate\(/)
+  assert.doesNotMatch(source, /ctx\.interval\s*\(/)
+  assert.doesNotMatch(source, /interval\s*\(\s*\(\)\s*=>/)
 })
 
 test('Evidence uses the session-bound query endpoint without a task id body', async () => {
@@ -34,6 +41,16 @@ test('API client evidence helper is session-bound', async () => {
   const method = source.slice(source.indexOf('currentEvidence('), source.indexOf('bindAnalysis('))
   assert.ok(method.includes('/workbench/sessions/${encodeURIComponent(sessionId)}/evidence/query'))
   assert.doesNotMatch(method, /task_id/)
+})
+
+test('model action tool attaches planner and model provenance before submission', async () => {
+  const source = await readFile(resolve(root, 'packages/threat-tool-provider/src/index.ts'), 'utf8')
+  assert.match(source, /function plannerTurnIdOf\(/)
+  assert.match(source, /function modelActionPayload\(/)
+  assert.match(source, /function coerceFailureInterpretation\(/)
+  assert.match(source, /payload\.origin = 'model'/)
+  assert.match(source, /payload\.planner_turn_id = plannerTurnId/)
+  assert.match(source, /client\.proposeStaticAction\(id, modelActionPayload\(args, exec, id\)\)/)
 })
 
 test('Evidence query contract helper is session-bound', async () => {

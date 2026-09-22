@@ -1,0 +1,506 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "type": "file",
+      "name": "deep_analysis_quality.py",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "summary": "分析员级静态分析的确定性质量门：评估调查结果的形状与证据来源，做对抗式过度声明检查（例如 INJECTS 自环）、无新证据尸检、动作产出性与报告深度评分，并把不达标的结论降级。它从不执行样本，也绝不把 candidate 变成 verified claim。",
+      "tags": ["质量门", "对抗检查", "证据来源", "评分"],
+      "complexity": "complex",
+      "languageNotes": "整体按「检查项 → 违例列表 → 降级」三段式组织，阈值与判定全部落在纯函数里，便于把精简结果持久化进报告快照而完整证据仍留在 ledger。"
+    },
+    {
+      "id": "file:src/threat_report_agent/investigation_protocol.py",
+      "type": "file",
+      "name": "investigation_protocol.py",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "summary": "十问调查协议与 S0–S4 静态升级阶梯：定义 initiator / input / … / failure_fallback 十个必答槽位，并规定空 prose、UNKNOWN token 与单次 NO_NEW_EVIDENCE 结果都不能关闭槽位或宣告静态边界。这些记录是调查义务而不是报告填充物。",
+      "tags": ["调查协议", "状态阶梯", "静态边界", "validation"],
+      "complexity": "complex",
+      "languageNotes": "只依赖 collections.abc，槽位定义用 tuple-of-tuple 常量表达，判定函数全部无副作用，方便被 deep_analysis_quality 与 reporting 复用。"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:_overclaim_row_identity",
+      "type": "function",
+      "name": "_overclaim_row_identity",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [107, 116],
+      "summary": "为过度声明检查计算证据行的身份键，用于判断同一关系是否被重复计入。",
+      "tags": ["身份键", "质量门", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:_is_injects_self_loop",
+      "type": "function",
+      "name": "_is_injects_self_loop",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [133, 154],
+      "summary": "识别 INJECTS 关系的自环（对象注入自身），这是典型的过度声明形态。",
+      "tags": ["对抗检查", "自环", "validation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:_adversarial_overclaim_checks",
+      "type": "function",
+      "name": "_adversarial_overclaim_checks",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [157, 230],
+      "summary": "汇总对抗式过度声明检查项，产出需要降级的违例清单。",
+      "tags": ["对抗检查", "质量门", "validation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:_s4_orchestration_status",
+      "type": "function",
+      "name": "_s4_orchestration_status",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [233, 310],
+      "summary": "判定 S4（编排/动态）阶梯状态，并借助 s4_closed_has_audit_trail 确认必须真有审计轨迹才允许算作 CLOSED。",
+      "tags": ["调查协议", "状态判定", "审计轨迹"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:_mapping",
+      "type": "function",
+      "name": "_mapping",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [313, 334],
+      "summary": "把任意取值安全归一化为 mapping，供质量门统一读取字段。",
+      "tags": ["归一化", "类型守卫", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:no_new_evidence_autopsy",
+      "type": "function",
+      "name": "no_new_evidence_autopsy",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [365, 437],
+      "summary": "对 NO_NEW_EVIDENCE 结果做尸检：区分真正走完的路径与被草率终止的调查。",
+      "tags": ["尸检", "no-new-evidence", "质量门"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:action_is_productive",
+      "type": "function",
+      "name": "action_is_productive",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [440, 503],
+      "summary": "判断一个调查动作是否产出了新信息（非重复、非空转），供分析过程视图过滤无效动作。",
+      "tags": ["动作产出性", "质量门", "utility"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:report_depth_score",
+      "type": "function",
+      "name": "report_depth_score",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [506, 555],
+      "summary": "为报告深度打分，依据机制就绪度与语义字段完整度计算。",
+      "tags": ["评分", "报告深度", "质量门"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:critic_pass",
+      "type": "function",
+      "name": "critic_pass",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [558, 629],
+      "summary": "以批评者视角对调查结果做整体通过/不通过判定。",
+      "tags": ["critic", "质量门", "validation"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:apply_adversarial_downgrades",
+      "type": "function",
+      "name": "apply_adversarial_downgrades",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [635, 691],
+      "summary": "按对抗检查与 critic 结论把过度声明的结论降级，而不是直接删除证据。",
+      "tags": ["降级", "对抗检查", "质量门"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/deep_analysis_quality.py:deep_analysis_metrics",
+      "type": "function",
+      "name": "deep_analysis_metrics",
+      "filePath": "src/threat_report_agent/deep_analysis_quality.py",
+      "lineRange": [694, 920],
+      "summary": "汇总深度分析指标（机制覆盖、语义流、动作产出性、报告深度等），供报告快照与产品认证取用。",
+      "tags": ["指标", "聚合", "质量门"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:is_empty_marker",
+      "type": "function",
+      "name": "is_empty_marker",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [87, 98],
+      "summary": "判定文本是否为协议认可的空标记（空串、unknown、not_identified 等）。",
+      "tags": ["空标记", "validation", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:empty_slot",
+      "type": "function",
+      "name": "empty_slot",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [101, 108],
+      "summary": "构造一个未填写的协议槽位记录。",
+      "tags": ["槽位", "工厂", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:_function_call_names",
+      "type": "function",
+      "name": "_function_call_names",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [122, 135],
+      "summary": "从证据行中提取函数调用名集合，作为槽位推导的输入信号。",
+      "tags": ["证据解析", "符号", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:_slots_from_row",
+      "type": "function",
+      "name": "_slots_from_row",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [138, 251],
+      "summary": "核心槽位填充器：从一行证据按语义规则推导十个协议槽位的取值。",
+      "tags": ["槽位填充", "证据解析", "核心"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:fill_protocol",
+      "type": "function",
+      "name": "fill_protocol",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [259, 297],
+      "summary": "用证据行集合填充十问调查协议。",
+      "tags": ["调查协议", "入口点", "填充"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:_auditable_s4_closed",
+      "type": "function",
+      "name": "_auditable_s4_closed",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [313, 329],
+      "summary": "判定 S4 是否以可审计方式关闭：需要动作类型与审计痕迹同时存在。",
+      "tags": ["审计", "状态阶梯", "validation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:s_ladder",
+      "type": "function",
+      "name": "s_ladder",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [332, 389],
+      "summary": "计算 S0–S4 静态升级阶梯的当前档位。",
+      "tags": ["状态阶梯", "入口点", "判定"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:may_record_static_boundary",
+      "type": "function",
+      "name": "may_record_static_boundary",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [392, 410],
+      "summary": "判断当前阶梯状态是否允许宣告静态边界（静态手段已无法继续推进）。",
+      "tags": ["静态边界", "validation", "质量门"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/investigation_protocol.py:s4_closed_has_audit_trail",
+      "type": "function",
+      "name": "s4_closed_has_audit_trail",
+      "filePath": "src/threat_report_agent/investigation_protocol.py",
+      "lineRange": [413, 422],
+      "summary": "检查 S4 CLOSED 是否伴随完整的审计轨迹。",
+      "tags": ["审计轨迹", "validation", "s4"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:_overclaim_row_identity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:_is_injects_self_loop",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:_adversarial_overclaim_checks",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:_s4_orchestration_status",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:_mapping",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:no_new_evidence_autopsy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:action_is_productive",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:report_depth_score",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:critic_pass",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:apply_adversarial_downgrades",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:deep_analysis_metrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:is_empty_marker",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:empty_slot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:_function_call_names",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:_slots_from_row",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:fill_protocol",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:_auditable_s4_closed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:s_ladder",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:may_record_static_boundary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:s4_closed_has_audit_trail",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:no_new_evidence_autopsy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:action_is_productive",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:report_depth_score",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:critic_pass",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:apply_adversarial_downgrades",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "function:src/threat_report_agent/deep_analysis_quality.py:deep_analysis_metrics",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:is_empty_marker",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:empty_slot",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:fill_protocol",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:s_ladder",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:may_record_static_boundary",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/investigation_protocol.py",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:s4_closed_has_audit_trail",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "file:src/threat_report_agent/investigation_protocol.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "file:src/threat_report_agent/mechanism_completeness.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/deep_analysis_quality.py",
+      "target": "file:src/threat_report_agent/mechanism_ready.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:src/threat_report_agent/deep_analysis_quality.py:_s4_orchestration_status",
+      "target": "function:src/threat_report_agent/investigation_protocol.py:s4_closed_has_audit_trail",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/deep_analysis_quality.py:report_depth_score",
+      "target": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/deep_analysis_quality.py:report_depth_score",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:has_semantic_value",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/deep_analysis_quality.py:deep_analysis_metrics",
+      "target": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/deep_analysis_quality.py:deep_analysis_metrics",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_completeness_score",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

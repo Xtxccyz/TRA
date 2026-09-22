@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
+import json
 from pathlib import Path
 
 from benchmarks.semantic_differential import build_semantic_differential
+
+
+def _load_streaming_reader():
+    path = Path(__file__).parents[1] / "scripts" / "evaluate_semantic_differential.py"
+    spec = importlib.util.spec_from_file_location("evaluate_semantic_differential", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"could not load evaluator script: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_semantic_differential_is_evaluator_only_and_classifies_retrieval_gap() -> None:
@@ -135,3 +147,29 @@ def test_runtime_source_has_no_ast_import_path_to_evaluator_or_gold() -> None:
                 assert all(not item.name.startswith("benchmarks") for item in node.names)
             elif isinstance(node, ast.ImportFrom):
                 assert not (node.module or "").startswith("benchmarks")
+
+
+def test_large_task_view_stream_reader_accepts_null_and_scalar_projections(tmp_path: Path) -> None:
+    """Large live views may use null/scalar optional fields beside the ledger."""
+    payload = {
+        "evidence": [
+            {"id": str(index), "value": {"marker": "x" * 128}}
+            for index in range(70_000)
+        ],
+        "evidence_delivery": None,
+        "investigation": "not-started",
+        "id": "large-task",
+        "limitations": [],
+        "claims": [],
+    }
+    path = tmp_path / "large-task-view.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert path.stat().st_size > 8 * 1024 * 1024
+
+    reader = _load_streaming_reader()
+    loaded = reader._load_task_view(path)
+
+    assert loaded["id"] == "large-task"
+    assert len(loaded["evidence"]) == len(payload["evidence"])
+    assert loaded["evidence_delivery"] is None
+    assert loaded["investigation"] == "not-started"

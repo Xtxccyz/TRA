@@ -4,9 +4,11 @@ import json
 
 import pytest
 
+from scripts.final_completion_local_gate import _git_identity, run as run_local_gate
 from scripts.final_completion_stage_gate import (
     FORMAL_GATE_FIELDS,
     _artifact_metadata,
+    _baseline_identity,
     _bool_metric,
     _git,
     _load_task_view_metadata,
@@ -23,6 +25,75 @@ def _write(path, value) -> None:
 def test_gate_boolean_metrics_accept_numeric_strings() -> None:
     assert _bool_metric("1") is True
     assert _bool_metric("0") is False
+
+
+def test_local_gate_binds_fixture_to_current_git_identity() -> None:
+    identity = _git_identity()
+
+    assert identity["git_commit"]
+    assert identity["git_tree"]
+    assert len(identity["git_commit"]) == 40
+    assert len(identity["git_tree"]) == 40
+
+
+def test_local_gate_emits_wave_a3_acceptance_metrics(tmp_path) -> None:
+    payload = run_local_gate(tmp_path / "local-gate.json")
+
+    assert payload["status"] == "PASS"
+    assert payload["question_quality"] == 4
+    assert payload["competing_hypotheses_applicable"] is True
+    assert payload["useful_action"] is True
+    assert payload["new_evidence"] is True
+    assert payload["mechanism_completeness"] == 1.0
+    assert payload["verifier_pass"] is True
+    assert payload["unsupported_critical"] == 0
+
+
+def test_baseline_identity_accepts_top_level_source_identity() -> None:
+    commit = _git("rev-parse", "HEAD")
+    tree = _git("rev-parse", "HEAD^{tree}")
+
+    assert _baseline_identity({"git_commit": commit, "git_tree": tree}) == (commit, tree)
+
+
+def test_final_gate_rejects_unbound_semantic_artifact_even_when_c1_c4_are_supported(
+    tmp_path,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    semantic = tmp_path / "semantic.json"
+    sbom = tmp_path / "sbom.json"
+    cve = tmp_path / "cve.json"
+    commit = _git("rev-parse", "HEAD")
+    tree = _git("rev-parse", "HEAD^{tree}")
+    _write(baseline, {"git_commit": commit, "git_tree": tree, "results": [{}]})
+    _write(
+        semantic,
+        {
+            "summary": {"supported": 4, "unknown": 0},
+            "mechanisms": [
+                {"mechanism_id": mechanism_id, "status": "SUPPORTED"}
+                for mechanism_id in (
+                    "comhost-dynamic-api",
+                    "comhost-c2-transport",
+                    "comhost-shell",
+                    "comhost-etw-patch",
+                )
+            ],
+        },
+    )
+    _write(sbom, {"status": "PASS"})
+    _write(cve, {"status": "BLOCKED"})
+
+    gate = build_gate(
+        baseline_path=baseline,
+        semantic_path=semantic,
+        sbom_path=sbom,
+        cve_path=cve,
+        baseline_manifest_path=tmp_path / "missing-manifest.json",
+    )
+
+    assert gate["gates"]["real_comhost_l2"] == "BLOCKED"
+    assert any("Semantic differential evidence is missing git_commit" in item for item in gate["blockers"])
 
 
 def test_final_gate_has_plan_schema_projection_and_preserves_blockers(tmp_path) -> None:

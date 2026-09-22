@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from os import getenv
 
-from sqlalchemy import Engine, create_engine, event, inspect, select, text
+from sqlalchemy import Engine, create_engine, event, inspect, insert, select, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -123,8 +123,8 @@ class Database:
         every API/Worker startup behind the schema advisory lock, so process a
         bounded keyset page and commit it before fetching the next page.
         '''
-        from threat_report_agent.evidence_index import evidence_search_keys
-        from threat_report_agent.models import Evidence, EvidenceSearchKey
+        from threat_report_agent.evidence_index import INDEXED_EVIDENCE_KINDS, evidence_search_keys
+        from threat_report_agent.models import Evidence, EvidenceSearchKey, new_id
 
         page_size = 256
         # Process only currently missing rows.  This makes each startup's
@@ -137,6 +137,7 @@ class Database:
                     select(Evidence)
                     .outerjoin(EvidenceSearchKey, EvidenceSearchKey.evidence_id == Evidence.id)
                     .where(EvidenceSearchKey.id.is_(None))
+                    .where(Evidence.kind.in_(tuple(sorted(INDEXED_EVIDENCE_KINDS))))
                     .order_by(Evidence.id)
                     .limit(page_size)
                 )
@@ -152,6 +153,7 @@ class Database:
                     )
                 )
             }
+            key_rows: list[dict[str, str]] = []
             for item in rows:
                 for selector in evidence_search_keys(
                     kind=item.kind, value=item.value, anchor=item.anchor
@@ -159,16 +161,22 @@ class Database:
                     key = (str(item.id), selector)
                     if key in existing:
                         continue
-                    session.add(
-                        EvidenceSearchKey(
-                            task_id=item.task_id,
-                            artifact_id=item.artifact_id,
-                            evidence_id=item.id,
-                            selector=selector,
-                            kind=item.kind,
-                        )
+                    key_rows.append(
+                        {
+                            "id": new_id(),
+                            "task_id": item.task_id,
+                            "artifact_id": item.artifact_id,
+                            "evidence_id": item.id,
+                            "selector": selector,
+                            "kind": item.kind,
+                        }
                     )
                     existing.add(key)
+            # Keep migration writes bounded while avoiding one ORM object per
+            # selector.  The outer page is intentionally small so each
+            # transaction remains restartable on a large immutable ledger.
+            for offset in range(0, len(key_rows), 4096):
+                session.execute(insert(EvidenceSearchKey), key_rows[offset : offset + 4096])
 
     def repair_evidence_search_keys(self) -> dict[str, str]:
         """Repair the PostgreSQL derived Evidence selector index.
@@ -758,6 +766,16 @@ class Database:
                         connection.execute(
                             text(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
                         )
+            # The workbench wait path repeatedly asks for the next event for
+            # one task.  A composite index lets the database satisfy both the
+            # task filter and sequence ordering without sorting the task's
+            # entire audit history on every bounded wait probe.
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_audit_events_task_sequence "
+                    "ON audit_events (task_id, chain_sequence)"
+                )
+            )
 
     def _install_audit_immutability_guards(self) -> None:
         with self.engine.begin() as connection:

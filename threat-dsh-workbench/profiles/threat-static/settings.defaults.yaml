@@ -1,0 +1,21 @@
+# Seeded into the isolated DSH_HOME when settings.yaml is absent.
+# The live conversation model is Settings → 模型. Keep the served catalog
+# explicit: an omitted models list would only offer the pinned pi-ai catalog
+# (V4 Flash / V4 Pro), which does not advertise deepseek-flash.
+llm-pi-ai:
+  providers:
+    deepseek:
+      apiKeyEnv: DEEPSEEK_API_KEY
+      models:
+        - id: deepseek-flash
+          name: DeepSeek-V41-Flash
+          contextWindow: 1000000
+          maxTokens: 256000
+          input: [text, image]
+        - id: deepseek-v4-flash
+          name: DeepSeek-V4-Flash
+        - id: deepseek-v4-pro
+          name: DeepSeek-V4-Pro
+agent-default-model:
+  provider: deepseek
+  model: deepseek-flash

@@ -10,11 +10,13 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
+import ghidra.program.model.data.StringDataInstance;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.util.DefinedStringIterator;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -124,6 +126,26 @@ public class ExportStaticFacts extends GhidraScript {
             functions.add(item);
         }
         result.put("functions", functions);
+        // Export defined strings with their virtual addresses.  The Python
+        // recovery pass uses this table to resolve GetProcAddress's RDX/EDX
+        // procedure-name argument; raw string evidence remains separately
+        // available through the intake/static parser.
+        List<Map<String, Object>> strings = new ArrayList<>();
+        DefinedStringIterator stringIterator = DefinedStringIterator.forProgram(currentProgram);
+        while (stringIterator.hasNext() && !monitor.isCancelled() && strings.size() < 20000) {
+            ghidra.program.model.listing.Data data = stringIterator.next();
+            StringDataInstance instance = StringDataInstance.getStringDataInstance(data);
+            String value = instance.getStringValue();
+            if (value == null || value.trim().isEmpty()) {
+                continue;
+            }
+            Map<String, Object> stringItem = new LinkedHashMap<>();
+            stringItem.put("address", data.getAddress().toString());
+            stringItem.put("text", value);
+            stringItem.put("encoding", instance.getCharsetName());
+            strings.add(stringItem);
+        }
+        result.put("strings", strings);
         List<Map<String, Object>> symbols = new ArrayList<>();
         SymbolIterator symbolsIterator = currentProgram.getSymbolTable().getAllSymbols(true);
         while (symbolsIterator.hasNext() && !monitor.isCancelled()) {

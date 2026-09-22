@@ -1,0 +1,44 @@
+ARG PYTHON_BASE_IMAGE=docker.m.daocloud.io/library/python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
+
+# PyPI is the reliable default in the supported build environment.  Keep this
+# as a build argument so deployments can override it with an internal mirror.
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_RETRIES=10 \
+    HOME=/tmp \
+    TMPDIR=/tmp
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY tool-worker/qiling_linux_runner.py /opt/qiling_linux_runner.py
+COPY tool-worker/build-qiling-rootfs.sh /tmp/build-qiling-rootfs.sh
+# Speakeasy pins unicorn 1.0.2. Qiling 1.4.6 needs unicorn>=2, so it lives in a venv.
+# Do not reuse the BuildKit pip cache here: a poisoned wheel hash aborts the
+# whole emu-worker image even after the API layer already succeeded.
+RUN python -m pip install --no-cache-dir . \
+    && python -m pip install --no-cache-dir "setuptools>=69,<81" "unicorn==1.0.2" "speakeasy-emulator>=1.5.11,<2" \
+    && python -m venv /opt/qiling-venv \
+    && /opt/qiling-venv/bin/pip install --upgrade pip \
+    && /opt/qiling-venv/bin/pip install --no-cache-dir "setuptools>=69,<81" "unicorn==2.0.1.post1" "qiling==1.4.6" \
+    && chmod 0555 /opt/qiling_linux_runner.py /tmp/build-qiling-rootfs.sh \
+    && /bin/sh /tmp/build-qiling-rootfs.sh /opt/qiling-rootfs \
+    && python -c "from pathlib import Path; from threat_report_agent.simulation_adapters import linux_x86_64_exit_elf; Path('/opt/qiling-fixtures').mkdir(parents=True, exist_ok=True); Path('/opt/qiling-fixtures/t5-b09-qiling-linux.elf').write_bytes(linux_x86_64_exit_elf())"
+
+ENV QILING_PYTHON=/opt/qiling-venv/bin/python \
+    QILING_LINUX_RUNNER=/opt/qiling_linux_runner.py \
+    SIMULATION_QILING_ROOTFS=/opt/qiling-rootfs
+
+RUN groupadd --gid 10001 worker \
+    && useradd --uid 10001 --gid worker --home-dir /tmp --no-create-home --shell /usr/sbin/nologin worker
+COPY tool-worker/entrypoint-emu.sh /usr/local/bin/entrypoint-emu.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint-emu.sh \
+    && chmod 0555 /usr/local/bin/entrypoint-emu.sh
+
+USER 10001:10001
+WORKDIR /tmp
+ENTRYPOINT ["/usr/local/bin/entrypoint-emu.sh"]

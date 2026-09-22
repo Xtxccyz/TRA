@@ -2,13 +2,13 @@
   "manifest_version": "final-round-baseline-v1",
   "status": "RECORDED",
   "freeze_mode": "content-hash-only",
-  "generated_at": "2026-09-04T01:50:00+08:00",
+  "generated_at": "2026-09-04T01:19:07.1603337Z",
   "repository": {
     "root": "D:/threat report agent",
     "git_metadata_available": true,
-    "backend_commit": "147723c5af3cf67451c629eb47040ba013d99d64",
+    "backend_commit": "a6637783d535fdcdfd31fd49d4e28cb60c2be3e7",
     "dsh_commit": null,
-    "backend_tree": "389c885581ff87a900df8d60c70c1ad9fbf5a04a",
+    "backend_tree": "e183f3fe4eebeff8ba709762dda8982a6eb5aec3",
     "note": "Git commit/tree, source hashes and image digests are recorded; DSH provenance remains unavailable."
   },
   "source_hashes_sha256": {
@@ -23,18 +23,29 @@
     "src/threat_report_agent/analysis_trace.py": "01FE82B4A9CF4B8654FAAFFE5FAECBC484B5BEA99A61A0886796BE9020E3801D",
     "src/threat_report_agent/main.py": "0AA7DA7704C61B535B1A59490C030CAF1C246D32EED1964A7B8D8FD928EE0E64",
     "benchmarks/semantic_differential.py": "D3D4E6F1D65A0B3D9C3CD171FAEA15504ABDECB1C938F44FED7DDF14DE73FA55",
-    "scripts/final_completion_stage_gate.py": "E0CDFFD1E786E26B37AD71C5FAA266F9DE525F22403AC0635D9D5F57E1AE3980",
+    "scripts/final_completion_stage_gate.py": "3D803D96C15C88299E7F9DEAA670102B8A8EDAF2F85A9E19C37055A5BC7295A3",
     "scripts/round11_2_certify.py": "95EE26EB7CD26A831B5D6E042D9521B11D693881EAADBD1E31CA44A8C68C50CC",
     "tests/test_round11_2_certify.py": "7D91A5247D71AC280E2264FBFB0CBF7A58334F1703E3E2B8E09C4D3FFF15EB9D",
     "tests/test_comhost_benchmark.py": "FC3AD9E05AD13F48ACA718AF00A639CCAB249684A570E89A5932B38A81F8D5C3",
-    "tests/test_final_completion_stage_gate.py": "9E8DCFCB321F3248A4CCC7327BC904BF8971613E66991A4D3BDADC5B07447D67"
+    "tests/test_final_completion_stage_gate.py": "C023553E29784DA94C565905D6D58C7771CFC243E78E29011EF753AD40555E2B",
+    "scripts/ruff_format_debt_gate.py": "67AB6232232E238316DF485047A7EC933F1A9F5D0649B352849DE9A4E2C7C142",
+    "tests/test_ruff_format_debt.py": "A76432A8748419099F9AA0C56F542E3258BABA2A2B8C160AD9A742166C7AA9A5",
+    "scripts/release_issue_register.py": "E263C7CE9758E4B98298A70D2154118003CB5F2AB2E76C6F0621A3521473A4CD",
+    "tests/test_release_issue_register.py": "78EA93148AAA4D99D910027683147BE68D10F5990727DCE1E8CCC9617E0DFE18"
   },
   "dsh": {
     "path": "threat-dsh-workbench",
     "git_metadata_available": false,
     "upstream_core_guard": "PASS",
     "threat_plugin_revision": "content-hash-only",
-    "runtime_checks": ["npm test", "npm run test:runtime", "npm run typecheck", "npm run security", "npm run legacy-guard", "npm run core-guard"]
+    "runtime_checks": [
+      "npm test",
+      "npm run test:runtime",
+      "npm run typecheck",
+      "npm run security",
+      "npm run legacy-guard",
+      "npm run core-guard"
+    ]
   },
   "prompt_versions": {
     "triage-agent": "1.0.0",
@@ -66,7 +77,7 @@
   },
   "evaluator": {
     "metric_contract": "release-artifacts/round11.2/metric-contract.json",
-    "metric_contract_sha256": "not-recomputed-in-this-manifest",
+    "metric_contract_sha256": "106554BB79EE5CB09D89F1A9816A4F5C0B0B803558AE475DD59EE946FBADAADA",
     "corpus_status": "PROVISIONAL_OPERATOR_LABELS",
     "provisional_corpus_manifest": "release-artifacts/round11.2/corpus-manifest.json",
     "gold_status": "BLOCKED"
@@ -78,7 +89,7 @@
     "arbitrary_shell_from_analysis_agent": false
   },
   "limitations": [
-    "No Git commit or tag is available for a commit-level rollback.",
+    "A current Git commit is recorded; no signed release tag is available for an independently verified rollback point.",
     "The evaluator-labelled 20-malware/10-benign corpus and evaluator-owned Gold are not present.",
     "This baseline records the current RC; it is not a Production Ready sign-off."
   ]

@@ -15,6 +15,11 @@
       "id": "analysis-planner-agent",
       "version": "1.0.0",
       "file": "planning-system-v1.md"
+    },
+    {
+      "id": "analyst-report-agent",
+      "version": "1.0.0",
+      "file": "analyst-report-system-v1.md"
     }
   ]
 }

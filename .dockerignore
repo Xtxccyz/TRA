@@ -4,6 +4,8 @@
 !README.md
 !src/
 !src/**
+!vendor/
+!vendor/**
 !tool-worker/
 !tool-worker/Dockerfile
 !tool-worker/entrypoint.sh

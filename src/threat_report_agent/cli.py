@@ -82,3 +82,7 @@ def main() -> None:
             encoding="utf-8",
         )
     print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

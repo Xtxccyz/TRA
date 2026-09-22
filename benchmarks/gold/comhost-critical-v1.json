@@ -1,0 +1,24 @@
+{
+  "version": "comhost-critical-v1",
+  "evaluator_only": true,
+  "source": "manual-evidence-audit-v1",
+  "critical_mechanisms": [
+    "comhost-dynamic-api",
+    "comhost-c2-transport",
+    "comhost-shell",
+    "comhost-etw-patch"
+  ],
+  "mechanisms": [
+    {"id": "comhost-custom-decoder", "components": {"transformation": ["decoder"], "input": ["encoded"], "output": ["decoded"]}},
+    {"id": "comhost-hash-resolver", "components": {"input": ["hash"], "transformation": ["resolver"], "consumer": ["GetProcAddress"]}},
+    {"id": "comhost-dynamic-api", "components": {"input": ["GetProcAddress"], "transformation": ["function pointer"], "consumer": ["WinHTTP"]}},
+    {"id": "comhost-c2-transport", "components": {"input": ["https"], "consumer": ["WinHttpSendRequest"], "side_effect": ["WinHttpReceiveResponse"]}},
+    {"id": "comhost-registration", "components": {"input": ["registration"], "consumer": ["check-in"]}},
+    {"id": "comhost-checkin-tasking", "components": {"input": ["check-in"], "consumer": ["tasking"]}},
+    {"id": "comhost-shell", "components": {"input": ["shell"], "consumer": ["pipe"], "side_effect": ["output capture"]}},
+    {"id": "comhost-run-key", "components": {"input": ["HKCU\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run"], "consumer": ["RegSetValue"]}},
+    {"id": "comhost-defender", "components": {"input": ["Defender"], "consumer": ["RegSetValue"]}},
+    {"id": "comhost-etw-patch", "components": {"entry": ["EtwEventWrite"], "condition": ["VirtualProtect"], "transformation": ["33 C0 C3"], "side_effect": ["FlushInstructionCache"]}},
+    {"id": "comhost-plugin-lifecycle", "components": {"input": ["LoadLibrary"], "consumer": ["plugin"], "side_effect": ["FreeLibrary"]}}
+  ]
+}

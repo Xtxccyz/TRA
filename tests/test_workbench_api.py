@@ -182,3 +182,238 @@ def test_workbench_domain_projections_and_action_execution_are_public(test_setti
             response = client.get(f"/api/v1/workbench/tasks/{task_id}/{suffix}")
             assert response.status_code == 200, response.text
             assert response.json()["task_id"] == task_id
+
+
+def test_session_model_action_provenance_survives_execution(test_settings) -> None:
+    """A DSH-planned action keeps its model correlation through the static executor."""
+    with TestClient(create_app(test_settings)) as client:
+        case = client.post("/api/v1/cases", json={"title": "Model action provenance"}).json()
+        submitted = client.post(
+            f"/api/v1/cases/{case['id']}/tasks",
+            files={"sample": ("sample.py", b"import socket\nprint('static')", "text/x-python")},
+        )
+        assert submitted.status_code == 202, submitted.text
+        task_id = submitted.json()["task_id"]
+        task_view = client.get(f"/api/v1/workbench/tasks/{task_id}").json()
+        task_detail = client.get(f"/api/v1/tasks/{task_id}").json()
+        artifact_id = task_view["artifacts"][0]["id"]
+        thread_id = task_view["threads"][0]["id"]
+        hypothesis_id = task_view["threads"][0]["hypothesis_ids"][0]
+        evidence_id = next(
+            item["id"]
+            for item in task_detail["evidence"]
+            if item["artifact_id"] == artifact_id
+        )
+        linked = client.post(
+            f"/api/v1/workbench/tasks/{task_id}/session",
+            json={"dsh_session_id": "model-action-session", "profile": "threat-static"},
+        )
+        assert linked.status_code == 201, linked.text
+
+        response = client.post(
+            "/api/v1/workbench/sessions/model-action-session/analysis/actions",
+            json={
+                "action_type": "GET_STRINGS_REFERENCED",
+                "target_artifact_id": artifact_id,
+                "thread_id": thread_id,
+                "hypothesis_id": hypothesis_id,
+                "reason": "The planner requested string references for the loader hypothesis.",
+                "question": "Which strings are referenced by the selected loader lead?",
+                "hypothesis": "The selected static lead may expose loader-relevant strings.",
+                "alternatives": ["The string is unrelated application text."],
+                "missing_evidence": ["artifact-local string reference"],
+                "failure_meaning": "The selected static lead remains unresolved.",
+                "evidence_ids": [evidence_id],
+                "target_selector": {"target": "strings"},
+                "expected_evidence_kinds": ["string_reference"],
+                "origin": "model",
+                "planner_turn_id": "dsh-turn-model-1",
+                "model_call_id": "model-call-1",
+                "model_run_id": "agent-run-1",
+                "model_provider": "router",
+                "model_name": "qwen-test",
+                "model_provenance": {
+                    "provider": "router",
+                    "model": "qwen-test",
+                    "source": "dsh-tool",
+                },
+            },
+        )
+        assert response.status_code == 202, response.text
+        action_id = response.json()["id"]
+        detail = client.get(f"/api/v1/workbench/actions/{action_id}")
+        assert detail.status_code == 200, detail.text
+        body = detail.json()
+        assert body["origin"] == "model"
+        assert body["planner_turn_id"] == "dsh-turn-model-1"
+        assert body["model_call_id"] == "model-call-1"
+        assert body["provider"] == "router"
+        assert body["model"] == "qwen-test"
+        assert body["model_provenance"]["model_call_id"] == "model-call-1"
+        assert body["model_provenance"]["provider"] == "router"
+        assert body["result_evidence_ids"]
+
+        events = client.get(f"/api/v1/workbench/tasks/{task_id}/events?after_seq=0").json()["events"]
+        completed = next(
+            event
+            for event in events
+            if event["type"] == "investigation.action_completed"
+            and event["payload_summary"].get("planner_turn_id") == "dsh-turn-model-1"
+        )
+        event_payload = completed["payload_summary"]
+        assert event_payload["origin"] == "model"
+        assert event_payload["planner_turn_id"] == "dsh-turn-model-1"
+        assert event_payload["model_call_id"] == "model-call-1"
+        assert event_payload["evidence_ids"] == body["result_evidence_ids"]
+        observed = next(
+            event
+            for event in events
+            if event["type"] == "investigation.evidence_observed"
+            and event["payload_summary"].get("action_id") == action_id
+        )
+        assert observed["payload_summary"]["planner_turn_id"] == "dsh-turn-model-1"
+        for evidence in body["evidence"]:
+            assert evidence["anchor"]["investigation_action_id"] == action_id
+            assert evidence["anchor"]["origin"] == "model"
+            assert evidence["anchor"]["planner_turn_id"] == "dsh-turn-model-1"
+
+
+def test_session_action_accepts_prose_failure_interpretation(test_settings) -> None:
+    """DSH often writes a branching sentence; the token still has to be accepted."""
+    with TestClient(create_app(test_settings)) as client:
+        case = client.post("/api/v1/cases", json={"title": "Failure interpretation coerce"}).json()
+        submitted = client.post(
+            f"/api/v1/cases/{case['id']}/tasks",
+            files={"sample": ("sample.py", b"import socket\nprint('static')", "text/x-python")},
+        )
+        assert submitted.status_code == 202, submitted.text
+        task_id = submitted.json()["task_id"]
+        task_view = client.get(f"/api/v1/workbench/tasks/{task_id}").json()
+        task_detail = client.get(f"/api/v1/tasks/{task_id}").json()
+        artifact_id = task_view["artifacts"][0]["id"]
+        hypothesis_id = task_view["threads"][0]["hypothesis_ids"][0]
+        evidence_id = next(
+            item["id"]
+            for item in task_detail["evidence"]
+            if item["artifact_id"] == artifact_id
+        )
+        linked = client.post(
+            f"/api/v1/workbench/tasks/{task_id}/session",
+            json={"dsh_session_id": "failure-interp-session", "profile": "threat-static"},
+        )
+        assert linked.status_code == 201, linked.text
+
+        response = client.post(
+            "/api/v1/workbench/sessions/failure-interp-session/analysis/actions",
+            json={
+                "action_type": "GET_STRINGS_REFERENCED",
+                "target_artifact_id": artifact_id,
+                "hypothesis_id": hypothesis_id,
+                "reason": "Recover strings referenced by the selected loader lead.",
+                "question": "Which strings are referenced by the selected loader lead?",
+                "hypothesis": "The selected static lead may expose loader-relevant strings.",
+                "alternatives": ["The string is unrelated application text."],
+                "missing_evidence": ["artifact-local string reference"],
+                "failure_meaning": "The selected static lead remains unresolved.",
+                "failure_interpretation": "NO_NEW_EVIDENCE 或空集 → 改查 GET_DECOMPILE",
+                "evidence_ids": [evidence_id],
+                "target_selector": {"target": "strings"},
+                "expected_evidence_kinds": ["string_reference"],
+                "origin": "model",
+                "planner_turn_id": "dsh-turn-failure-interp-1",
+            },
+        )
+        assert response.status_code == 202, response.text
+        detail = client.get(f"/api/v1/workbench/actions/{response.json()['id']}")
+        assert detail.status_code == 200, detail.text
+        body = detail.json()
+        assert body["failure_interpretation"] == "NO_NEW_EVIDENCE"
+        plan = (body.get("parameters") or {}).get("_analysis_plan") or {}
+        combined = " ".join(
+            [
+                str(body.get("failure_meaning") or ""),
+                str(plan.get("failure_meaning") or ""),
+            ]
+        )
+        assert "GET_DECOMPILE" in combined
+
+
+def test_session_action_accepts_dsh_selector_aliases_and_long_success_condition(test_settings) -> None:
+    """Live DSH sessions 422'd on function_name, length, and 160-char success_condition."""
+    with TestClient(create_app(test_settings)) as client:
+        case = client.post("/api/v1/cases", json={"title": "Selector dialect coerce"}).json()
+        submitted = client.post(
+            f"/api/v1/cases/{case['id']}/tasks",
+            files={"sample": ("sample.py", b"import socket\nprint('static')", "text/x-python")},
+        )
+        assert submitted.status_code == 202, submitted.text
+        task_id = submitted.json()["task_id"]
+        task_view = client.get(f"/api/v1/workbench/tasks/{task_id}").json()
+        task_detail = client.get(f"/api/v1/tasks/{task_id}").json()
+        artifact_id = task_view["artifacts"][0]["id"]
+        hypothesis_id = task_view["threads"][0]["hypothesis_ids"][0]
+        evidence_id = next(
+            item["id"]
+            for item in task_detail["evidence"]
+            if item["artifact_id"] == artifact_id
+        )
+        linked = client.post(
+            f"/api/v1/workbench/tasks/{task_id}/session",
+            json={"dsh_session_id": "selector-dialect-session", "profile": "threat-static"},
+        )
+        assert linked.status_code == 201, linked.text
+
+        function_response = client.post(
+            "/api/v1/workbench/sessions/selector-dialect-session/analysis/actions",
+            json={
+                "action_type": "GET_FUNCTION",
+                "target_artifact_id": artifact_id,
+                "hypothesis_id": hypothesis_id,
+                "reason": "Locate the selected function by the decompiler name.",
+                "question": "Where is FUN_180001000 defined?",
+                "hypothesis": "The named function is a recoverable static lead.",
+                "alternatives": ["The name is an unrelated label."],
+                "missing_evidence": ["function_context"],
+                "failure_meaning": "The named function remains unresolved.",
+                "success_condition": (
+                    "Recover a function_context or function row for FUN_180001000 "
+                    "so later GET_DECOMPILE can recover arguments, constants, and consumers."
+                ),
+                "evidence_ids": [evidence_id],
+                "target_selector": {"function_name": "FUN_180001000"},
+                "expected_evidence_kinds": ["function", "function_context"],
+                "origin": "model",
+                "planner_turn_id": "dsh-turn-selector-dialect-1",
+            },
+        )
+        assert function_response.status_code == 202, function_response.text
+        function_detail = client.get(f"/api/v1/workbench/actions/{function_response.json()['id']}")
+        assert function_detail.status_code == 200, function_detail.text
+        function_body = function_detail.json()
+        assert function_body["target_selector"]["function"] == "FUN_180001000"
+        assert "function_name" not in function_body["target_selector"]
+        assert len(function_body["success_condition"]) <= 160
+
+        bytes_response = client.post(
+            "/api/v1/workbench/sessions/selector-dialect-session/analysis/actions",
+            json={
+                "action_type": "READ_BYTES",
+                "target_artifact_id": artifact_id,
+                "hypothesis_id": hypothesis_id,
+                "reason": "Read a bounded encoded window.",
+                "question": "What bytes sit at the selected window?",
+                "hypothesis": "The window may be a decode input.",
+                "alternatives": ["The window is padding."],
+                "missing_evidence": ["bytes_read"],
+                "failure_meaning": "The window remains unread.",
+                "evidence_ids": [evidence_id],
+                "target_selector": {"address": "0x18006de28", "length": 64},
+                "expected_evidence_kinds": ["bytes_read"],
+                "origin": "model",
+                "planner_turn_id": "dsh-turn-selector-dialect-2",
+            },
+        )
+        assert bytes_response.status_code == 202, bytes_response.text
+        bytes_detail = client.get(f"/api/v1/workbench/actions/{bytes_response.json()['id']}")
+        assert bytes_detail.status_code == 200, bytes_detail.text
+        assert bytes_detail.json()["target_selector"]["length"] == 64

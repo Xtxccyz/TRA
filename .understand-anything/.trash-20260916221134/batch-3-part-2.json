@@ -1,0 +1,1299 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/main.py",
+      "type": "file",
+      "name": "main.py",
+      "filePath": "src/threat_report_agent/main.py",
+      "summary": "FastAPI HTTP surface：定义全部请求/响应模型，并在 create_app 中注册 workbench 会话与动作、Evidence 查询、Report 修订与审批、保留与清除、审计封存、模型配置等路由。",
+      "tags": ["entry-point", "api-handler", "fastapi", "http-surface", "workbench"],
+      "complexity": "complex",
+      "languageNotes": "全部路由集中在 create_app 内注册，权限校验统一收敛到 require_permission 依赖，避免逐路由重复鉴权逻辑。"
+    },
+    {
+      "id": "function:src/threat_report_agent/main.py:_coerce_failure_interpretation",
+      "type": "function",
+      "name": "_coerce_failure_interpretation",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [203, 215],
+      "summary": "把模型给出的 failure_interpretation 宽松输入归一为契约允许的取值，非法值降级为默认语义。",
+      "tags": ["validation", "model-gateway", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/main.py:_require_task_scope",
+      "type": "function",
+      "name": "_require_task_scope",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [318, 342],
+      "summary": "请求级依赖：先解析 Principal，再校验其对指定 task 的权限，并把目标缺失统一映射为 404。",
+      "tags": ["security", "authorization", "api-handler", "dependency"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/main.py:_parse_modules",
+      "type": "function",
+      "name": "_parse_modules",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [349, 358],
+      "summary": "解析并去重报告模块列表，过滤非法模块名。",
+      "tags": ["validation", "utility", "reporting"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/main.py:_package_uploads",
+      "type": "function",
+      "name": "_package_uploads",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [361, 405],
+      "summary": "把上传的样本包在内存中打包为受限载荷并校验总大小上限，超限即拒绝，避免落盘中间态。",
+      "tags": ["intake", "validation", "upload", "security"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/main.py:create_app",
+      "type": "function",
+      "name": "create_app",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [408, 1641],
+      "summary": "应用工厂：装配 Database、ContentStore 与 AnalysisService，注册 healthz/readyz/metrics 与 workbench、analysis、report、retention、audit 全部端点，并挂载静态 UI 与报告下载。",
+      "tags": ["entry-point", "api-handler", "factory", "routing", "composition-root"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:GateDecisionRequest",
+      "type": "class",
+      "name": "GateDecisionRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [105, 108],
+      "summary": "Gate 决策请求体：decision、可选 archive_password 与 note。",
+      "tags": ["data-model", "api-schema", "gate"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:ModelProviderConfigurationRequest",
+      "type": "class",
+      "name": "ModelProviderConfigurationRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [111, 125],
+      "summary": "模型 provider 配置请求体：provider/base_url/model、api_style、启用开关、JSON 模式与采样参数，以及写入或清除 API key。",
+      "tags": ["data-model", "api-schema", "model-gateway", "configuration"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:ModelConfigurationRequest",
+      "type": "class",
+      "name": "ModelConfigurationRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [128, 135],
+      "summary": "模型网关运行参数请求体：乐观并发 expected_revision、启用开关、上下文上限、超时、max_tokens 与 primary/fallback 路由。",
+      "tags": ["data-model", "api-schema", "model-gateway"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:RelationCreateRequest",
+      "type": "class",
+      "name": "RelationCreateRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [138, 145],
+      "summary": "Artifact 关系创建请求体：source/target、relation_type 以及可选 evidence_id 与 claim_id。",
+      "tags": ["data-model", "api-schema", "evidence"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:SessionArtifactImportRequest",
+      "type": "class",
+      "name": "SessionArtifactImportRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [161, 164],
+      "summary": "把工作区工件导入指定 Case 的会话请求体。",
+      "tags": ["data-model", "api-schema", "workbench"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:WorkspaceArtifactImportRequest",
+      "type": "class",
+      "name": "WorkspaceArtifactImportRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [167, 170],
+      "summary": "按工作区相对路径把文件导入 Case 的请求体。",
+      "tags": ["data-model", "api-schema", "workbench"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:SessionAnalysisUnbindRequest",
+      "type": "class",
+      "name": "SessionAnalysisUnbindRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [186, 189],
+      "summary": "解绑 DSH 会话与分析的请求体，可选择同时丢弃暂存内容。",
+      "tags": ["data-model", "api-schema", "workbench"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:EvidenceQueryRequest",
+      "type": "class",
+      "name": "EvidenceQueryRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [192, 197],
+      "summary": "Evidence 查询请求体：task_id 加 kind/module/artifact_id 过滤与 limit。",
+      "tags": ["data-model", "api-schema", "evidence"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:WorkbenchActionRequest",
+      "type": "class",
+      "name": "WorkbenchActionRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [218, 281],
+      "summary": "workbench 动作提案请求体：动作类型与目标、假设与替代假设、缺失证据、成功条件与失败解读，以及完整模型溯源（prompt/profile/policy digest、model call 与 provider 信息）。",
+      "tags": ["data-model", "api-schema", "workbench", "investigation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:WorkbenchCurrentEvidenceRequest",
+      "type": "class",
+      "name": "WorkbenchCurrentEvidenceRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [284, 288],
+      "summary": "按 kind/module/artifact_id 与 limit 查询当前证据的请求体。",
+      "tags": ["data-model", "api-schema", "evidence"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/main.py:WorkbenchModelRequest",
+      "type": "class",
+      "name": "WorkbenchModelRequest",
+      "filePath": "src/threat_report_agent/main.py",
+      "lineRange": [291, 311],
+      "summary": "DSH workbench 触发模型调用的请求体：operation、case/session/turn/thread 定位、prompt 元数据、messages，以及采样、结构化输出与超时参数。",
+      "tags": ["data-model", "api-schema", "model-gateway", "workbench"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/model_gateway.py",
+      "type": "file",
+      "name": "model_gateway.py",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "summary": "模型网关：统一 provider 契约与协议分支（含 Anthropic 风格调用），负责重试与 fallback、结构化输出解析与候选打分、token/延迟审计，并把结果包装为 ModelResponse、AtomicClaimEnvelope 与 DynamicPlanEnvelope。",
+      "tags": ["model-gateway", "service", "integration", "audit", "structured-output"],
+      "complexity": "complex",
+      "languageNotes": "结构化输出先严格解析，失败后在候选 JSON 片段中按完整度打分挑选，使 provider 的松散输出仍能落成契约对象。"
+    },
+    {
+      "id": "function:src/threat_report_agent/model_gateway.py:provider_contract",
+      "type": "function",
+      "name": "provider_contract",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [74, 86],
+      "summary": "返回指定 provider 的协议契约（family、协议风格、端点路径等），供路由与请求构造使用。",
+      "tags": ["model-gateway", "configuration", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/model_gateway.py:supported_provider_contracts",
+      "type": "function",
+      "name": "supported_provider_contracts",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [89, 103],
+      "summary": "枚举全部受支持 provider 的契约，供能力查询接口与配置校验使用。",
+      "tags": ["model-gateway", "configuration", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/model_gateway.py:_claim_text",
+      "type": "function",
+      "name": "_claim_text",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [178, 193],
+      "summary": "从 provider 返回的多种字段命名中抽取 Claim 文本。",
+      "tags": ["model-gateway", "parsing", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/model_gateway.py:_coerce_evidence_ids",
+      "type": "function",
+      "name": "_coerce_evidence_ids",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [196, 222],
+      "summary": "把模型给出的 evidence_ids 归一为去重后的合法 ID 列表，剔除空值与非法形式。",
+      "tags": ["validation", "evidence", "model-gateway"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/model_gateway.py:_coerce_confidence",
+      "type": "function",
+      "name": "_coerce_confidence",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [225, 235],
+      "summary": "把置信度输入裁剪并归一为 0 到 1 的区间值。",
+      "tags": ["validation", "model-gateway", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:ModelRequest",
+      "type": "class",
+      "name": "ModelRequest",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [107, 123],
+      "summary": "模型调用请求：任务与追踪定位、prompt 身份及 sha256、messages、响应 schema、超时与采样参数。",
+      "tags": ["data-model", "model-gateway", "api-schema"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:ModelAttempt",
+      "type": "class",
+      "name": "ModelAttempt",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [127, 139],
+      "summary": "单次 provider 尝试的审计记录：provider/model、状态与错误类型、延迟、请求/响应 sha256 及 token 统计。",
+      "tags": ["data-model", "audit", "model-gateway"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:ModelResponse",
+      "type": "class",
+      "name": "ModelResponse",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [143, 169],
+      "summary": "调用结果：解析后的载荷、实际 model_call_id、各次尝试、fallback 原因、耗时与 token 统计，并提供 audit_view() 供审计落库。",
+      "tags": ["data-model", "model-gateway", "audit"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:ModelUnavailable",
+      "type": "class",
+      "name": "ModelUnavailable",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [172, 175],
+      "summary": "模型不可用异常：主路由与 fallback 全部失败后抛出，携带失败元信息。",
+      "tags": ["error-handling", "model-gateway", "exception"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:AtomicClaimDraft",
+      "type": "class",
+      "name": "AtomicClaimDraft",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [238, 289],
+      "summary": "模型产出的原子 Claim 草案（module/subject/action/object/mechanism/condition/statement 加 evidence_ids、confidence、status），并把 provider 的异构字段名归一。",
+      "tags": ["data-model", "claim", "model-gateway"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:AtomicClaimEnvelope",
+      "type": "class",
+      "name": "AtomicClaimEnvelope",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [292, 371],
+      "summary": "原子 Claim 的结构化输出信封：claims 列表与 limitations，并提供从 provider 松散 JSON 中恢复信封的容错解析。",
+      "tags": ["data-model", "claim", "structured-output", "model-gateway"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:DynamicPlanAction",
+      "type": "class",
+      "name": "DynamicPlanAction",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [374, 425],
+      "summary": "模型给出的动态行动计划项：动作类型与目标、优先级与理由、假设/缺失证据/成功条件、依赖与参数，以及模型与校验摘要。",
+      "tags": ["data-model", "planning", "model-gateway"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:DynamicPlanEnvelope",
+      "type": "class",
+      "name": "DynamicPlanEnvelope",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [428, 462],
+      "summary": "动态计划的结构化输出信封：objective、actions、stop_conditions、limitations 与 claims，并能把裸单动作包装成完整计划。",
+      "tags": ["data-model", "planning", "structured-output", "model-gateway"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/model_gateway.py:ModelGateway",
+      "type": "class",
+      "name": "ModelGateway",
+      "filePath": "src/threat_report_agent/model_gateway.py",
+      "lineRange": [465, 1203],
+      "summary": "模型网关核心：按 primary/fallback 路由调用 provider（含 Anthropic 协议分支），在总 deadline 内重试与降级，解析流式或 JSON 响应体，对结构化输出做候选打分，并生成审计元数据与 model_call 记录。",
+      "tags": ["model-gateway", "service", "retry", "structured-output", "audit"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/observability.py",
+      "type": "file",
+      "name": "observability.py",
+      "filePath": "src/threat_report_agent/observability.py",
+      "summary": "可观测性基础设施：配置 OpenTelemetry tracer 与 JSON 结构化运行日志，并暴露 Prometheus HTTP 请求计数/时延指标及 /metrics 输出载荷。",
+      "tags": ["observability", "monitoring", "logging", "metrics"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/observability.py:JsonOperationalFormatter",
+      "type": "class",
+      "name": "JsonOperationalFormatter",
+      "filePath": "src/threat_report_agent/observability.py",
+      "lineRange": [28, 39],
+      "summary": "logging.Formatter 实现：把运行日志渲染为单行 JSON，并合并 record 上的 operational_fields 自定义字段。",
+      "tags": ["observability", "logging", "serialization", "formatter"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/observability.py:configure_observability",
+      "type": "function",
+      "name": "configure_observability",
+      "filePath": "src/threat_report_agent/observability.py",
+      "lineRange": [42, 55],
+      "summary": "幂等地初始化 TracerProvider，并为 operational logger 安装 JSON 格式化 handler，返回可用的 tracer。",
+      "tags": ["observability", "telemetry", "logging", "bootstrap"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/threat_report_agent/tool_execution.py",
+      "type": "file",
+      "name": "tool_execution.py",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "summary": "ToolRun 执行层：以 Temporal workflow/activity 承载静态工具运行（反汇编、数据流恢复，以及隔离 worker 上的受控模拟），强制工具白名单并拒绝 sample_execution 与 network_access 请求，另含模型载荷过期清理与每日审计封存工作流。",
+      "tags": ["tool-run", "temporal", "workflow", "static-analysis", "isolation"],
+      "complexity": "complex",
+      "languageNotes": "项目内 import 位于 workflow.unsafe.imports_passed_through() 块中，静态扫描看不到，因此这些依赖以 depends_on 边表达。"
+    },
+    {
+      "id": "function:src/threat_report_agent/tool_execution.py:emulation_overall_from_results",
+      "type": "function",
+      "name": "emulation_overall_from_results",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [267, 304],
+      "summary": "把多个受控模拟子结果归并为整体模拟状态与错误摘要，供 ToolRun 结果与证据性质判定使用。",
+      "tags": ["emulation", "aggregation", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/tool_execution.py:static_result_from_payload",
+      "type": "function",
+      "name": "static_result_from_payload",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [1106, 1115],
+      "summary": "从工作流载荷还原静态分析结果对象。",
+      "tags": ["serialization", "static-analysis", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/tool_execution.py:intake_entries_from_payload",
+      "type": "function",
+      "name": "intake_entries_from_payload",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [1118, 1152],
+      "summary": "从载荷还原样本包条目，并在 Worker 侧持有数据库时按需补齐材料化条目。",
+      "tags": ["serialization", "intake", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/tool_execution.py:client_result_timeout_seconds",
+      "type": "function",
+      "name": "client_result_timeout_seconds",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [1155, 1162],
+      "summary": "按 CPU 预算推导客户端等待 ToolRun 结果的超时秒数。",
+      "tags": ["timeout", "tool-run", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/tool_execution.py:run_static_worker",
+      "type": "function",
+      "name": "run_static_worker",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [1216, 1268],
+      "summary": "启动 Temporal worker：control 角色承载 ToolRun/清理/审计封存工作流并确保调度存在，tool 角色只注册 execute_static_tool 活动，在隔离 worker 上执行静态分析与受控模拟。",
+      "tags": ["entry-point", "temporal", "worker", "tool-run", "isolation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/tool_execution.py:ensure_model_payload_cleanup_schedule",
+      "type": "function",
+      "name": "ensure_model_payload_cleanup_schedule",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [1271, 1307],
+      "summary": "幂等创建或更新模型载荷过期清理的 Temporal Schedule。",
+      "tags": ["temporal", "schedule", "retention", "model-gateway"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/tool_execution.py:ensure_daily_audit_seal_schedule",
+      "type": "function",
+      "name": "ensure_daily_audit_seal_schedule",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [1310, 1346],
+      "summary": "幂等创建或更新每日审计封存的 Temporal Schedule。",
+      "tags": ["temporal", "schedule", "audit", "retention"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/tool_execution.py:ToolRunStorageAccess",
+      "type": "class",
+      "name": "ToolRunStorageAccess",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [78, 93],
+      "summary": "ToolRun 可用的存储访问凭据（输入/输出 storage key 与 URL），并提供 from_grant() 从签发凭据构造。",
+      "tags": ["data-model", "storage", "tool-run"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/tool_execution.py:ToolRunRequest",
+      "type": "class",
+      "name": "ToolRunRequest",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [96, 140],
+      "summary": "序列化的 ToolRun 输入：Case/Task/Artifact/ToolRun 定位、内容 sha256 与逻辑路径、工具参数与资源上限、任务队列，以及 sample_execution 与 network_access 安全开关；刻意不携带样本字节。",
+      "tags": ["data-model", "tool-run", "isolation", "security"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/tool_execution.py:ToolRunResult",
+      "type": "class",
+      "name": "ToolRunResult",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [143, 152],
+      "summary": "ToolRun 执行结果：状态、输出 sha256 与存储键、错误、起止时间与 worker 元数据。",
+      "tags": ["data-model", "tool-run", "result"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/tool_execution.py:StaticToolRunWorkflow",
+      "type": "class",
+      "name": "StaticToolRunWorkflow",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [156, 227],
+      "summary": "Temporal 工作流：编排一次 ToolRun 的注册、准备、输出校验与收尾活动，并设置心跳与总体超时。",
+      "tags": ["temporal", "workflow", "tool-run", "orchestration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/tool_execution.py:ModelPayloadCleanupWorkflow",
+      "type": "class",
+      "name": "ModelPayloadCleanupWorkflow",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [231, 243],
+      "summary": "清理过期模型载荷的 Temporal 工作流。",
+      "tags": ["temporal", "workflow", "retention", "model-gateway"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/tool_execution.py:DailyAuditSealWorkflow",
+      "type": "class",
+      "name": "DailyAuditSealWorkflow",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [247, 264],
+      "summary": "每日审计封存工作流：按 UTC 日触发审计链封存。",
+      "tags": ["temporal", "workflow", "audit", "retention"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/tool_execution.py:StaticToolActivities",
+      "type": "class",
+      "name": "StaticToolActivities",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [307, 1103],
+      "summary": "Worker 侧静态分析活动集合：注册、准备、执行与收尾 ToolRun，强制执行工具白名单并把携带 sample_execution 或 network_access 的请求判为 UNSAFE_TOOL_REQUEST；受控模拟在隔离 worker 上运行，本类自身不执行提交的样本。",
+      "tags": ["tool-run", "static-analysis", "temporal", "isolation", "security"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/tool_execution.py:TemporalToolExecutor",
+      "type": "class",
+      "name": "TemporalToolExecutor",
+      "filePath": "src/threat_report_agent/tool_execution.py",
+      "lineRange": [1165, 1213],
+      "summary": "调用侧执行器：通过 Temporal 启动与取消 ToolRun 工作流，并把工作流结果映射回领域对象。",
+      "tags": ["temporal", "tool-run", "client", "service"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "function:src/threat_report_agent/main.py:_coerce_failure_interpretation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "function:src/threat_report_agent/main.py:_require_task_scope",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "function:src/threat_report_agent/main.py:_parse_modules",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "function:src/threat_report_agent/main.py:_package_uploads",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "function:src/threat_report_agent/main.py:create_app",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:GateDecisionRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:ModelProviderConfigurationRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:ModelConfigurationRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:RelationCreateRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:SessionArtifactImportRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:WorkspaceArtifactImportRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:SessionAnalysisUnbindRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:EvidenceQueryRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:WorkbenchActionRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:WorkbenchCurrentEvidenceRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:WorkbenchModelRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "function:src/threat_report_agent/main.py:create_app",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:GateDecisionRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:ModelProviderConfigurationRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:ModelConfigurationRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:RelationCreateRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:SessionArtifactImportRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:WorkspaceArtifactImportRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:SessionAnalysisUnbindRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:EvidenceQueryRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:WorkbenchActionRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:WorkbenchCurrentEvidenceRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "class:src/threat_report_agent/main.py:WorkbenchModelRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/auth.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/content_store.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/contracts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/database.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/investigation.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/model_gateway.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/observability.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/reporting.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/main.py",
+      "target": "file:src/threat_report_agent/service.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "class:src/threat_report_agent/service.py:AnalysisService",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "class:src/threat_report_agent/auth.py:AuthAdapter",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "class:src/threat_report_agent/content_store.py:S3ContentStore",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "class:src/threat_report_agent/content_store.py:LocalContentStore",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "class:src/threat_report_agent/database.py:Database",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "function:src/threat_report_agent/observability.py:configure_observability",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "function:src/threat_report_agent/model_gateway.py:supported_provider_contracts",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "function:src/threat_report_agent/reporting.py:markdown_to_docx",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "function:src/threat_report_agent/reporting.py:markdown_to_pdf",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:create_app",
+      "target": "function:src/threat_report_agent/investigation.py:normalize_target_selector",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/main.py:_require_task_scope",
+      "target": "function:src/threat_report_agent/auth.py:require_permission",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "function:src/threat_report_agent/model_gateway.py:provider_contract",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "function:src/threat_report_agent/model_gateway.py:supported_provider_contracts",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "function:src/threat_report_agent/model_gateway.py:_claim_text",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "function:src/threat_report_agent/model_gateway.py:_coerce_evidence_ids",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "function:src/threat_report_agent/model_gateway.py:_coerce_confidence",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelAttempt",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelResponse",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelUnavailable",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:AtomicClaimDraft",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:AtomicClaimEnvelope",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:DynamicPlanAction",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:DynamicPlanEnvelope",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelGateway",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "function:src/threat_report_agent/model_gateway.py:provider_contract",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "function:src/threat_report_agent/model_gateway.py:supported_provider_contracts",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelAttempt",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelResponse",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelUnavailable",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:AtomicClaimDraft",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:AtomicClaimEnvelope",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:DynamicPlanAction",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:DynamicPlanEnvelope",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "class:src/threat_report_agent/model_gateway.py:ModelGateway",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/model_gateway.py",
+      "target": "file:src/threat_report_agent/config.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/observability.py",
+      "target": "class:src/threat_report_agent/observability.py:JsonOperationalFormatter",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/observability.py",
+      "target": "function:src/threat_report_agent/observability.py:configure_observability",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/observability.py",
+      "target": "class:src/threat_report_agent/observability.py:JsonOperationalFormatter",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/observability.py",
+      "target": "function:src/threat_report_agent/observability.py:configure_observability",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:emulation_overall_from_results",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:static_result_from_payload",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:intake_entries_from_payload",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:client_result_timeout_seconds",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:run_static_worker",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:ensure_model_payload_cleanup_schedule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:ensure_daily_audit_seal_schedule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:ToolRunStorageAccess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:ToolRunRequest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:ToolRunResult",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:StaticToolRunWorkflow",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:ModelPayloadCleanupWorkflow",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:DailyAuditSealWorkflow",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:StaticToolActivities",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:TemporalToolExecutor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:emulation_overall_from_results",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:static_result_from_payload",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:intake_entries_from_payload",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:client_result_timeout_seconds",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:run_static_worker",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:ensure_model_payload_cleanup_schedule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "function:src/threat_report_agent/tool_execution.py:ensure_daily_audit_seal_schedule",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:ToolRunStorageAccess",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:ToolRunRequest",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:ToolRunResult",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:StaticToolRunWorkflow",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:ModelPayloadCleanupWorkflow",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:DailyAuditSealWorkflow",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:StaticToolActivities",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "class:src/threat_report_agent/tool_execution.py:TemporalToolExecutor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "file:src/threat_report_agent/config.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "file:src/threat_report_agent/content_store.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/threat_report_agent/tool_execution.py",
+      "target": "file:src/threat_report_agent/database.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ]
+}

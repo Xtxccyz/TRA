@@ -11,12 +11,14 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Index,
+    insert,
     String,
     Text,
     UniqueConstraint,
 )
 from sqlalchemy import event
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, UOWTransaction, mapped_column
 
 from threat_report_agent.evidence_index import evidence_search_keys
 
@@ -255,21 +257,43 @@ class EvidenceSearchKey(Base):
 
 
 @event.listens_for(Session, "after_flush")
-def _index_new_evidence(session: Session, _flush_context: object) -> None:
+def _index_new_evidence(session: Session, flush_context: UOWTransaction) -> None:
     """Index new immutable evidence once, without altering its source payload."""
-    for item in session.new:
+    # Ghidra post-processing can stage tens of thousands of immutable rows.
+    # It explicitly defers this rebuildable projection until the batch has
+    # been flushed, avoiding selector work in every intermediate flush.
+    if session.info.get("defer_evidence_search_keys"):
+        return
+    # Evidence is emitted in large batches by the Ghidra post-processor.  The
+    # previous implementation added one ORM object per selector, which made
+    # SQLAlchemy spend substantial time constructing/ tracking hundreds of
+    # thousands of short-lived objects before PostgreSQL could execute the
+    # inserts.  Use one executemany statement per flush instead.  IDs are
+    # already materialized by the Evidence flush, and the derived index keeps
+    # the same selectors, foreign keys, and unique constraint semantics.
+    rows: list[dict[str, str]] = []
+    # Partial flushes leave unrelated Evidence in session.new. Use the
+    # completed unit of work so every indexed row already has its FK parent
+    # in the database, without scanning the rest of the pending session.
+    for state, (is_delete, list_only) in flush_context.states.items():
+        if is_delete or list_only or not state.pending:
+            continue
+        item = state.obj()
         if not isinstance(item, Evidence):
             continue
         for selector in evidence_search_keys(kind=item.kind, value=item.value, anchor=item.anchor):
-            session.add(
-                EvidenceSearchKey(
-                    task_id=item.task_id,
-                    artifact_id=item.artifact_id,
-                    evidence_id=item.id,
-                    selector=selector,
-                    kind=item.kind,
-                )
+            rows.append(
+                {
+                    "id": new_id(),
+                    "task_id": item.task_id,
+                    "artifact_id": item.artifact_id,
+                    "evidence_id": item.id,
+                    "selector": selector,
+                    "kind": item.kind,
+                }
             )
+    if rows:
+        session.execute(insert(EvidenceSearchKey), rows)
 
 
 class EvidenceDeliveryTrace(Base):
@@ -472,7 +496,7 @@ class ModelConfiguration(Base):
     context_max_bytes: Mapped[int] = mapped_column(Integer, default=2_000_000)
     timeout_s: Mapped[float] = mapped_column(Float, default=180.0)
     max_tokens: Mapped[int] = mapped_column(Integer, default=2048)
-    primary_provider: Mapped[str] = mapped_column(String(80), default="deepseek")
+    primary_provider: Mapped[str] = mapped_column(String(80), default="")
     primary_base_url: Mapped[str] = mapped_column(String(512), default="")
     primary_model: Mapped[str] = mapped_column(String(160), default="")
     primary_api_style: Mapped[str] = mapped_column(String(32), default="openai")
@@ -483,11 +507,11 @@ class ModelConfiguration(Base):
     primary_top_p: Mapped[float] = mapped_column(Float, default=1.0)
     primary_disable_reasoning: Mapped[bool] = mapped_column(Boolean, default=True)
     primary_api_key_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fallback_provider: Mapped[str] = mapped_column(String(80), default="glm")
+    fallback_provider: Mapped[str] = mapped_column(String(80), default="")
     fallback_base_url: Mapped[str] = mapped_column(String(512), default="")
     fallback_model: Mapped[str] = mapped_column(String(160), default="")
     fallback_api_style: Mapped[str] = mapped_column(String(32), default="openai")
-    fallback_enabled: Mapped[bool] = mapped_column(default=True)
+    fallback_enabled: Mapped[bool] = mapped_column(default=False)
     fallback_stream: Mapped[bool] = mapped_column(Boolean, default=True)
     fallback_supports_json_mode: Mapped[bool] = mapped_column(Boolean, default=True)
     fallback_temperature: Mapped[float] = mapped_column(Float, default=0.0)
@@ -693,6 +717,7 @@ class InvestigationActionRecord(Base):
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
+    __table_args__ = (Index("ix_audit_events_task_sequence", "task_id", "chain_sequence"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id"), nullable=True, index=True)

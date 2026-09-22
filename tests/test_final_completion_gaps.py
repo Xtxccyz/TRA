@@ -135,6 +135,53 @@ def test_mechanism_effectiveness_trace_is_persisted_and_snapshotted(test_setting
         assert snapshot.object_versions["mechanism_effectiveness_traces"][0]["id"] == traces[0].id
 
 
+def test_repeated_sample_analysis_persists_effectiveness_traces_per_task(test_settings):
+    """A second analysis of the same sample must still finalize instead of UniqueViolation."""
+    service = _service(test_settings)
+    snapshot = {
+        "investigation": {
+            "mechanisms": [
+                {
+                    "id": "mechanism-1",
+                    "mechanism_type": "DYNAMIC_API_RESOLUTION",
+                    "status": "SUPPORTED",
+                }
+            ],
+            "hypotheses": [],
+            "seed_rankings": [],
+        }
+    }
+    with service.database.session_factory.begin() as session:
+        case = CaseRecord(title="repeated sample traces")
+        session.add(case)
+        session.flush()
+        first = AnalysisTask(case_id=case.id, lifecycle="RUNNING", strategy_snapshot=snapshot)
+        second = AnalysisTask(case_id=case.id, lifecycle="RUNNING", strategy_snapshot=snapshot)
+        session.add_all([first, second])
+        session.flush()
+        first_id = first.id
+        second_id = second.id
+
+    with service.database.session_factory.begin() as session:
+        first = session.get(AnalysisTask, first_id)
+        second = session.get(AnalysisTask, second_id)
+        assert service._persist_mechanism_effectiveness_traces(session, first) >= 1
+        assert service._persist_mechanism_effectiveness_traces(session, second) >= 1
+        first_rows = list(
+            session.query(MechanismEffectivenessTraceRecord).filter(
+                MechanismEffectivenessTraceRecord.task_id == first_id
+            )
+        )
+        second_rows = list(
+            session.query(MechanismEffectivenessTraceRecord).filter(
+                MechanismEffectivenessTraceRecord.task_id == second_id
+            )
+        )
+        assert len(first_rows) == 1
+        assert len(second_rows) == 1
+        assert first_rows[0].trace_sha256 != second_rows[0].trace_sha256
+
+
 def test_c1_rejects_unlinked_evidence_rows():
     rows = [
         _row("resolver", "function_call", {"api": "GetProcAddress"}, "0x1000"),

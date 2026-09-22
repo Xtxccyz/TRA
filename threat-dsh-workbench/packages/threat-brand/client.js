@@ -2,7 +2,10 @@ window.__ModuleLoader__.load({
   id: '@threat-dsh/brand',
   factory: () => {
     const PRODUCT_TITLE = '\u5a01\u80c1\u5206\u6790\u5de5\u4f5c\u53f0'
-    const MIGRATION_KEY = 'threat-workbench.brand-migration.v2'
+    // v3 re-runs the migration once for installations that already ran v2.
+    // v2 could leave the DSH current-session pointer pointing at the upstream
+    // Harness conversation, which made a correct product launch look wrong.
+    const MIGRATION_KEY = 'threat-workbench.brand-migration.v3'
     const STYLE_ID = 'threat-workbench-brand-style'
     const FAVICON_ID = 'threat-workbench-favicon'
 
@@ -14,11 +17,14 @@ window.__ModuleLoader__.load({
       while ((node = walker.nextNode())) nodes.push(node)
       for (const textNode of nodes) {
         const value = textNode.nodeValue || ''
-        if (!/deepseek|harness/i.test(value)) continue
+        if (!/deepseek|harness|\u63a2\u7d22\u672a\u81f3\u4e4b\u5883|into the unknown|\u9884\u89c8\u7248|preview/i.test(value)) continue
         textNode.nodeValue = value
           .replace(/deepseek\s+harness/gi, PRODUCT_TITLE)
           .replace(/deepseek/gi, '\u5a01\u80c1\u5206\u6790\u5f15\u64ce')
           .replace(/harness/gi, '\u5de5\u4f5c\u53f0')
+          .replace(/\u63a2\u7d22\u672a\u81f3\u4e4b\u5883/gi, PRODUCT_TITLE)
+          .replace(/into the unknown/gi, PRODUCT_TITLE)
+          .replace(/\u9884\u89c8\u7248|preview/gi, '\u9759\u6001\u5206\u6790')
       }
     }
 
@@ -51,13 +57,13 @@ window.__ModuleLoader__.load({
           if (/Workspace Write/i.test(aria)) element.setAttribute('aria-label', aria.replace(/Workspace Write/gi, '静态只读'))
           if (/Workspace Write/i.test(title)) element.setAttribute('title', title.replace(/Workspace Write/gi, '静态只读'))
         }
-        if (/DeepSeek-V4-Flash/i.test(text) || /DeepSeek-V4-Flash/i.test(aria) || /DeepSeek-V4-Flash/i.test(title)) {
+        if (/DeepSeek(?:[-\s]+)V4(?:[-\s]+)(?:Flash|Pro)/i.test(text) || /DeepSeek(?:[-\s]+)V4(?:[-\s]+)(?:Flash|Pro)/i.test(aria) || /DeepSeek(?:[-\s]+)V4(?:[-\s]+)(?:Flash|Pro)/i.test(title)) {
           const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
           const nodes = []; let node
           while ((node = walker.nextNode())) nodes.push(node)
-          for (const textNode of nodes) textNode.nodeValue = (textNode.nodeValue || '').replace(/DeepSeek-V4-Flash/gi, '受控模型')
-          if (/DeepSeek-V4-Flash/i.test(aria)) element.setAttribute('aria-label', aria.replace(/DeepSeek-V4-Flash/gi, '受控模型'))
-          if (/DeepSeek-V4-Flash/i.test(title)) element.setAttribute('title', title.replace(/DeepSeek-V4-Flash/gi, '受控模型'))
+          for (const textNode of nodes) textNode.nodeValue = (textNode.nodeValue || '').replace(/DeepSeek(?:[-\s]+)V4(?:[-\s]+)(?:Flash|Pro)/gi, '受控模型')
+          if (/DeepSeek(?:[-\s]+)V4(?:[-\s]+)(?:Flash|Pro)/i.test(aria)) element.setAttribute('aria-label', aria.replace(/DeepSeek(?:[-\s]+)V4(?:[-\s]+)(?:Flash|Pro)/gi, '受控模型'))
+          if (/DeepSeek(?:[-\s]+)V4(?:[-\s]+)(?:Flash|Pro)/i.test(title)) element.setAttribute('title', title.replace(/DeepSeek(?:[-\s]+)V4(?:[-\s]+)(?:Flash|Pro)/gi, '受控模型'))
         }
       }
     }
@@ -102,6 +108,10 @@ window.__ModuleLoader__.load({
           font-size: 16px;
           letter-spacing: 0;
         }
+        /* The upstream blank-session fish is not part of this product's
+           identity. Keep the Threat intake as the first meaningful surface. */
+        [class*="headline"] [class*="fish"],
+        [class*="fishHitbox"] { display: none !important; }
       `
       document.head.append(style)
     }
@@ -144,7 +154,6 @@ window.__ModuleLoader__.load({
         if (/deepseek|harness/i.test(document.title)) document.title = PRODUCT_TITLE
       })
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ['aria-label', 'title', 'data-tooltip', 'data-testid'], childList: true, characterData: true, subtree: true })
-      setInterval(scrubProductControls, 500)
     }
 
     return { name: 'threat-brand-client', inject: [], apply: () => queueMicrotask(install) }

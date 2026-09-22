@@ -4,7 +4,7 @@ import { ThreatApiClient, type EventPage } from '@threat-dsh/api-client'
 import { boundedIds, boundedText, type ThreatPluginManifest, type ThreatSessionEvent } from '@threat-dsh/plugin-sdk'
 
 export const name = 'threat-session-events'
-export const inject = ['sessions', 'timer']
+export const inject = ['sessions']
 export const manifest: ThreatPluginManifest = {
   id: 'threat-session-events', version: '1.0.0', plugin_api: 1,
   capabilities: ['event-projector'], required_backend_api: '>=1,<2', required_event_schema: 1,
@@ -220,20 +220,22 @@ interface HostSession {
 interface HostContext {
   readonly sessions: { list(): HostSession[] }
   on(name: string, listener: (...args: any[]) => unknown, options?: { global?: boolean }): () => void
-  interval?(callback: () => void, delay: number): () => void
   effect?(factory: () => (() => void), label?: string): unknown
 }
 
 interface CoordinatorRecord {
   readonly session: HostSession
   readonly bridges: Map<string, ThreatSessionEventBridge>
-  timer?: () => void
+  taskId: string
+  cursor: number
+  waiter?: AbortController
   inFlight: boolean
 }
 
 export interface ThreatSessionEventCoordinatorOptions {
   readonly backendUrl?: string
   readonly token?: string
+  /** @deprecated retained for source compatibility; event wait controls pacing. */
   readonly intervalMs?: number
   readonly client?: ThreatApiClient
   readonly logger?: Pick<Console, 'warn'>
@@ -261,13 +263,11 @@ function persistedBackendCursor(session: HostSession, taskId: string): number {
  */
 export class ThreatSessionEventCoordinator {
   private readonly records = new Map<string, CoordinatorRecord>()
-  private readonly intervalMs: number
   private readonly logger: Pick<Console, 'warn'>
   private disposed = false
   readonly client: ThreatApiClient
 
   constructor(private readonly ctx: HostContext, options: ThreatSessionEventCoordinatorOptions = {}) {
-    this.intervalMs = Math.max(250, Math.min(30_000, options.intervalMs ?? 1_500))
     this.logger = options.logger ?? console
     const runtimeEnv = (globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env
     this.client = options.client ?? new ThreatApiClient({
@@ -278,54 +278,70 @@ export class ThreatSessionEventCoordinator {
 
   attach(session: HostSession): void {
     if (this.disposed || !session?.id || this.records.has(session.id)) return
-    const record: CoordinatorRecord = { session, bridges: new Map(), inFlight: false }
+    for (const id of [...this.records.keys()]) this.detach(id)
+    const record: CoordinatorRecord = { session, bridges: new Map(), taskId: '', cursor: 0, inFlight: false }
     this.records.set(session.id, record)
-    record.timer = this.ctx.interval
-      ? this.ctx.interval(() => { void this.poll(record) }, this.intervalMs)
-      : undefined
-    void this.poll(record)
+    // One cancellable server-side wait owns the lifecycle. There is no host
+    // timer: the backend returns only on an event, a state change, or timeout.
+    void this.watch(record)
   }
 
   detach(session: HostSession | string): void {
     const id = typeof session === 'string' ? session : session.id
     const record = this.records.get(id)
     if (!record) return
-    record.timer?.()
+    record.waiter?.abort()
     this.records.delete(id)
   }
 
-  private bridgeFor(record: CoordinatorRecord, taskId: string): ThreatSessionEventBridge {
-    const existing = record.bridges.get(taskId)
-    if (existing) return existing
-    const bridge = new ThreatSessionEventBridge(this.client, record.session, {
-      sessionId: record.session.id,
-      initialSeq: persistedBackendCursor(record.session, taskId),
-      cursorStore: {
-        load: () => persistedBackendCursor(record.session, taskId),
-        // The cursor is encoded in the appended Session event. DSH's own
-        // persistence is the durability boundary; no second local store is
-        // allowed to become a competing source of truth.
-        save: () => undefined,
-      },
-      isActive: () => this.records.get(record.session.id) === record,
-    })
-    record.bridges.set(taskId, bridge)
-    return bridge
-  }
-
-  private async poll(record: CoordinatorRecord): Promise<void> {
-    if (this.disposed || record.inFlight || this.records.get(record.session.id) !== record) return
+  private async watch(record: CoordinatorRecord): Promise<void> {
+    if (this.disposed || this.records.get(record.session.id) !== record) return
     record.inFlight = true
+    const waiter = new AbortController()
+    record.waiter = waiter
     try {
-      const context = await this.client.sessionContext(record.session.id)
-      const taskId = typeof context.active_task_id === 'string' ? context.active_task_id.trim() : ''
-      if (!taskId || this.records.get(record.session.id) !== record) return
-      await this.bridgeFor(record, taskId).sync(taskId)
+      while (!waiter.signal.aborted && !this.disposed && this.records.get(record.session.id) === record) {
+        const context = await this.client.sessionContext(record.session.id)
+        const taskId = typeof context.active_task_id === 'string' ? context.active_task_id.trim() : ''
+        if (taskId !== record.taskId) {
+          record.taskId = taskId
+          record.cursor = taskId ? persistedBackendCursor(record.session, taskId) : 0
+        }
+        const value = await this.client.waitForAnalysisUpdate(record.session.id, record.cursor, 120)
+        if (waiter.signal.aborted || this.records.get(record.session.id) !== record) return
+        const returnedContext = value.context && typeof value.context === 'object'
+          ? value.context as Record<string, unknown>
+          : context
+        const returnedTask = typeof returnedContext.active_task_id === 'string' ? returnedContext.active_task_id.trim() : ''
+        if (returnedTask !== record.taskId) {
+          // Session rebinding is authoritative. Rebase the cursor to the new
+          // task before consuming any events from it.
+          record.taskId = returnedTask
+          record.cursor = returnedTask ? persistedBackendCursor(record.session, returnedTask) : 0
+          continue
+        }
+        const events = Array.isArray(value.events) ? value.events : []
+        for (const event of events) {
+          const seq = Number(event?.seq ?? 0)
+          if (!Number.isSafeInteger(seq) || seq <= record.cursor) continue
+          if (seq !== record.cursor + 1) throw new Error(`backend event gap: expected ${record.cursor + 1}, got ${seq}`)
+          const projected = projectBackendEvent(event)
+          if (projected) record.session.append(projected.type, { ...projected.data, backend_seq: seq })
+          record.cursor = seq
+        }
+        // A timeout with no event is expected. The next iteration issues a
+        // fresh bounded wait, never a client-side interval or busy poll.
+      }
     } catch (error) {
-      // Backend outages must not fabricate a threat event or claim. The next
-      // interval retries from the last successfully appended sequence.
-      this.logger.warn(`[threat-session-events] sync failed for ${record.session.id}: ${error instanceof Error ? error.message : String(error)}`)
+      if (!waiter.signal.aborted) {
+        this.logger.warn(`[threat-session-events] wait failed for ${record.session.id}: ${error instanceof Error ? error.message : String(error)}`)
+        // Back off once before re-entering the same bounded wait. This path is
+        // only for transport failures and cannot fabricate domain events.
+        await new Promise<void>((resolve) => setTimeout(resolve, 1_000))
+        if (!waiter.signal.aborted && this.records.get(record.session.id) === record) void this.watch(record)
+      }
     } finally {
+      if (record.waiter === waiter) record.waiter = undefined
       record.inFlight = false
     }
   }
@@ -333,10 +349,13 @@ export class ThreatSessionEventCoordinator {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    for (const record of this.records.values()) record.timer?.()
+    for (const record of this.records.values()) record.waiter?.abort()
     this.records.clear()
   }
 }
+
+/** Coalesce a restore burst of `session/created` onto one live waiter. */
+const ATTACH_DEBOUNCE_MS = 50
 
 /** Register the coordinator in the real DSH host lifecycle. */
 export function installThreatSessionEventCoordinator(
@@ -345,10 +364,32 @@ export function installThreatSessionEventCoordinator(
 ): ThreatSessionEventCoordinator {
   const host = ctx as unknown as HostContext
   const coordinator = new ThreatSessionEventCoordinator(host, options)
-  for (const session of host.sessions.list()) coordinator.attach(session)
-  const offCreated = host.on('session/created', (session: HostSession) => coordinator.attach(session), { global: true })
-  const offDisposed = host.on('session/disposed', (session: HostSession) => coordinator.detach(session), { global: true })
-  const dispose = () => { offCreated?.(); offDisposed?.(); coordinator.dispose() }
+  let pending: HostSession | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const flushAttach = () => {
+    timer = undefined
+    const session = pending
+    pending = undefined
+    if (session) coordinator.attach(session)
+  }
+  const queueAttach = (session: HostSession) => {
+    pending = session
+    if (timer !== undefined) return
+    timer = setTimeout(flushAttach, ATTACH_DEBOUNCE_MS)
+  }
+  // Do not sweep host.sessions.list(). Restored history must stay listable
+  // without one long-poll per session; that storm stalls sidebar hydration.
+  const offCreated = host.on('session/created', queueAttach, { global: true })
+  const offDisposed = host.on('session/disposed', (session: HostSession) => {
+    if (pending?.id === session.id) pending = undefined
+    coordinator.detach(session)
+  }, { global: true })
+  const dispose = () => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+    pending = undefined
+    offCreated?.(); offDisposed?.(); coordinator.dispose()
+  }
   if (typeof host.effect === 'function') host.effect(() => dispose, 'threat-session-events')
   return coordinator
 }

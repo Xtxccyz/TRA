@@ -35,7 +35,12 @@ def normalize_api_symbol(symbol: object) -> str:
     value = str(symbol or "").strip().casefold()
     value = value.rsplit("!", 1)[-1]
     value = value.rsplit(".", 1)[-1]
-    value = re.sub(r"^(?:__imp_|imp_|j_|thunk_|stub_)+", "", value)
+    value = re.sub(r"^(?:__imp_|imp_|j_|thunk_|stub_|ptr_|pointer_)+", "", value)
+    # Ghidra names import-pointer symbols as PTR_<API>_<address>.  The
+    # address is a locator, not part of the API identity; removing only a
+    # hexadecimal suffix keeps the normalization exact and avoids fuzzy
+    # matching arbitrary symbol text.
+    value = re.sub(r"_(?:0x)?[0-9a-f]{6,}$", "", value)
     value = value.lstrip("_")
     value = re.sub(r"@[0-9]+$", "", value)
     return value
@@ -59,6 +64,7 @@ _NETWORK_EXACT = {
 _DYNAMIC_LOADING = {
     "getprocaddress", "ldrgetprocedureaddress", "ldrloaddll", "loadlibrarya",
     "loadlibraryw", "loadlibraryex a", "loadlibraryexa", "loadlibraryexw",
+    "getmodulehandlea", "getmodulehandlew",
     "freelibrary",
 }
 _INJECTION = {
@@ -89,7 +95,11 @@ _ANTI_ANALYSIS = {
 _REGISTRY_WRITE = {"regsetvaluea", "regsetvaluew", "regcreatekeya", "regcreatekeyw"}
 _SERVICE_CONTROL = {"createservicea", "createservicew", "openscmanagera", "openscmanagerw", "startservicea", "startservicew"}
 _SCHEDULED_TASK = {"schtasks", "taskschd", "itaskservice", "registertaskdefinition"}
-_FILE_IO = {"createfilea", "createfilew", "readfile", "writefile", "copyfilea", "copyfilew", "movefilea", "movefilew", "deletefilea", "deletefilew"}
+_FILE_IO = {
+    "createfilea", "createfilew", "readfile", "writefile", "copyfilea", "copyfilew",
+    "movefilea", "movefilew", "deletefilea", "deletefilew", "createpipe", "peeknamedpipe",
+    "sethandleinformation",
+}
 _GENERIC_RUNTIME = {"memset", "memcpy", "memmove", "memcmp", "strlen", "strcpy", "strncpy"}
 
 

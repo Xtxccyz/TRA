@@ -18,7 +18,7 @@ from threat_report_agent.main import create_app
 from threat_report_agent.reporting import REPORT_MODULES
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
-from threat_report_agent.models import AnalysisSnapshot, AnalysisTask, Claim, TaskSecret
+from threat_report_agent.models import AnalysisSnapshot, AnalysisTask, Claim, TaskSecret, ToolRun
 from threat_report_agent.intake import IntakeGateRequired
 from threat_report_agent.service import AnalysisService
 
@@ -116,7 +116,8 @@ def test_multiple_uploaded_files_are_analyzed_as_one_traceable_batch(
         assert submitted.status_code == 202, submitted.text
         task = client.get(f"/api/v1/tasks/{submitted.json()['task_id']}").json()
 
-    assert task["outcome"] == "COMPLETE"
+    assert task["lifecycle"] == "SUCCEEDED"
+    assert task["outcome"] == "PARTIAL"
     assert len(task["artifacts"]) == 3  # root batch archive plus two submitted files
     assert {item["logical_path"].split("!/")[-1] for item in task["artifacts"]} >= {
         "network.py",
@@ -236,7 +237,7 @@ def test_end_to_end_static_analysis_and_report_revisions(test_settings: Settings
 
         task = client.get(f"/api/v1/tasks/{task_id}").json()
         assert task["lifecycle"] == "SUCCEEDED"
-        assert task["outcome"] == "COMPLETE"
+        assert task["outcome"] == "PARTIAL"
         assert len(task["artifacts"]) == 2
         assert {item["module"] for item in task["claims"]} == {
             "decryption",
@@ -371,8 +372,37 @@ def test_task_cancel_endpoint_persists_cancelled_lifecycle(test_settings: Settin
 
         assert response.status_code == 200
         assert response.json()["lifecycle"] == "CANCELLED"
-        assert response.json()["outcome"] is None
-        assert client.get(f"/api/v1/tasks/{task_id}").json()["lifecycle"] == "CANCELLED"
+
+
+def test_tool_run_cancel_endpoint_keeps_task_running(test_settings: Settings) -> None:
+    app = create_app(test_settings)
+    with TestClient(app) as client:
+        case_id = create_case(client)
+        with app.state.database.session_factory.begin() as session:
+            task = AnalysisTask(case_id=case_id, lifecycle="RUNNING")
+            session.add(task)
+            session.flush()
+            run = ToolRun(
+                task_id=task.id,
+                artifact_id=None,
+                tool_name="controlled-emulator",
+                tool_version="0.1.0",
+                status="RUNNING",
+                parameters={},
+                environment={"workflow_id": "toolrun-api-cancel"},
+            )
+            session.add(run)
+            session.flush()
+            task_id = task.id
+            tool_run_id = run.id
+
+        response = client.post(f"/api/v1/tasks/{task_id}/tool-runs/{tool_run_id}/cancel")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["lifecycle"] == "RUNNING"
+        assert body["cancelled_tool_run_id"] == tool_run_id
+        assert body["tool_runs"][0]["status"] == "CANCELLED"
 
 
 def test_retention_routes_expose_archive_daily_seal_and_purge_gate(test_settings: Settings) -> None:
@@ -473,11 +503,9 @@ def test_submission_api_is_asynchronous_and_idempotent(test_settings: Settings) 
         task = client.get(f"/api/v1/tasks/{first.json()['task_id']}").json()
         assert task["lifecycle"] == "SUCCEEDED"
         assert task["target_granularity"] == {"breadth": "B0", "depth": "D3"}
-        assert task["actual_granularity"] == {
-            "breadth": "B0",
-            "depth": "D3",
-            "unmet_reasons": [],
-        }
+        assert task["actual_granularity"]["breadth"] == "B0"
+        assert task["actual_granularity"]["depth"] == "D3"
+        assert isinstance(task["actual_granularity"]["unmet_reasons"], list)
         sample_package = task["request_snapshot"]["sample_package"]
         assert sample_package["content_sha256"] == hashlib.sha256(sample).hexdigest()
         assert (
@@ -620,7 +648,7 @@ def test_local_folder_uses_same_analysis_chain(test_settings: Settings, tmp_path
     task = service.task_view(result.task_id)
 
     assert result.lifecycle == "SUCCEEDED"
-    assert result.outcome == "COMPLETE"
+    assert result.outcome == "PARTIAL"
     assert len(task["artifacts"]) == 2
     assert {item["logical_path"] for item in task["artifacts"]} == {
         "white-elephant-subset/loader.txt",

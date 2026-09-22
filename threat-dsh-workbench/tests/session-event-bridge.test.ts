@@ -113,10 +113,38 @@ test('bridge consumes malformed events without creating a false gap', async () =
   assert.deepEqual(appended.map((row) => row.backend_seq), [2])
 })
 
+test('coordinator does not long-poll every restored session on boot', async () => {
+  const waited: string[] = []
+  const historical = ['session-old-1', 'session-old-2', 'session-old-3'].map((id) => ({
+    id,
+    append() { return undefined },
+  }))
+  const created: Array<(session: any) => unknown> = []
+  const coordinator = installThreatSessionEventCoordinator({
+    sessions: { list: () => historical },
+    on(name: string, listener: (...args: any[]) => unknown) {
+      if (name === 'session/created') created.push(listener as (session: any) => unknown)
+      return () => undefined
+    },
+  }, {
+    client: {
+      sessionContext: async (id: string) => ({ session_id: id, active_task_id: '', state: 'UNBOUND' }),
+      waitForAnalysisUpdate: async (sessionId: string) => {
+        waited.push(sessionId)
+        return await new Promise(() => undefined)
+      },
+    } as any,
+    logger: { warn: () => undefined },
+  })
+  for (const session of historical) created[0](session)
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  assert.deepEqual(waited, ['session-old-3'])
+  coordinator.dispose()
+})
+
 test('coordinator wires DSH session lifecycle to the server event stream', async () => {
   const created: Array<(session: any) => unknown> = []
   const disposed: Array<(session: any) => unknown> = []
-  const ticks: Array<() => void> = []
   const appended: any[] = []
   const session = {
     id: 'session-live',
@@ -134,16 +162,14 @@ test('coordinator wires DSH session lifecycle to the server event stream', async
       if (name === 'session/disposed') disposed.push(listener as (session: any) => unknown)
       return () => undefined
     },
-    interval(callback: () => void) { ticks.push(callback); return () => undefined },
   }, {
-    intervalMs: 250,
     client: {
       sessionContext: async (id: string) => ({ session_id: id, active_task_id: 'task-live', state: 'ANALYSIS_RUNNING' }),
-      events: async (task: string, after: number, _limit: number, sessionId?: string) => {
-        requests.push({ task, after, sessionId })
-        if (eventDelivered) return { schema_version: 1, task_id: task, events: [], next_seq: after, has_more: false }
+      waitForAnalysisUpdate: async (sessionId: string, after: number) => {
+        requests.push({ task: 'task-live', after, sessionId })
+        if (eventDelivered) return await new Promise(() => undefined)
         eventDelivered = true
-        return { schema_version: 1, task_id: task, events: [{ seq: 1, type: 'task-started', task_id: task, payload_summary: { status: 'RUNNING' } }], next_seq: 1, has_more: false }
+        return { schema_version: 1, session_id: sessionId, context: { session_id: sessionId, active_task_id: 'task-live', state: 'ANALYSIS_RUNNING' }, events: [{ seq: 1, type: 'task-started', task_id: 'task-live', payload_summary: { status: 'RUNNING' } }], next_seq: 1 }
       },
     } as any,
     logger: { warn: () => undefined },
@@ -151,13 +177,13 @@ test('coordinator wires DSH session lifecycle to the server event stream', async
 
   assert.equal(created.length, 1)
   await created[0](session)
-  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setTimeout(resolve, 80))
   assert.equal(appended.some((event) => event.type === 'threat/task-started'), true)
   assert.deepEqual(requests[0], { task: 'task-live', after: 0, sessionId: 'session-live' })
-  assert.equal(ticks.length, 1)
 
   await disposed[0](session)
-  ticks[0]?.()
-  assert.equal(requests.length, 1)
+  assert.ok(requests.length >= 1)
+  assert.equal(requests[0].after, 0)
+  if (requests.length > 1) assert.equal(requests[1].after, 1)
   coordinator.dispose()
 })

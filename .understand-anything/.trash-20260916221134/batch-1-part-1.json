@@ -1,0 +1,1732 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/agent_runtime.py",
+      "type": "file",
+      "name": "agent_runtime.py",
+      "filePath": "src/threat_report_agent/agent_runtime.py",
+      "summary": "提供有界、可审计的模型 agent 单轮执行运行时：AgentRuntime 先经 ContextBudgetManager 检查上下文预算，再调用 ModelGateway 完成一次结构化输出，并用不可变 AgentEvent 记录运行状态。刻意不暴露样本执行或任意工具能力，工具权限仍归 policy 引擎。",
+      "tags": [
+        "model-agent",
+        "runtime",
+        "context-budget",
+        "auditable-events",
+        "bounded-execution"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/agent_runtime.py:AgentRuntime",
+      "type": "class",
+      "name": "AgentRuntime",
+      "filePath": "src/threat_report_agent/agent_runtime.py",
+      "lineRange": [
+        48,
+        142
+      ],
+      "summary": "模型 agent 运行时：做上下文预算检查与压缩后调用网关的 complete()，把 started/context.checked/compacted/failed/completed/cancelled 等事件固化为 AgentEvent，并区分 CANCELLED、MODEL_PROVIDERS_UNAVAILABLE 与 AGENT_RUNTIME_ERROR 等终止状态。",
+      "tags": [
+        "model-agent",
+        "runtime",
+        "context-budget",
+        "failure-handling"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/agents.py",
+      "type": "file",
+      "name": "agents.py",
+      "filePath": "src/threat_report_agent/agents.py",
+      "summary": "早期 triage/静态分析 agent 定义（TriageAgent、StaticAnalysisAgent 及 TriageDecision、FunctionEvidenceCandidate、FunctionReviewClaim），用 PromptRegistry 驱动模型提出候选 Claim 并对函数级证据排序。它不是现行活体调查 planner —— 现行为 service._run_investigation_loop + DeepMiningPlanner。",
+      "tags": [
+        "model-agent",
+        "legacy",
+        "claim-proposal",
+        "prompt-driven",
+        "triage"
+      ],
+      "complexity": "complex",
+      "languageNotes": "模块内类为单方法/少量方法的 dataclass 与 agent 包装类，依赖注入的 PromptRegistry 与 StaticFact/ClaimSpec 形状决定了它的行为；沿用旧的 planner 语义。"
+    },
+    {
+      "id": "class:src/threat_report_agent/agents.py:TriageAgent",
+      "type": "class",
+      "name": "TriageAgent",
+      "filePath": "src/threat_report_agent/agents.py",
+      "lineRange": [
+        49,
+        70
+      ],
+      "summary": "对单个 Artifact 做 triage，产出含 role、obligation、rationale 与 metadata 的 TriageDecision，用于确定后续分析义务。",
+      "tags": [
+        "model-agent",
+        "triage",
+        "legacy"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/agents.py:StaticAnalysisAgent",
+      "type": "class",
+      "name": "StaticAnalysisAgent",
+      "filePath": "src/threat_report_agent/agents.py",
+      "lineRange": [
+        73,
+        607
+      ],
+      "summary": "早期静态分析 agent：把 StaticFact 转成 ClaimSpec 形式的候选 Claim（propose_claims），并按 xref/CFG/指令规模对函数证据候选排序（prioritize_function_evidence）。属历史 agent 实现，不驱动现行调查循环。",
+      "tags": [
+        "model-agent",
+        "claim-proposal",
+        "function-ranking",
+        "legacy"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/attack_mapping.py",
+      "type": "file",
+      "name": "attack_mapping.py",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "summary": "ATT&CK 候选映射：加载带 sha256 校验的打包 snapshot 与知识库，把结构化行为 Claim 与 Evidence kind 推导为技术编号，并且只解析 status=active 的技术，revoked 编号改写为 revoked_by。输出始终是 candidate 映射，检测策略只作 BACKGROUND 检测机会。",
+      "tags": [
+        "attack-mapping",
+        "knowledge-snapshot",
+        "candidate",
+        "evidence-linked"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:_snapshot_bytes",
+      "type": "function",
+      "name": "_snapshot_bytes",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        74,
+        83
+      ],
+      "summary": "读取随包发布的 ATT&CK snapshot 原始字节，供快照解析与 sha256 校验使用。",
+      "tags": [
+        "attack-mapping",
+        "io",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:_packaged_knowledge_bytes",
+      "type": "function",
+      "name": "_packaged_knowledge_bytes",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        86,
+        95
+      ],
+      "summary": "读取打包的 ATT&CK 知识库字节，缺失时返回 None，让调用方区分“没有知识库”与“知识库为空”。",
+      "tags": [
+        "attack-mapping",
+        "io",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:_knowledge_root",
+      "type": "function",
+      "name": "_knowledge_root",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        98,
+        110
+      ],
+      "summary": "定位 ATT&CK 知识库文件所在的打包目录，兼容环境变量与随包默认路径。",
+      "tags": [
+        "attack-mapping",
+        "path-resolution",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:_record_from_mapping",
+      "type": "function",
+      "name": "_record_from_mapping",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        113,
+        149
+      ],
+      "summary": "把知识库 JSON 中的一条技术记录转成 AttackKnowledgeRecord，标准化 tactics、revoked_by 与检测策略字段。",
+      "tags": [
+        "attack-mapping",
+        "parsing",
+        "data-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:_knowledge_from_payload",
+      "type": "function",
+      "name": "_knowledge_from_payload",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        152,
+        181
+      ],
+      "summary": "校验并解析 ATT&CK 知识库 payload，逐条转为 AttackKnowledgeRecord 并汇总为带来源与 sha256 的 AttackKnowledge。",
+      "tags": [
+        "attack-mapping",
+        "parsing",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:load_attack_snapshot",
+      "type": "function",
+      "name": "load_attack_snapshot",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        184,
+        211
+      ],
+      "summary": "加载内置 ATT&CK snapshot（版本 + sha256 + 技术条目），为映射结果提供可追溯的快照身份。",
+      "tags": [
+        "attack-mapping",
+        "knowledge-snapshot",
+        "loader"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:load_attack_knowledge",
+      "type": "function",
+      "name": "load_attack_knowledge",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        215,
+        230
+      ],
+      "summary": "加载 ATT&CK 知识库并计算 sha256，形成按技术编号索引的 AttackKnowledge，供编号解析与 revoked 改写使用。",
+      "tags": [
+        "attack-mapping",
+        "knowledge-snapshot",
+        "loader"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:resolve_attack_technique",
+      "type": "function",
+      "name": "resolve_attack_technique",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        233,
+        249
+      ],
+      "summary": "在知识快照中解析技术编号：只接受 status=active 的技术，revoked 编号改写为 revoked_by 指向的替代技术，避免写入失效编号。",
+      "tags": [
+        "attack-mapping",
+        "knowledge-snapshot",
+        "resolution"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/attack_mapping.py:map_behavior_claim",
+      "type": "function",
+      "name": "map_behavior_claim",
+      "filePath": "src/threat_report_agent/attack_mapping.py",
+      "lineRange": [
+        252,
+        331
+      ],
+      "summary": "把结构化行为 Claim 与所属任务的 Evidence kind 映射为 ATT&CK 技术编号，产出带 snapshot/knowledge 摘要、tactics 与检测策略的 AttackMapping；结果始终标记为 candidate。",
+      "tags": [
+        "attack-mapping",
+        "claim",
+        "candidate",
+        "evidence-linked"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/contracts.py",
+      "type": "file",
+      "name": "contracts.py",
+      "filePath": "src/threat_report_agent/contracts.py",
+      "summary": "冻结契约数据模型：以 FrozenContract 为基类定义四通道输入、ActionProposal、InvestigationThread、Hypothesis、Mechanism 等不可变 dataclass，构成 Action Proposal 策略 seam 与调查状态的输入输出形状。",
+      "tags": [
+        "data-model",
+        "frozen-contract",
+        "type-definition",
+        "policy-seam"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/contracts.py:Mechanism",
+      "type": "class",
+      "name": "Mechanism",
+      "filePath": "src/threat_report_agent/contracts.py",
+      "lineRange": [
+        100,
+        138
+      ],
+      "summary": "机制契约：用 steps、target、inputs、transformation_or_control、outputs、side_effects、consumers、limitations、verifier 等槽位描述一个可验证机制，并提供 completeness_score 计算槽位完整度。",
+      "tags": [
+        "data-model",
+        "frozen-contract",
+        "mechanism",
+        "completeness"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/ghidra_adapter.py",
+      "type": "file",
+      "name": "ghidra_adapter.py",
+      "filePath": "src/threat_report_agent/ghidra_adapter.py",
+      "summary": "Ghidra headless 适配器：校验导出的 JSON 结构、准备受控输入文件名与内容，在受限环境下执行 analyzeHeadless 并回收 stdout/stderr 与导出结果，必要时结束整个进程树。",
+      "tags": [
+        "tool-adapter",
+        "ghidra",
+        "headless",
+        "tool-run",
+        "subprocess"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/ghidra_adapter.py:validate_ghidra_output",
+      "type": "function",
+      "name": "validate_ghidra_output",
+      "filePath": "src/threat_report_agent/ghidra_adapter.py",
+      "lineRange": [
+        21,
+        54
+      ],
+      "summary": "校验 Ghidra 导出 JSON 是否具备必需字段与函数结构，把不可用输出转成明确的失败而不是让下游静默降级。",
+      "tags": [
+        "validation",
+        "ghidra",
+        "tool-output"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/ghidra_adapter.py:GhidraHeadlessRunner",
+      "type": "class",
+      "name": "GhidraHeadlessRunner",
+      "filePath": "src/threat_report_agent/ghidra_adapter.py",
+      "lineRange": [
+        66,
+        277
+      ],
+      "summary": "Ghidra headless 执行器：解析 headless/java 路径与配置、生成安全输入名、准备分析内容，运行 analyzeHeadless 并读取完成后的输出；异常时终止进程树避免残留。",
+      "tags": [
+        "tool-adapter",
+        "ghidra",
+        "process-control",
+        "tool-run"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/intake.py",
+      "type": "file",
+      "name": "intake.py",
+      "filePath": "src/threat_report_agent/intake.py",
+      "summary": "样本包接收与展开：递归展开 zip/7z（含密码、路径安全、文件数/字节数/深度上限），产出带逻辑路径、类型识别与 content_sha256 的 PackageEntry 清单，并在需要人工确认时抛出 IntakeGateRequired。",
+      "tags": [
+        "样本包展开",
+        "archive",
+        "intake-gate",
+        "resource-limits",
+        "validation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/intake.py:_expand_zip",
+      "type": "function",
+      "name": "_expand_zip",
+      "filePath": "src/threat_report_agent/intake.py",
+      "lineRange": [
+        62,
+        159
+      ],
+      "summary": "递归展开 zip 样本包：处理密码加密条目、成员名规范化、重复路径与文件数/总字节/深度预算，并识别嵌套容器。",
+      "tags": [
+        "archive",
+        "zip",
+        "resource-limits",
+        "recursion"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/intake.py:_expand_7z",
+      "type": "function",
+      "name": "_expand_7z",
+      "filePath": "src/threat_report_agent/intake.py",
+      "lineRange": [
+        162,
+        275
+      ],
+      "summary": "与 zip 同构的 7z 展开实现，复用同一组预算、路径去重与嵌套归档判定规则，保证两种归档类型的展开语义一致。",
+      "tags": [
+        "archive",
+        "7z",
+        "resource-limits",
+        "recursion"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/intake.py:_expand_archive",
+      "type": "function",
+      "name": "_expand_archive",
+      "filePath": "src/threat_report_agent/intake.py",
+      "lineRange": [
+        278,
+        315
+      ],
+      "summary": "按归档类型分派到 zip/7z 展开，并按需触发未受支持的归档错误与人工 Gate。",
+      "tags": [
+        "archive",
+        "dispatch",
+        "intake-gate"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/intake.py:expand_submission",
+      "type": "function",
+      "name": "expand_submission",
+      "filePath": "src/threat_report_agent/intake.py",
+      "lineRange": [
+        318,
+        357
+      ],
+      "summary": "把一次提交（单文件或归档）展开为样本包条目清单，是接收链路的对外入口。",
+      "tags": [
+        "entry-point",
+        "样本包展开",
+        "archive"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/intake.py:expand_directory_entries",
+      "type": "function",
+      "name": "expand_directory_entries",
+      "filePath": "src/threat_report_agent/intake.py",
+      "lineRange": [
+        360,
+        407
+      ],
+      "summary": "展开目录提交中的文件条目，按预算逐项处理并对嵌套归档决定是否继续递归。",
+      "tags": [
+        "样本包展开",
+        "directory",
+        "resource-limits"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/intake.py:expand_directory",
+      "type": "function",
+      "name": "expand_directory",
+      "filePath": "src/threat_report_agent/intake.py",
+      "lineRange": [
+        410,
+        474
+      ],
+      "summary": "展开本地目录级样本包：遍历目录、保留相对逻辑路径、按 expand_archives 开关决定是否展开归档，并统一应用各项上限。",
+      "tags": [
+        "样本包展开",
+        "directory",
+        "resource-limits",
+        "entry-point"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/methodology.py",
+      "type": "file",
+      "name": "methodology.py",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "summary": "分析方法学中间语言：从静态观察提取 Signal，与内置/外部 FactLibrary 的模式匹配得到 FactMatch 与 AttributionAssessment，最终形成 AnalysisProfile。用于把“像哪个家族 / 是否应排除”的判断变成可审计的规则化评估，并刻意与 PE/Ghidra 实现细节解耦。",
+      "tags": [
+        "methodology",
+        "signal-extraction",
+        "fact-matching",
+        "attribution",
+        "rule-based"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/methodology.py:Signal",
+      "type": "class",
+      "name": "Signal",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        32,
+        64
+      ],
+      "summary": "分析信号：dimension、type、value、label 加上上下文标签、上下文不匹配关键字与 evidence_ids，是方法学中间语言的基本单位。",
+      "tags": [
+        "methodology",
+        "data-model",
+        "signal-extraction"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/methodology.py:FactMatch",
+      "type": "class",
+      "name": "FactMatch",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        68,
+        92
+      ],
+      "summary": "事实匹配结果：记录 fact_id、指示器类型与取值、匹配状态、分数、理由与所属信号维度，并保留 evidence_ids。",
+      "tags": [
+        "methodology",
+        "data-model",
+        "fact-matching"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/methodology.py:AttributionAssessment",
+      "type": "class",
+      "name": "AttributionAssessment",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        96,
+        118
+      ],
+      "summary": "归因评估：期望与实际 verdict、命中/不匹配/部分命中计数、有效率与纳入/排除的事实 id，构成可复核的判定依据。",
+      "tags": [
+        "methodology",
+        "data-model",
+        "attribution"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/methodology.py:AnalysisProfile",
+      "type": "class",
+      "name": "AnalysisProfile",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        122,
+        146
+      ],
+      "summary": "一次分析画像：汇总 signals、matches、assessment、knowledge_snapshot 与 dimension_coverage，作为方法学评估的输出契约。",
+      "tags": [
+        "methodology",
+        "data-model",
+        "analysis-profile"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/methodology.py:FactLibrary",
+      "type": "class",
+      "name": "FactLibrary",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        150,
+        241
+      ],
+      "summary": "事实库：load_builtin/load_from_path 载入带 sha256 与来源的事实条目，match() 按模式类型与指示器把观察匹配到事实。",
+      "tags": [
+        "methodology",
+        "fact-matching",
+        "loader",
+        "rule-based"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:build_profile",
+      "type": "function",
+      "name": "build_profile",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        244,
+        295
+      ],
+      "summary": "由静态观察构建 AnalysisProfile：提取信号、匹配事实库、生成归因评估与维度覆盖度。",
+      "tags": [
+        "methodology",
+        "analysis-profile",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "type": "function",
+      "name": "_extract_signals",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        298,
+        480
+      ],
+      "summary": "把观察行转换成 Signal：识别网络引用、结构化 API、常量与上下文不一致关键字，并绑定证据 id 与锚点。",
+      "tags": [
+        "methodology",
+        "signal-extraction",
+        "parsing"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_fact_dimension",
+      "type": "function",
+      "name": "_fact_dimension",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        483,
+        497
+      ],
+      "summary": "把事实模式类型映射到方法学维度（加载链、密码学、C2 设计、反分析、构建系统、代号）。",
+      "tags": [
+        "methodology",
+        "mapping",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_catalog_mismatch",
+      "type": "function",
+      "name": "_catalog_mismatch",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        500,
+        509
+      ],
+      "summary": "标记模式类型对应的上下文不匹配类别，供信号生成时判断上下文冲突。",
+      "tags": [
+        "methodology",
+        "mapping",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_contains_observed",
+      "type": "function",
+      "name": "_contains_observed",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        512,
+        521
+      ],
+      "summary": "判断观察文本中是否出现给定候选值，用于避免把未观察到的指示器当作命中。",
+      "tags": [
+        "methodology",
+        "matching",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_is_network_reference",
+      "type": "function",
+      "name": "_is_network_reference",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        524,
+        537
+      ],
+      "summary": "判断取值是否形如域名、URL 或 IP 等网络引用，决定其是否可作为 C2 设计维度信号。",
+      "tags": [
+        "methodology",
+        "classification",
+        "network"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_structured_apis",
+      "type": "function",
+      "name": "_structured_apis",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        540,
+        556
+      ],
+      "summary": "从观察值中抽取结构化 API 名称列表，过滤非 API 形状的文本。",
+      "tags": [
+        "methodology",
+        "parsing",
+        "api"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_api_signal_dimensions",
+      "type": "function",
+      "name": "_api_signal_dimensions",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        559,
+        570
+      ],
+      "summary": "按 API 语义把名称归类到信号维度，供后续维度覆盖度统计。",
+      "tags": [
+        "methodology",
+        "classification",
+        "api"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_assess",
+      "type": "function",
+      "name": "_assess",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        573,
+        595
+      ],
+      "summary": "比较期望与实际 verdict，统计命中/不匹配/部分命中与有效匹配率，形成 AttributionAssessment。",
+      "tags": [
+        "methodology",
+        "attribution",
+        "scoring"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/methodology.py:_indicator_matches",
+      "type": "function",
+      "name": "_indicator_matches",
+      "filePath": "src/threat_report_agent/methodology.py",
+      "lineRange": [
+        615,
+        624
+      ],
+      "summary": "判断信号值是否匹配给定指示器模式，是事实匹配的底层比较函数。",
+      "tags": [
+        "methodology",
+        "matching",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/threat_report_agent/orchestration.py",
+      "type": "file",
+      "name": "orchestration.py",
+      "filePath": "src/threat_report_agent/orchestration.py",
+      "summary": "基于 langgraph 的静态调查编排原型：QuestionCompiler 把高层问题编译成原子调查问题、DeterministicSeedRanker 排序调查种子、QuestionCentricContextBuilder 组织问题导向上下文，StaticInvestigationOrchestrator 生成含 action_proposals/policy_decisions 的 InvestigationPlan。它是历史编排实现，现行 planner 是 service._run_investigation_loop + DeepMiningPlanner。",
+      "tags": [
+        "orchestration",
+        "legacy",
+        "langgraph",
+        "question-compiler",
+        "planning"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用 langgraph 的 StateGraph + Annotated reducer 组织状态流，因此 InvestigationState 是 TypedDict 而非 dataclass。"
+    },
+    {
+      "id": "class:src/threat_report_agent/orchestration.py:QuestionCompiler",
+      "type": "class",
+      "name": "QuestionCompiler",
+      "filePath": "src/threat_report_agent/orchestration.py",
+      "lineRange": [
+        62,
+        226
+      ],
+      "summary": "把高层分析问题编译成 AtomicInvestigationQuestion：确定 thread_type、目标锚点、所需证据种类、成功条件与停止条件，使一个问题只覆盖一个可验证目标。",
+      "tags": [
+        "orchestration",
+        "question-compiler",
+        "planning",
+        "legacy"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/orchestration.py:DeterministicSeedRanker",
+      "type": "class",
+      "name": "DeterministicSeedRanker",
+      "filePath": "src/threat_report_agent/orchestration.py",
+      "lineRange": [
+        229,
+        272
+      ],
+      "summary": "按确定性规则对调查种子排序，输出带 priority、question、rationale 与 expected_tools 的 InvestigationSeed，保证同一输入得到同一顺序。",
+      "tags": [
+        "orchestration",
+        "ranking",
+        "deterministic",
+        "legacy"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/orchestration.py:QuestionCentricContextBuilder",
+      "type": "class",
+      "name": "QuestionCentricContextBuilder",
+      "filePath": "src/threat_report_agent/orchestration.py",
+      "lineRange": [
+        275,
+        333
+      ],
+      "summary": "围绕当前调查问题构建检索与上下文，把证据行组织成问题导向的上下文而不是全量倾倒。",
+      "tags": [
+        "orchestration",
+        "context-building",
+        "retrieval",
+        "legacy"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/orchestration.py:StaticInvestigationOrchestrator",
+      "type": "class",
+      "name": "StaticInvestigationOrchestrator",
+      "filePath": "src/threat_report_agent/orchestration.py",
+      "lineRange": [
+        343,
+        483
+      ],
+      "summary": "静态调查编排器：用 langgraph 状态图把编译后的问题、排序后的种子与契约对象（Hypothesis/Mechanism/ActionProposal）组装成 InvestigationPlan，并附带策略裁决结果。",
+      "tags": [
+        "orchestration",
+        "langgraph",
+        "planning",
+        "legacy"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/policy.py",
+      "type": "file",
+      "name": "policy.py",
+      "filePath": "src/threat_report_agent/policy.py",
+      "summary": "模型外策略裁决层：加载内置 preset（任务类型、默认广度/深度、资源上限、完成条件、允许模块与工具）与工具策略，PolicyRegistry.authorize 决定 Action Proposal 是否放行。Action Proposal 不能自行授予工具权限或样本执行能力。",
+      "tags": [
+        "policy",
+        "authorization",
+        "preset",
+        "resource-limits",
+        "action-proposal"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/policy.py:PolicyRegistry",
+      "type": "class",
+      "name": "PolicyRegistry",
+      "filePath": "src/threat_report_agent/policy.py",
+      "lineRange": [
+        58,
+        140
+      ],
+      "summary": "策略注册表：加载内置 preset 与工具策略，require_preset/require_tool 做存在性校验，authorize 针对 Action Proposal 返回带 reason 与 policy_version 的 PolicyDecision。",
+      "tags": [
+        "policy",
+        "authorization",
+        "registry",
+        "action-proposal"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/prompts.py",
+      "type": "file",
+      "name": "prompts.py",
+      "filePath": "src/threat_report_agent/prompts.py",
+      "summary": "Prompt 注册表：加载带 id、版本与 sha256 的内置 prompt 定义，require 按 id+version 取用，build_messages 组装成 System/User 消息序列。",
+      "tags": [
+        "prompt-registry",
+        "versioned",
+        "sha256",
+        "configuration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/prompts.py:PromptRegistry",
+      "type": "class",
+      "name": "PromptRegistry",
+      "filePath": "src/threat_report_agent/prompts.py",
+      "lineRange": [
+        19,
+        66
+      ],
+      "summary": "Prompt 注册表实现：load_builtin 载入定义并计算 sha256，require 校验版本后返回 PromptDefinition，build_messages 生成可发送的消息列表。",
+      "tags": [
+        "prompt-registry",
+        "versioned",
+        "loader"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/runtime_contracts.py",
+      "type": "file",
+      "name": "runtime_contracts.py",
+      "filePath": "src/threat_report_agent/runtime_contracts.py",
+      "summary": "运行时契约：ContextBudgetManager 估算并压缩模型上下文预算，classify_failure 把异常归一化为失败分类（组件、活动、最后成功阶段、可重试性），retry_decision 依据指纹给出重试判定。",
+      "tags": [
+        "context-budget",
+        "failure-classification",
+        "retry",
+        "runtime"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/threat_report_agent/runtime_contracts.py:ContextBudgetManager",
+      "type": "class",
+      "name": "ContextBudgetManager",
+      "filePath": "src/threat_report_agent/runtime_contracts.py",
+      "lineRange": [
+        35,
+        115
+      ],
+      "summary": "上下文预算管理：编码消息、核算输入/预留补全/安全边际字节，超限时压缩消息并给出 allowed 判定，返回含 compacted 标记的 ContextBudgetDecision。",
+      "tags": [
+        "context-budget",
+        "compaction",
+        "runtime"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/runtime_contracts.py:classify_failure",
+      "type": "function",
+      "name": "classify_failure",
+      "filePath": "src/threat_report_agent/runtime_contracts.py",
+      "lineRange": [
+        122,
+        189
+      ],
+      "summary": "把异常归一化为可审计的失败分类：识别阶段、失败组件、失败活动、最后成功阶段与是否可重试，避免把每种异常各写一套处理分支。",
+      "tags": [
+        "failure-classification",
+        "error-handling",
+        "runtime"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/secret_store.py",
+      "type": "file",
+      "name": "secret_store.py",
+      "filePath": "src/threat_report_agent/secret_store.py",
+      "summary": "任务密钥加密存储：SecretCipher 由 GATE_SECRET_KEY 经 SHA-256 派生 Fernet 密钥，提供 encrypt/decrypt，用于保存归档密码等 Gate 相关秘密；未配置密钥时直接拒绝接收秘密。",
+      "tags": [
+        "security",
+        "encryption",
+        "fernet",
+        "secret"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/secret_store.py:SecretCipher",
+      "type": "class",
+      "name": "SecretCipher",
+      "filePath": "src/threat_report_agent/secret_store.py",
+      "lineRange": [
+        9,
+        20
+      ],
+      "summary": "基于 Fernet 的任务密钥加解密器：密钥材料缺失时报错，提供 encrypt/decrypt 两个对称操作。",
+      "tags": [
+        "security",
+        "encryption",
+        "fernet"
+      ],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/agent_runtime.py",
+      "target": "file:src/threat_report_agent/model_gateway.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/agent_runtime.py",
+      "target": "file:src/threat_report_agent/runtime_contracts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/agents.py",
+      "target": "file:src/threat_report_agent/prompts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/agents.py",
+      "target": "file:src/threat_report_agent/static_analysis.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_adapter.py",
+      "target": "file:src/threat_report_agent/static_analysis.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "file:src/threat_report_agent/contracts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "file:src/threat_report_agent/policy.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/policy.py",
+      "target": "file:src/threat_report_agent/contracts.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/agent_runtime.py",
+      "target": "class:src/threat_report_agent/agent_runtime.py:AgentRuntime",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/agents.py",
+      "target": "class:src/threat_report_agent/agents.py:TriageAgent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/agents.py",
+      "target": "class:src/threat_report_agent/agents.py:StaticAnalysisAgent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_snapshot_bytes",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_packaged_knowledge_bytes",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_knowledge_root",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_record_from_mapping",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_knowledge_from_payload",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:load_attack_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:load_attack_knowledge",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:resolve_attack_technique",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:map_behavior_claim",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/contracts.py",
+      "target": "class:src/threat_report_agent/contracts.py:Mechanism",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_adapter.py",
+      "target": "function:src/threat_report_agent/ghidra_adapter.py:validate_ghidra_output",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_adapter.py",
+      "target": "class:src/threat_report_agent/ghidra_adapter.py:GhidraHeadlessRunner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:_expand_zip",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:_expand_7z",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:_expand_archive",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:expand_submission",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:expand_directory_entries",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:expand_directory",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:Signal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:FactMatch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:AttributionAssessment",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:AnalysisProfile",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:FactLibrary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:build_profile",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_fact_dimension",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_catalog_mismatch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_contains_observed",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_is_network_reference",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_structured_apis",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_api_signal_dimensions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_assess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:_indicator_matches",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "class:src/threat_report_agent/orchestration.py:QuestionCompiler",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "class:src/threat_report_agent/orchestration.py:DeterministicSeedRanker",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "class:src/threat_report_agent/orchestration.py:QuestionCentricContextBuilder",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "class:src/threat_report_agent/orchestration.py:StaticInvestigationOrchestrator",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/policy.py",
+      "target": "class:src/threat_report_agent/policy.py:PolicyRegistry",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/prompts.py",
+      "target": "class:src/threat_report_agent/prompts.py:PromptRegistry",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/runtime_contracts.py",
+      "target": "class:src/threat_report_agent/runtime_contracts.py:ContextBudgetManager",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/runtime_contracts.py",
+      "target": "function:src/threat_report_agent/runtime_contracts.py:classify_failure",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/secret_store.py",
+      "target": "class:src/threat_report_agent/secret_store.py:SecretCipher",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/threat_report_agent/agent_runtime.py",
+      "target": "class:src/threat_report_agent/agent_runtime.py:AgentRuntime",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/agents.py",
+      "target": "class:src/threat_report_agent/agents.py:TriageAgent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/agents.py",
+      "target": "class:src/threat_report_agent/agents.py:StaticAnalysisAgent",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:load_attack_snapshot",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:load_attack_knowledge",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:resolve_attack_technique",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/attack_mapping.py",
+      "target": "function:src/threat_report_agent/attack_mapping.py:map_behavior_claim",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/contracts.py",
+      "target": "class:src/threat_report_agent/contracts.py:Mechanism",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_adapter.py",
+      "target": "function:src/threat_report_agent/ghidra_adapter.py:validate_ghidra_output",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_adapter.py",
+      "target": "class:src/threat_report_agent/ghidra_adapter.py:GhidraHeadlessRunner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:expand_submission",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:expand_directory_entries",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/intake.py",
+      "target": "function:src/threat_report_agent/intake.py:expand_directory",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:Signal",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:FactMatch",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:AttributionAssessment",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:AnalysisProfile",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "class:src/threat_report_agent/methodology.py:FactLibrary",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/methodology.py",
+      "target": "function:src/threat_report_agent/methodology.py:build_profile",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "class:src/threat_report_agent/orchestration.py:QuestionCompiler",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "class:src/threat_report_agent/orchestration.py:DeterministicSeedRanker",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "class:src/threat_report_agent/orchestration.py:QuestionCentricContextBuilder",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "class:src/threat_report_agent/orchestration.py:StaticInvestigationOrchestrator",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/policy.py",
+      "target": "class:src/threat_report_agent/policy.py:PolicyRegistry",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/prompts.py",
+      "target": "class:src/threat_report_agent/prompts.py:PromptRegistry",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/runtime_contracts.py",
+      "target": "class:src/threat_report_agent/runtime_contracts.py:ContextBudgetManager",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/runtime_contracts.py",
+      "target": "function:src/threat_report_agent/runtime_contracts.py:classify_failure",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/secret_store.py",
+      "target": "class:src/threat_report_agent/secret_store.py:SecretCipher",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/agent_runtime.py:AgentRuntime",
+      "target": "class:src/threat_report_agent/runtime_contracts.py:ContextBudgetManager",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/agents.py:StaticAnalysisAgent",
+      "target": "class:src/threat_report_agent/static_analysis.py:ClaimSpec",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/ghidra_adapter.py:GhidraHeadlessRunner",
+      "target": "function:src/threat_report_agent/static_analysis.py:function_fuzzy_fingerprint",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "class:src/threat_report_agent/orchestration.py:StaticInvestigationOrchestrator",
+      "target": "class:src/threat_report_agent/contracts.py:Mechanism",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:load_attack_snapshot",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_snapshot_bytes",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:load_attack_knowledge",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_knowledge_root",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:load_attack_knowledge",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_knowledge_from_payload",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:load_attack_knowledge",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_packaged_knowledge_bytes",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:_knowledge_from_payload",
+      "target": "function:src/threat_report_agent/attack_mapping.py:_record_from_mapping",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:resolve_attack_technique",
+      "target": "function:src/threat_report_agent/attack_mapping.py:load_attack_knowledge",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:map_behavior_claim",
+      "target": "function:src/threat_report_agent/attack_mapping.py:load_attack_snapshot",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:map_behavior_claim",
+      "target": "function:src/threat_report_agent/attack_mapping.py:load_attack_knowledge",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/attack_mapping.py:map_behavior_claim",
+      "target": "function:src/threat_report_agent/attack_mapping.py:resolve_attack_technique",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/intake.py:_expand_zip",
+      "target": "function:src/threat_report_agent/intake.py:_expand_archive",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/intake.py:_expand_7z",
+      "target": "function:src/threat_report_agent/intake.py:_expand_archive",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/intake.py:_expand_archive",
+      "target": "function:src/threat_report_agent/intake.py:_expand_zip",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/intake.py:_expand_archive",
+      "target": "function:src/threat_report_agent/intake.py:_expand_7z",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/intake.py:expand_submission",
+      "target": "function:src/threat_report_agent/intake.py:_expand_archive",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/intake.py:expand_directory_entries",
+      "target": "function:src/threat_report_agent/intake.py:_expand_archive",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/intake.py:expand_directory",
+      "target": "function:src/threat_report_agent/intake.py:expand_directory_entries",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/methodology.py:build_profile",
+      "target": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/methodology.py:build_profile",
+      "target": "function:src/threat_report_agent/methodology.py:_assess",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "target": "function:src/threat_report_agent/methodology.py:_fact_dimension",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "target": "function:src/threat_report_agent/methodology.py:_contains_observed",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "target": "function:src/threat_report_agent/methodology.py:_catalog_mismatch",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "target": "function:src/threat_report_agent/methodology.py:_structured_apis",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "target": "function:src/threat_report_agent/methodology.py:_api_signal_dimensions",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/methodology.py:_extract_signals",
+      "target": "function:src/threat_report_agent/methodology.py:_is_network_reference",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/orchestration.py",
+      "target": "file:src/threat_report_agent/agents.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

@@ -23,3 +23,13 @@ test('workbench bundle declares every out-of-tree product extension', async () =
     assert.match(source, new RegExp(id))
   }
 })
+
+test('isolated home defaults advertise DeepSeek-V41-Flash as the conversation model', async () => {
+  const source = await readFile(new URL('../profiles/threat-static/settings.defaults.yaml', import.meta.url), 'utf8')
+  assert.match(source, /^llm-pi-ai:/m)
+  assert.match(source, /id:\s*deepseek-flash/)
+  assert.match(source, /name:\s*DeepSeek-V41-Flash/)
+  assert.match(source, /provider:\s*deepseek/)
+  assert.match(source, /model:\s*deepseek-flash/)
+  assert.doesNotMatch(source, /model:\s*deepseek-v4-pro/)
+})

@@ -1,0 +1,1010 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "src/threat_report_agent/__init__.py",
+      "summary": "threat_report_agent 控制面包的包声明文件，仅含一行包级 docstring，用于把该目录标记为可导入的 Python 包。",
+      "tags": ["entry-point", "package-barrel", "python", "control-plane"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/threat_report_agent/function_simhash.py",
+      "type": "file",
+      "name": "function_simhash.py",
+      "filePath": "src/threat_report_agent/function_simhash.py",
+      "summary": "实现 Charikar simhash 64 位函数指纹原语：助记符 4-gram 生成、MD5 前缀 64 位特征哈希、加权 simhash 投票与汉明距离，是同任务/同案件函数相似度检索的算法底座。",
+      "tags": ["相似度", "simhash", "utility", "fingerprint", "static-analysis"],
+      "complexity": "simple",
+      "languageNotes": "算法契约由模块常量固定为 charikar-simhash-64 / mnemonic-4gram / md5-prefix-64-le，feature_hash 使用 usedforsecurity=False，另外 zip(..., strict=False) 允许特征与权重长度不一致。"
+    },
+    {
+      "id": "function:src/threat_report_agent/function_simhash.py:generate_ngrams",
+      "type": "function",
+      "name": "generate_ngrams",
+      "filePath": "src/threat_report_agent/function_simhash.py",
+      "lineRange": [13, 17],
+      "summary": "把助记符序列切成空格连接的 n-gram（默认 4-gram）；助记符不足 n 个时退化为整条序列。",
+      "tags": ["相似度", "feature-extraction", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/function_simhash.py:hash64",
+      "type": "function",
+      "name": "hash64",
+      "filePath": "src/threat_report_agent/function_simhash.py",
+      "lineRange": [20, 23],
+      "summary": "把单个特征字符串哈希为 MD5 摘要前 8 字节的小端 64 位整数。",
+      "tags": ["hashing", "utility", "md5"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/function_simhash.py:simhash",
+      "type": "function",
+      "name": "simhash",
+      "filePath": "src/threat_report_agent/function_simhash.py",
+      "lineRange": [26, 38],
+      "summary": "对特征哈希的每一位做带权投票，生成 64 位 Charikar simhash 指纹整数。",
+      "tags": ["simhash", "相似度", "algorithm"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/function_simhash.py:fingerprint_mnemonics",
+      "type": "function",
+      "name": "fingerprint_mnemonics",
+      "filePath": "src/threat_report_agent/function_simhash.py",
+      "lineRange": [41, 43],
+      "summary": "规范化助记符序列（去空白、转小写）并输出 16 位十六进制 simhash 指纹字符串。",
+      "tags": ["fingerprint", "相似度", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/function_simhash.py:hamming_distance",
+      "type": "function",
+      "name": "hamming_distance",
+      "filePath": "src/threat_report_agent/function_simhash.py",
+      "lineRange": [46, 49],
+      "summary": "计算两个指纹之间的汉明距离，入参同时接受十六进制字符串与整数。",
+      "tags": ["相似度", "distance", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/threat_report_agent/function_similarity.py",
+      "type": "file",
+      "name": "function_similarity.py",
+      "filePath": "src/threat_report_agent/function_similarity.py",
+      "summary": "在 Evidence 记录与评估器引用目录之上做确定性、有界的函数指纹相似度检索，定义 FingerprintRecord/SimilarityQuery/SimilarityMatch 契约，并按 KNOWN_LIBRARY、CURRENT_TASK、CASE 三种 scope 返回按汉明距离排序的匹配。",
+      "tags": ["相似度", "search-index", "data-model", "evidence", "static-analysis"],
+      "complexity": "moderate",
+      "languageNotes": "使用 frozen dataclass 定义不可变契约，scope 用 Literal 收窄；load_builtin 刻意返回生产空目录，因为历史已知函数目录只含样本哈希与 RVA，仅限评估器使用。"
+    },
+    {
+      "id": "class:src/threat_report_agent/function_similarity.py:FingerprintRecord",
+      "type": "class",
+      "name": "FingerprintRecord",
+      "filePath": "src/threat_report_agent/function_similarity.py",
+      "lineRange": [17, 24],
+      "summary": "冻结数据类，描述一条函数指纹 Evidence 的标识与算法契约（默认 charikar-simhash-64 / mnemonic-4gram）。",
+      "tags": ["data-model", "evidence", "fingerprint"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/function_similarity.py:SimilarityQuery",
+      "type": "class",
+      "name": "SimilarityQuery",
+      "filePath": "src/threat_report_agent/function_similarity.py",
+      "lineRange": [28, 42],
+      "summary": "相似度查询参数对象，在构造时校验阈值 0-64、limit 1-500、scope 非空且指纹是合法十六进制。",
+      "tags": ["data-model", "validation", "query"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/function_similarity.py:SimilarityMatch",
+      "type": "class",
+      "name": "SimilarityMatch",
+      "filePath": "src/threat_report_agent/function_similarity.py",
+      "lineRange": [46, 55],
+      "summary": "相似度命中结果，记录参考类型与 ID、汉明距离、阈值及目录 sha256，使匹配可回溯到具体证据来源。",
+      "tags": ["data-model", "evidence", "result"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/function_similarity.py:FunctionSimilarityIndex",
+      "type": "class",
+      "name": "FunctionSimilarityIndex",
+      "filePath": "src/threat_report_agent/function_similarity.py",
+      "lineRange": [58, 153],
+      "summary": "确定性相似度索引：可从内置空目录、文件路径或调用方自有字节加载引用目录，并在 KNOWN_LIBRARY / CURRENT_TASK / CASE 范围内做有界检索，结果按距离与参考 ID 稳定排序后截断。",
+      "tags": ["search-index", "相似度", "service"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "type": "file",
+      "name": "ExportStaticFacts.java",
+      "filePath": "src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "summary": "Ghidra Headless 的后置导出脚本，对 PE 的临时副本做静态事实导出（反汇编函数、导入、字符串、交叉引用与 p-code 切片）并写出结构化 JSON，全程不执行样本。",
+      "tags": ["ghidra", "static-analysis", "导出脚本", "headless", "java"],
+      "complexity": "moderate",
+      "languageNotes": "以继承 GhidraScript 的 postScript 形式运行，通过脚本上下文读取已加载程序并落盘 JSON，而不是把样本交给模拟器或宿主执行。"
+    },
+    {
+      "id": "class:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java:ExportStaticFacts",
+      "type": "class",
+      "name": "ExportStaticFacts",
+      "filePath": "src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "lineRange": [26, 168],
+      "summary": "GhidraScript 子类，作为 Ghidra Headless 的静态事实导出入口，由 ghidra_adapter 按路径调用。",
+      "tags": ["ghidra", "entry-point", "static-analysis"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java:run",
+      "type": "function",
+      "name": "run",
+      "filePath": "src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "lineRange": [27, 167],
+      "summary": "导出主流程：解析当前程序、遍历函数与指令、收集字符串/导入/交叉引用等静态事实并序列化为 JSON 输出。",
+      "tags": ["ghidra", "导出脚本", "static-analysis"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/gold_output_bar.py",
+      "type": "file",
+      "name": "gold_output_bar.py",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "summary": "官方报告输出的量化 gold bar 评分器：按 PE 基础信息、导入名、参数化调用序列、解码常量、唯一线程、受控模拟状态与 UNKNOWN 保留等检查项对 markdown 打分，要求不低于 90 分且无阻塞失败项。",
+      "tags": ["quality-gate", "评分", "reporting", "verification"],
+      "complexity": "complex",
+      "languageNotes": "评分项以闭包 add() 就地累积 GoldBarCheck，并把「样本执行 / 沙箱动态分析」视为必须拦截的过度声明（no_false_dynamic）。"
+    },
+    {
+      "id": "class:src/threat_report_agent/gold_output_bar.py:GoldBarCheck",
+      "type": "class",
+      "name": "GoldBarCheck",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "lineRange": [55, 60],
+      "summary": "单条 gold bar 检查项结果，记录检查 id、分值、是否阻塞、是否通过及说明。",
+      "tags": ["data-model", "quality-gate", "scoring"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/gold_output_bar.py:GoldBarResult",
+      "type": "class",
+      "name": "GoldBarResult",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "lineRange": [64, 75],
+      "summary": "gold bar 评分结果，聚合全部检查项并给出阻塞失败清单与「总分达到 90 且无阻塞失败」的通过判定。",
+      "tags": ["data-model", "quality-gate", "scoring"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/gold_output_bar.py:T5BarDecision",
+      "type": "class",
+      "name": "T5BarDecision",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "lineRange": [236, 243],
+      "summary": "T5 样本验收决策，记录是否达到 gold 标准、是否接受、样本类型、所依据的策略与原因。",
+      "tags": ["data-model", "acceptance", "quality-gate"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/gold_output_bar.py:score_official_markdown",
+      "type": "function",
+      "name": "score_official_markdown",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "lineRange": [78, 210],
+      "summary": "对官方 markdown 报告执行全量 gold bar 打分：PE 基础、导入名数量、参数化静态调用序列、解码常量、唯一线程、受控模拟状态、深挖 HOW 段落、UNKNOWN 保留与篇幅门槛，并拦截把结果说成动态执行或沙箱运行的过度声明。",
+      "tags": ["quality-gate", "scoring", "reporting"],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/threat_report_agent/gold_output_bar.py:format_gold_bar",
+      "type": "function",
+      "name": "format_gold_bar",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "lineRange": [213, 222],
+      "summary": "把 GoldBarResult 渲染为人类可读的 gold bar 摘要文本。",
+      "tags": ["formatting", "reporting", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/gold_output_bar.py:gold_bar_from_document",
+      "type": "function",
+      "name": "gold_bar_from_document",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "lineRange": [225, 232],
+      "summary": "从报告 document 与 markdown/rich ledger 标志推导 gold bar 评分结果。",
+      "tags": ["quality-gate", "reporting", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/gold_output_bar.py:_false_malicious_reasons",
+      "type": "function",
+      "name": "_false_malicious_reasons",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "lineRange": [254, 267],
+      "summary": "检测 markdown 中把样本直接断言为恶意的表述，返回需要人工复核的原因列表。",
+      "tags": ["validation", "reporting", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/gold_output_bar.py:evaluate_t5_sample_bar",
+      "type": "function",
+      "name": "evaluate_t5_sample_bar",
+      "filePath": "src/threat_report_agent/gold_output_bar.py",
+      "lineRange": [270, 327],
+      "summary": "按样本类型对 T5 markdown 执行 gold bar 评估，输出含策略与原因的接受/拒绝决策。",
+      "tags": ["acceptance", "quality-gate", "evaluation"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "config:src/threat_report_agent/knowledge/attack-enterprise-index.json",
+      "type": "config",
+      "name": "attack-enterprise-index.json",
+      "filePath": "src/threat_report_agent/knowledge/attack-enterprise-index.json",
+      "summary": "由 MITRE enterprise-attack STIX 集合生成的单行超大 ATT&CK 企业技术索引，含数据来源、统计汇总（15 个战术、858 项技术）以及以技术 ID 为键的 techniques 映射，供映射器查询技术名称、状态与弃用信息。",
+      "tags": ["knowledge-snapshot", "attack", "configuration", "catalog"],
+      "complexity": "complex",
+      "languageNotes": "整个文件压缩为单行 JSON（约 332 KB），因此行数为 0 属正常；内容按 techniques.<Txxxx> 键组织，不逐条展开。"
+    },
+    {
+      "id": "config:src/threat_report_agent/knowledge/attack-snapshot.yaml",
+      "type": "config",
+      "name": "attack-snapshot.yaml",
+      "filePath": "src/threat_report_agent/knowledge/attack-snapshot.yaml",
+      "summary": "版本化的 ATT&CK 映射快照（enterprise-attack-15.1），为 T1027、T1140、T1129、T1055、T1071、T1497、T1007 等 7 项技术声明可用模块、动作与证据类型约束，是 Claim 到 ATT&CK 候选映射的策略来源。",
+      "tags": ["knowledge-snapshot", "attack", "configuration", "映射策略"],
+      "complexity": "simple",
+      "languageNotes": "采用 version + entries 的扁平结构，每条技术用 modules / actions / evidence_kinds 三个白名单字段约束映射器，便于做证据类型对齐校验。"
+    },
+    {
+      "id": "config:src/threat_report_agent/policies/tool-policy.json",
+      "type": "config",
+      "name": "tool-policy.json",
+      "filePath": "src/threat_report_agent/policies/tool-policy.json",
+      "summary": "工具策略清单（version 1.0.0），为 python-zipfile-safe-reader、builtin-static-analyzer、ghidra-headless、controlled-emulator 等 14 个工具声明允许的分析模块与 CPU/内存上限，并统一禁止样本执行和网络访问。",
+      "tags": ["configuration", "policy", "security", "tool-governance"],
+      "complexity": "moderate",
+      "languageNotes": "每个工具条目的 sample_execution 与 network_access 恒为 false，把「绝不运行样本」写成配置层面的硬约束而非调用方约定。"
+    },
+    {
+      "id": "config:src/threat_report_agent/policies/preset-commands.json",
+      "type": "config",
+      "name": "preset-commands.json",
+      "filePath": "src/threat_report_agent/policies/preset-commands.json",
+      "summary": "任务预设清单（schema_version 1.1），定义 single-sample-static-deep、first-phase-full-static、incident-report-static 三个预设的对象范围、期望输出、默认广度/深度、资源上限、完成条件与可用工具集。",
+      "tags": ["configuration", "policy", "preset", "orchestration"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/static/app.js",
+      "type": "file",
+      "name": "app.js",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "summary": "遗留兼容 UI 的前端脚本（并非主产品界面，见 docs/legacy-retirement.md）：提交样本包、轮询任务、处理人工输入网关决策，并渲染 Claim、Evidence、分析轨迹与报告下载。",
+      "tags": ["遗留界面", "frontend", "javascript", "presentation"],
+      "complexity": "complex",
+      "languageNotes": "以全局 state 对象加 DOM 直操作的经典脚本组织，无模块系统与导出；模块中文标题集中在 moduleTitles 常量中。"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:node",
+      "type": "function",
+      "name": "node",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [31, 40],
+      "summary": "创建 DOM 元素并写入文本与可选 class 的渲染助手。",
+      "tags": ["dom", "utility", "frontend"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:fetchJSON",
+      "type": "function",
+      "name": "fetchJSON",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [42, 56],
+      "summary": "封装 fetch 并解析 JSON 响应，在非 2xx 时抛出带状态码的错误。",
+      "tags": ["http-client", "utility", "frontend"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:initialize",
+      "type": "function",
+      "name": "initialize",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [64, 91],
+      "summary": "页面初始化：加载模型配置与系统状态、生成报告模块选择器并绑定表单提交事件。",
+      "tags": ["bootstrap", "frontend", "遗留界面"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:setModelRoute",
+      "type": "function",
+      "name": "setModelRoute",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [93, 104],
+      "summary": "把某条模型路由（primary/fallback）的配置回填到对应表单控件。",
+      "tags": ["model-config", "frontend", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:loadModelConfig",
+      "type": "function",
+      "name": "loadModelConfig",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [106, 123],
+      "summary": "拉取模型配置并同步主/备路由的表单状态与启用标志。",
+      "tags": ["model-config", "frontend", "遗留界面"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:loadTask",
+      "type": "function",
+      "name": "loadTask",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [252, 284],
+      "summary": "按 taskId 拉取任务视图并刷新状态、输入清单、Claim/Evidence 与限制面板。",
+      "tags": ["task-view", "frontend", "遗留界面"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:waitForTask",
+      "type": "function",
+      "name": "waitForTask",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [286, 300],
+      "summary": "轮询任务状态，直到任务进入终态或停在需要人工决策的输入网关。",
+      "tags": ["polling", "frontend", "workflow"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:submitGateDecision",
+      "type": "function",
+      "name": "submitGateDecision",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [331, 362],
+      "summary": "提交人工网关决策到后端，并唤醒处于等待中的任务继续执行。",
+      "tags": ["gate", "frontend", "workflow"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:waitForInputGate",
+      "type": "function",
+      "name": "waitForInputGate",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [364, 383],
+      "summary": "当任务处于待输入网关时弹出模态框，并以 Promise 等待用户决策结果。",
+      "tags": ["gate", "frontend", "workflow"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:renderClaims",
+      "type": "function",
+      "name": "renderClaims",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [398, 423],
+      "summary": "渲染 Claim 列表及其证据支撑状态。",
+      "tags": ["rendering", "claims", "frontend"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:renderEvidence",
+      "type": "function",
+      "name": "renderEvidence",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [433, 452],
+      "summary": "渲染 Evidence 账本条目及其来源属性。",
+      "tags": ["rendering", "evidence", "frontend"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:loadAnalysisTrace",
+      "type": "function",
+      "name": "loadAnalysisTrace",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [454, 470],
+      "summary": "拉取指定任务的分析轨迹并触发步骤渲染。",
+      "tags": ["trace", "frontend", "legacy-ui"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:renderPlanningSummary",
+      "type": "function",
+      "name": "renderPlanningSummary",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [472, 517],
+      "summary": "渲染调查规划摘要，包括广度/深度、模块覆盖与待办队列。",
+      "tags": ["rendering", "planning", "frontend"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:renderTraceSteps",
+      "type": "function",
+      "name": "renderTraceSteps",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [519, 554],
+      "summary": "渲染分析轨迹各步骤的明细与执行状态。",
+      "tags": ["rendering", "trace", "frontend"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/static/app.js:updateDownloads",
+      "type": "function",
+      "name": "updateDownloads",
+      "filePath": "src/threat_report_agent/static/app.js",
+      "lineRange": [563, 577],
+      "summary": "按报告版本刷新 markdown/docx/pdf/json 四种格式的下载链接。",
+      "tags": ["downloads", "frontend", "reporting"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/threat_report_agent/static/index.html",
+      "type": "file",
+      "name": "index.html",
+      "filePath": "src/threat_report_agent/static/index.html",
+      "summary": "遗留兼容 UI 的单页外壳（由 main.py 的根路由返回），包含样本提交流程、报告模块选择、主/备模型路由配置与结果证据面板；生产入口已迁至 threat-dsh-workbench。",
+      "tags": ["遗留界面", "markup", "frontend", "html"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/threat_report_agent/static/styles.css",
+      "type": "file",
+      "name": "styles.css",
+      "filePath": "src/threat_report_agent/static/styles.css",
+      "summary": "遗留兼容 UI 的样式表，为顶栏、样本提交流程、模型路由配置面板与结果/证据卡片提供浅色主题与响应式布局。",
+      "tags": ["遗留界面", "markup", "css", "styling"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/threat_report_agent/turn_lifecycle.py",
+      "type": "file",
+      "name": "turn_lifecycle.py",
+      "filePath": "src/threat_report_agent/turn_lifecycle.py",
+      "summary": "长时分析轮次的有界生命周期状态机（IDLE → ANALYSIS_RUNNING → AWAITING_EVENT → SYNTHESIZING → 终态），只约束会话交棒与终态分支，不持有样本或工具权限；它并非现行调查 planner（现行是 service._run_investigation_loop + DeepMiningPlanner）。",
+      "tags": ["state-machine", "control-plane", "legacy", "turn-management"],
+      "complexity": "moderate",
+      "languageNotes": "所有非法转换都抛 RuntimeError 并使用大写错误码（如 TURN_ALREADY_ACTIVE、BRANCH_REQUIRES_TERMINAL_TURN），TERMINAL_STATES 用 frozenset 常量集中声明。"
+    },
+    {
+      "id": "class:src/threat_report_agent/turn_lifecycle.py:TurnLifecycleSnapshot",
+      "type": "class",
+      "name": "TurnLifecycleSnapshot",
+      "filePath": "src/threat_report_agent/turn_lifecycle.py",
+      "lineRange": [28, 32],
+      "summary": "轮次生命周期快照，记录当前状态、当前/父 turn id 与最后处理的事件序号。",
+      "tags": ["data-model", "state-machine", "snapshot"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/threat_report_agent/turn_lifecycle.py:LongTurnLifecycle",
+      "type": "class",
+      "name": "LongTurnLifecycle",
+      "filePath": "src/threat_report_agent/turn_lifecycle.py",
+      "lineRange": [35, 109],
+      "summary": "长时轮次状态机实现：只允许从 IDLE 或终态启动分析、事件序号必须单调递增、只有在终态才可分支出新轮次，从而避免一个模型轮次持续等待静态任务。",
+      "tags": ["state-machine", "control-plane", "legacy"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:generate_ngrams",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:hash64",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:simhash",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:fingerprint_mnemonics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:hamming_distance",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:generate_ngrams",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:hash64",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:simhash",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:fingerprint_mnemonics",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "function:src/threat_report_agent/function_simhash.py:hamming_distance",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "class:src/threat_report_agent/function_similarity.py:FingerprintRecord",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "class:src/threat_report_agent/function_similarity.py:SimilarityQuery",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "class:src/threat_report_agent/function_similarity.py:SimilarityMatch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "class:src/threat_report_agent/function_similarity.py:FunctionSimilarityIndex",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "class:src/threat_report_agent/function_similarity.py:FingerprintRecord",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "class:src/threat_report_agent/function_similarity.py:SimilarityQuery",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "class:src/threat_report_agent/function_similarity.py:SimilarityMatch",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "class:src/threat_report_agent/function_similarity.py:FunctionSimilarityIndex",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "file:src/threat_report_agent/function_simhash.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "target": "class:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java:ExportStaticFacts",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "target": "function:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java:run",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "target": "class:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java:ExportStaticFacts",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "target": "function:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java:run",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "class:src/threat_report_agent/gold_output_bar.py:GoldBarCheck",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "class:src/threat_report_agent/gold_output_bar.py:GoldBarResult",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "class:src/threat_report_agent/gold_output_bar.py:T5BarDecision",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:score_official_markdown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:format_gold_bar",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:gold_bar_from_document",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:_false_malicious_reasons",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:evaluate_t5_sample_bar",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "class:src/threat_report_agent/gold_output_bar.py:GoldBarCheck",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "class:src/threat_report_agent/gold_output_bar.py:GoldBarResult",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "class:src/threat_report_agent/gold_output_bar.py:T5BarDecision",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:score_official_markdown",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:format_gold_bar",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:gold_bar_from_document",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:_false_malicious_reasons",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "function:src/threat_report_agent/gold_output_bar.py:evaluate_t5_sample_bar",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:node",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:fetchJSON",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:initialize",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:setModelRoute",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:loadModelConfig",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:loadTask",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:waitForTask",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:submitGateDecision",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:waitForInputGate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:renderClaims",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:renderEvidence",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:loadAnalysisTrace",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:renderPlanningSummary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:renderTraceSteps",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/static/app.js",
+      "target": "function:src/threat_report_agent/static/app.js:updateDownloads",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/turn_lifecycle.py",
+      "target": "class:src/threat_report_agent/turn_lifecycle.py:TurnLifecycleSnapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/turn_lifecycle.py",
+      "target": "class:src/threat_report_agent/turn_lifecycle.py:LongTurnLifecycle",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/turn_lifecycle.py",
+      "target": "class:src/threat_report_agent/turn_lifecycle.py:TurnLifecycleSnapshot",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/turn_lifecycle.py",
+      "target": "class:src/threat_report_agent/turn_lifecycle.py:LongTurnLifecycle",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:src/threat_report_agent/policies/tool-policy.json",
+      "target": "file:src/threat_report_agent/policy.py",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/policies/tool-policy.json",
+      "target": "file:src/threat_report_agent/tool_execution.py",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/policies/preset-commands.json",
+      "target": "file:src/threat_report_agent/policy.py",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/policies/preset-commands.json",
+      "target": "file:src/threat_report_agent/tool_execution.py",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/knowledge/attack-snapshot.yaml",
+      "target": "file:src/threat_report_agent/attack_mapping.py",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:src/threat_report_agent/knowledge/attack-enterprise-index.json",
+      "target": "file:src/threat_report_agent/attack_mapping.py",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/threat_report_agent/static/index.html",
+      "target": "file:src/threat_report_agent/static/app.js",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/threat_report_agent/static/index.html",
+      "target": "file:src/threat_report_agent/static/styles.css",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "config:src/threat_report_agent/knowledge/attack-snapshot.yaml",
+      "target": "config:src/threat_report_agent/knowledge/attack-enterprise-index.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/threat_report_agent/function_simhash.py",
+      "target": "file:src/threat_report_agent/static_analysis.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "file:src/threat_report_agent/service.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "target": "file:src/threat_report_agent/ghidra_adapter.py",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/threat_report_agent/gold_output_bar.py",
+      "target": "file:tests/test_gold_output_bar.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/threat_report_agent/function_similarity.py",
+      "target": "file:tests/test_function_similarity.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/threat_report_agent/turn_lifecycle.py",
+      "target": "file:tests/test_final_runtime_closure.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:src/threat_report_agent/ghidra_scripts/ExportStaticFacts.java",
+      "target": "file:tests/test_ghidra_adapter.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    }
+  ]
+}

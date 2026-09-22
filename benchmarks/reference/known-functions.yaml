@@ -1,0 +1,59 @@
+version: 1
+algorithm: charikar-simhash-64
+feature: mnemonic-4gram
+hash: md5-prefix-64-le
+entries:
+  - name: NSA-DS-PRNG-ENTROPY
+    simhash: "0xb4a0f96a33be9c9c"
+    file: PC_Level3_dll
+    func: "0x18000c130"
+    size: 713
+    mnemonics: 165
+    desc: Entropy-pool PRNG seed collection and SHA-1 mixing
+  - name: NSA-DS-RSA-MODEXP
+    simhash: "0xe568de4bf63edf47"
+    file: PC_Level3_dll
+    func: "0x18000bdf0"
+    size: 509
+    mnemonics: 126
+    desc: Square-and-multiply 2048-bit RSA modular exponentiation
+  - name: NSA-DS-RSA-CORE
+    simhash: "0x04a8ab82321fcfa6"
+    file: PC_Level3_dll
+    func: "0x18000ac28"
+    size: 332
+    mnemonics: 77
+    desc: RSA core initialization, modular exponentiation, and export
+  - name: NSA-DS-RSA-PKCS-DEC
+    simhash: "0xa75527ecf2adce05"
+    file: PC_Level3_dll
+    func: "0x18000ad7c"
+    size: 300
+    mnemonics: 73
+    desc: RSA PKCS1 v1.5 decryption and padding verification
+  - name: NSA-DS-RSA-PKCS-ENC
+    simhash: "0x65a4cf6ebf36fe85"
+    file: PC_Level3_dll
+    func: "0x18000ae90"
+    size: 370
+    mnemonics: 96
+    desc: RSA PKCS1 v1.5 encryption and nonzero random padding
+  - name: NSA-DS-PRNG-GENKEY
+    simhash: "0xc0a06c0a62ffd94d"
+    file: PC_Level3_dll
+    func: "0x18000b008"
+    size: 78
+    mnemonics: 23
+    desc: AES session key generation
+  - name: NSA-DS-AES-DECRYPT
+    simhash: "0x44e0cbb281dca986"
+    file: PC_Level3_dll
+    func: "0x18000ebbc"
+    desc: AES-128 decryption for C2 traffic
+  - name: NSA-DS-C2-RECV
+    simhash: "0x0778c9fa1f2cc683"
+    file: PC_Level3_dll
+    func: "0x180005d80"
+    size: 650
+    mnemonics: 55
+    desc: C2 receive path with conditional AES decryption

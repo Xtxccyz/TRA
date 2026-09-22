@@ -14,6 +14,15 @@ test('Overview uses bounded status polling and loads the full projection once', 
   assert.doesNotMatch(client, /const value = await json\(`\/api\/v1\/workbench\/tasks/)
 })
 
+test('Settings does not expose a second analysis planner model', async () => {
+  const client = await readFile(resolve(root, 'packages/threat-ui-overview/client.js'), 'utf8')
+  assert.doesNotMatch(client, /id: 'analysis-planner'/)
+  assert.doesNotMatch(client, /label: '分析规划'/)
+  assert.doesNotMatch(client, /\/api\/v1\/workbench\/analysis-planner-model/)
+  assert.doesNotMatch(client, /PlannerPanel/)
+  assert.doesNotMatch(client, /settings\.section/)
+})
+
 test('Report view waits for a terminal status and does not refetch the document', async () => {
   const client = await readFile(resolve(root, 'packages/threat-ui-report/client.js'), 'utf8')
   assert.match(client, /\/api\/v1\/tasks\/\$\{encodeURIComponent\(id\)\}\/status/)

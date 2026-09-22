@@ -50,6 +50,16 @@ def test_workbench_capabilities_distinguish_model_tools_from_backend_actions(tes
         assert "threat_propose_static_action" in model_tools
         assert body["action_submission_tool"] == "threat_propose_static_action"
         assert "sample_execution" in body["unavailable_capabilities"]
+        assert body["sample_execution"] is False
+        assert body["isolated_emulation"]["host_sample_execution"] is False
+        assert "granted-window" in str(body["isolated_emulation"]["description"]).casefold()
+        assert "static analysis" in str(body["isolated_emulation"]["description"]).casefold()
+        assert "sandbox/dynamic analysis" in str(body["isolated_emulation"]["description"]).casefold()
+        assert "threat_get_analysis_planner_model" not in model_tools
+        assert "threat_configure_analysis_planner_model" not in model_tools
+        assert body["analysis_planner_model"]["distinct_from_dsh_chat"] is False
+        assert body["analysis_planner_model"]["role"] == "dsh-conversation"
+        assert body["analysis_planner_model"]["owned_by"] == "dsh-conversation"
 
 
 def test_wait_endpoint_returns_bounded_unbound_projection(test_settings) -> None:

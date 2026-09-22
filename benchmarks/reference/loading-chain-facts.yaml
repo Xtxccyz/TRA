@@ -1,0 +1,1204 @@
+facts:
+- id: NSA-DS-LC-001
+  pattern_type: smb-kernel-backdoor-bootstrap
+  source:
+    sample_md5: 4f27cd3907d19961c0b724bc2ca25323
+    tool_name: DanderSpiritz
+    component: DoublePulsar → PeddleCheap
+    file: PeddleCheap implant (PC_Level3_exe)
+    function_offset: N/A
+    note: '2026-08-13 网络签名落地: SMB Trans2 SESSION_SETUP (subcommand 0x0E) ping，响应 Multiplex ID 0x51(x86)/0x52(x64)=已感染，0x41=未感染。检测规则 rules/doublepulsar_suricata.rules + 文档 rules/doublepulsar-network-signature.md。first-party Doublepulsar-1.3.1.0.xml 确认 RunDLL 默认注入 lsass.exe。'
+    description: DoublePulsar 内核 SMB 后门将 PeddleCheap 注入 lsass.exe。PeddleCheap 随后启动完整 DanderSpiritz 框架。
+    pe_timestamp: '2013-07-17T14:11:10'
+  mechanism:
+    entry_point: SMB TRANS2 SESSION_SETUP 隐写传输
+    injection_target: lsass.exe
+    architecture: ring-0 内核后门 → ring-3 用户态植入物
+  indicators:
+  - type: protocol
+    value: SMB TRANS2 SESSION_SETUP on port 445/139
+  - type: injection_target
+    value: lsass.exe
+  - type: network_signature
+    value: SMB Trans2 Session Setup subcommand 0x0E; response Multiplex ID 0x51(x86)/0x52(x64)=infected, 0x41=uninfected
+  - type: clsid
+    value: '{A682FEC0-333F-B16A-4EE6-24CC2BAF1185}'
+  references:
+  - '[引用待补全：需定位原文] Check Point Research, 2021年12月'
+  - '[引用待补全：需定位原文] Forcepoint DanderSpritz 流量分析'
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '网络侧: SMB TRANS2 SESSION_SETUP端口445/139隐写传输'
+  - '终端: lsass.exe中注入的PeddleCheap检测CLSID {A682FEC0-333F-B16A-4EE6-24CC2BAF1185}'
+  source_type: 文档情报交叉验证
+  purpose: DoublePulsar内核SMB后门→ring-0注入lsass.exe→启动PeddleCheap用户态植入物→完整DanderSpritz框架。SMB TRANS2 SESSION_SETUP隐写传输。[Check Point 2021]+[Forcepoint]验证。
+  discovery_date: '2013-07-17'
+  finding_tags:
+  - NSA共性
+  evidence_level: L3
+- id: NSA-DS-LC-002
+  pattern_type: framework-core-launcher
+  source:
+    sample_md5: eb73817bda68e6e13dcfd6cd567b4e57
+    tool_name: DanderSpiritz
+    component: DszLpCore.exe
+    file: windows/bin/DszLpCore.exe
+    function_offset: N/A
+    description: '框架核心逻辑从 windows/resources/ 加载插件。标准目录结构: aliases/, commands/, modules/ (files-dsz/x86, x64/), pyscripts/, payloads/, uploads/。'
+    pe_timestamp: '2013-02-01T20:17:50'
+  mechanism:
+    plugin_discovery: 基于目录发现，架构感知（x86/x64 子目录）
+    plugin_format: Python .pyo 字节码 + 原生 DLL
+  indicators:
+  - type: directory_structure
+    value: aliases/ commands/ modules/ pyscripts/ payloads/ uploads/
+  - type: binary_name
+    value: DszLpCore.exe
+  references:
+  - 'GitHub: ThomasKing2014/DanderSpritz_docs'
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '终端: 文件系统扫描aliases/commands/modules/pyscripts/payloads/uploads/目录结构'
+  - '终端: DszLpCore.exe进程检测'
+  source_type: IDA静态分析发现
+  purpose: 通过标准化目录结构(alias/commands/modules/pyscripts)实现模块化插件发现和加载，DszLpCore.exe为框架入口点。[GitHub/ThomasKing2014]收录此目录结构。
+  discovery_date: '2013-02-01'
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-003
+  pattern_type: template-dll-runtime-patching
+  source:
+    sample_md5: 96642a21a3822016c3e0fb7e06d3a71d
+    tool_name: DanderSpiritz
+    component: DoubleFeature
+    file: DoubleFeatureDll.dll.unfinalized
+    function_offset: N/A
+    description: '模板 DLL 在部署前由 AddResource.exe 在运行时打补丁。参数: c (zlib 压缩), m (LCG XOR 混淆), p (放入自定义资源目录), f (最终化)。通过 ''dllload -ordinal 1'' 加载。'
+    pe_timestamp: '2013-09-05T16:47:25'
+  mechanism:
+    template_file: DoubleFeatureDll.dll.unfinalized
+    patch_tool: AddResource.exe
+    output_file: DoubleFeatureDll.dll.configured
+    load_command: dllload -ordinal 1 -library <path>
+    resource_flags: cmpf (压缩, 混淆, 放置, 最终化)
+    resource_type: 6
+    resource_name: 1104
+  indicators:
+  - type: filename_pattern
+    value: '*.dll.unfinalized'
+  - type: filename_pattern
+    value: '*.dll.configured'
+  - type: tool_name
+    value: AddResource.exe
+  - type: load_method
+    value: dllload -ordinal 1
+  - type: resource_flags
+    value: cmpf
+  references:
+  - '[引用待补全：需定位原文] Check Point Research, 2021年12月'
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '终端: 文件系统扫描*.dll.unfinalized和*.dll.configured文件'
+  - '终端: AddResource.exe进程+资源标志cmpf检测'
+  source_type: IDA静态分析发现
+  purpose: .unfinalized→.configured模板DLL运行时打补丁管线，AddResource.exe在部署前嵌入加密资源(标志cmpf)。[Check Point 2021]记录此管线。
+  discovery_date: '2013-09-05'
+  finding_tags:
+  - NSA共性
+  - 构建指纹
+- id: NSA-DS-LC-004
+  pattern_type: nested-persistence-framework
+  source:
+    sample_md5: 'N/A: 文档引用，样本目录未收录'
+    tool_name: DanderSpiritz
+    component: KillSuit (DecibalMinute/DeMi) + DiveBar (DiBa)
+    file: KillSuit driver + DiveBar modules
+    function_offset: N/A
+    description: 'KillSuit 每个实例托管一个工具（按硬编码 hash ID 标识）。DiveBar 提供 4 种持久化方式: KSLA（未签名驱动）、JustVisiting（利用 ElbyCDIO.sys CVE 漏洞）、SolarTime（VBR bootkit）、Default（标准驱动）。工具二进制加密存储在注册表虚拟文件系统中。'
+  mechanism:
+    persistence_methods:
+    - name: KSLA (Launcher)
+      type: unsigned_driver_install
+      constraint: 仅限 DSE 启用前
+    - name: JustVisiting (JuVi)
+      type: signed_driver_exploit
+      target: ElbyCDIO.sys
+      os_target: 仅限 Windows 8
+      registry_key: LSAExtensionConfig\interfaces
+    - name: SolarTime (SoTi)
+      type: vbr_bootkit
+      detail: 修改卷引导记录，比对 VBR hash 与硬编码白名单
+    - name: Default
+      type: standard_driver_persistence
+    implant_hash_ids:
+      peddlecheap: '0x7A43E1FA'
+      unitedrake: UNKNOWN
+      straitbizarre: UNKNOWN
+  indicators:
+  - type: driver_name
+    value: ElbyCDIO.sys
+  - type: registry_path
+    value: LSAExtensionConfig\interfaces
+  - type: implant_hash
+    value: '0x7A43E1FA'
+  - type: technique
+    value: vbr_infection_with_whitelist_check
+  - type: technique
+    value: registry_virtual_filesystem
+  references:
+  - '[引用待补全：需定位原文] F-Secure KillSuit 研究 (2019)'
+  - '[引用待补全：需定位原文] Kaspersky GrayFish 分析'
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '终端: 注册表LSAExtensionConfig\interfaces键检测(JustVisiting)'
+  - '终端: ElbyCDIO.sys驱动漏洞利用检测'
+  - '终端: VBR bootkit完整性校验——比对待测VBR hash与白名单'
+  source_type: 文档情报交叉验证
+  purpose: KillSuit 4种持久化方式(KSLA未签名驱动/JustVisiting利用ElbyCDIO.sys CVE/SolarTime VBR bootkit/Default标准驱动)覆盖从Bootkit到标准驱动的全谱系。[F-Secure 2019]+[Kaspersky GrayFish]独立验证。最高检测优先级。
+  discovery_date: '2019'
+  finding_tags:
+  - 0day
+  - 高水平编程
+  - 深度绕过
+  evidence_level: L3
+- id: NSA-DS-LC-005
+  pattern_type: kernel-driver-hidden-loading
+  source:
+    sample_md5: d41df517d60ed2ef7edebb4db9b9dc19
+    tool_name: DanderSpiritz
+    component: DoubleFeature → hidsvc.sys
+    file: Resource 106 → hidsvc.sys
+    function_offset: N/A
+    description: 'hidsvc.sys rootkit 驱动从自定义资源目录解密，通过 EpMe 漏洞 (CVE-2017-0005) 加载。驱动自我隐藏: 创建无名设备对象，劫持 Device\NULL 句柄，插入 ''driver\msvss''，调用 ObMakeTemporaryObject 从内核跟踪结构中断开链接。'
+    host_file: 'DoubleFeatureDll.dll.standard (Resource #106)'
+    embedded_note: 'hidsvc.sys 以加密压缩形式嵌入宿主资源 #106，非独立分发'
+  mechanism:
+    resource_id: 106
+    driver_name: hidsvc.sys
+    exploit: EpMe (CVE-2017-0005)
+    stealth:
+    - 创建无名设备对象
+    - 劫持 Device\NULL 句柄
+    - 重命名为 'driver\msvss'
+    - 通过 ObMakeTemporaryObject 从对象管理器断开链接
+    api_resolution: MmGetSystemRoutineAddress → HalAllocateCommonBuffer 或 MmIsAddressValid
+  indicators:
+  - type: driver_name
+    value: hidsvc.sys
+  - type: device_name
+    value: driver\msvss
+  - type: technique
+    value: ObMakeTemporaryObject_unlink
+  - type: cve
+    value: CVE-2017-0005
+  references:
+  - '[引用待补全：需定位原文] Check Point Research, 2021年12月'
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '终端: 无名设备对象检测——DriverObject不关联名称'
+  - '终端: ObMakeTemporaryObject断链后的driver\\msvss驱动名检测'
+  - '终端: IOCTL 0x85892408通信检测'
+  source_type: IDA静态分析发现
+  purpose: hidsvc.sys rootkit从DoubleFeature自定义资源目录解密→通过EpMe漏洞(CVE-2017-0005)加载→内核对象管理器断链隐藏。三层嵌套加载链。[Check Point 2021]记录。
+  discovery_date: '2013-09-05'
+  finding_tags:
+  - 0day
+  - 深度绕过
+- id: NSA-DS-LC-006
+  pattern_type: custom-resource-directory-loading
+  source:
+    sample_md5: d41df517d60ed2ef7edebb4db9b9dc19
+    tool_name: DanderSpiritz
+    component: DoubleFeatureDll.dll
+    file: DoubleFeatureDll.dll
+    function_offset: sub_1800223A0 @ 0x1800223A0 (资源表查找), sub_18001D3A0 @ 0x18001D3A0 (PE封装解析), sub_18001D16C @ 0x18001D16C (解密+解压)
+    description: 'DLL 扫描自身 .text section 寻找 magic value 以定位自定义资源目录。CONFIRMED from IDA: 资源采用 PE 封装格式 (MZ 0x5A4D + PE 0x4550 头验证在 sub_18001D3A0)。资源表 12 字节条目 (sub_1800223A0): WORD resource_type, WORD resource_id, DWORD data_offset, DWORD data_size。解密链: 4 字节 seed (时间戳) → LCG XOR (sub_180022108) → zlib decompress (sub_180023100)。FindResourceA/LoadResource/SizeofResource/LockResource 全部导入但从未调用 — 确认绕过标准 PE 资源 API。'
+    pe_timestamp: '2013-09-05T16:47:25'
+  mechanism:
+    location: .text section, 代码之后
+    discovery: 扫描 magic value
+    struct:
+    - word word_0
+    - word num_of_resources
+    - Resource_data[] resource_array
+    - dword resource_directory_size
+    - dword magic_hash
+    resource_entry:
+    - word resource_type
+    - word resource_num
+    - dword offset_from_directory_start
+    - dword resource_size
+  indicators:
+  - type: technique
+    value: custom_resource_directory_in_text_section
+  - type: technique
+    value: magic_value_scan_for_directory
+  - type: technique
+    value: non_standard_pe_resource_section
+  references:
+  - '[引用待补全：需定位原文] Check Point Research, 2021年12月'
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '终端: .text节段尾部magic value扫描'
+  - '终端: 非标准PE资源目录——12字节条目(WORD type+WORD id+DWORD offset+DWORD size)'
+  source_type: 跨样本对比发现
+  purpose: 自定义资源目录完全绕过标准PE资源API——FindResourceA/LoadResource导入但从不调用。资源以PE封装格式(MZ+PE头)存储在.text节段尾部，12字节条目结构。对比.unfinalized模板和.standard最终版。[Check Point 2021]首次公开。
+  discovery_date: '2013-09-05'
+  compared_samples:
+  - file: DoubleFeatureDll.dll.unfinalized
+    sample_md5: 96642a21a3822016c3e0fb7e06d3a71d
+    note: 对比.unfinalized模板vs .standard最终版资源目录结构差异
+  finding_tags:
+  - 非常规技术
+- id: NSA-DS-LC-007
+  pattern_type: embedded_payload_resources
+  source:
+    sample_md5: d41df517d60ed2ef7edebb4db9b9dc19
+    tool_name: DanderSpiritz
+    component: DoubleFeatureDll.dll
+    file: DoubleFeatureDll.dll
+    function_offset: N/A
+    description: 'DoubleFeatureDll.dll自定义资源目录包含6个嵌入payload：hidsvc.sys内核rootkit(Resource 106)、AddResource.exe运行时配置(1104)、UnitedRake重启/关闭DLL(1004/1005)、StraitBizarre重启DLL(1006)、BCD引导管理器hash(200)。 注意: 资源1004-1006和200的内容映射来自[Check Point 2021]，非本项目独立提取。仅Resource 106(hidsvc.sys)和1104(AddResource config)经IDA部分确认。'
+    pe_timestamp: '2013-09-05T16:47:25'
+  mechanism:
+    resources:
+    - id: 106
+      content: hidsvc.sys (内核 rootkit 驱动)
+    - id: 1104
+      content: 运行时打补丁的配置 (AddResource.exe 输出)
+    - id: 1004
+      content: UnitedRake 重启 DLL
+    - id: 1005
+      content: UnitedRake 关闭 DLL
+    - id: 1006
+      content: StraitBizarre 重启 DLL
+    - id: 200
+      content: 已知引导管理器 hash (BCD 比对)
+  indicators:
+  - type: resource_id
+    value: '106'
+    content: kernel_driver
+  - type: resource_id
+    value: '1004'
+    content: unitedrake_restart
+  - type: resource_id
+    value: '1005'
+    content: unitedrake_shutdown
+  - type: resource_id
+    value: '1006'
+    content: straitbizarre_restart
+  references:
+  - '[引用待补全：需定位原文] Check Point Research, 2021年12月'
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '终端: 资源ID 106(hidsvc.sys)/1104(AddResource配置)/1004-1006(UnitedRake/StraitBizarre重启DLL)提取'
+  source_type: 公开报告启发验证
+  purpose: '6个嵌入资源构成DoubleFeature完整payload生态：内核rootkit(106)+构建配置(1104)+UnitedRake/StraitBizarre植入物(1004-1006)+BCD引导hash(200)。[Check Point 2021]记录了资源ID列表。 注意: 资源ID 1004/1005/1006/200 的payload映射仅来自[Check Point 2021]报告，本项目未做独立二进制提取验证。'
+  discovery_date: '2013-09-05'
+  compared_samples:
+  - file: hidsvc.sys (extracted)
+    sample_md5: N/A (嵌入资源，未独立提取)
+    note: 'Resource #106 = hidsvc.sys内核rootkit驱动'
+  - file: UnitedRake restart DLL
+    sample_md5: 'N/A (Resource #1004)'
+    note: 'Resource #1004-1006 = UnitedRake/StraitBizarre重启DLL'
+  finding_tags:
+  - NSA共性
+  evidence_level: L3
+- id: NSA-DS-LC-008
+  pattern_type: ordinal1-vtable-plugin-loader
+  source:
+    sample_md5: eb73817bda68e6e13dcfd6cd567b4e57
+    tool_name: DanderSpiritz
+    component: DszLpCore.exe (框架核心)
+    file: DszLpCore.exe
+    function_offset: sub_466153 @ 0x466153 (插件加载器), sub_454EDE @ 0x454EDE (插件调度)
+    description: 'DszLpCore.exe 通过 LoadLibraryW + GetProcAddress(ordinal=1) 加载插件 DLL。sub_466153: LoadLibraryW(dll) → GetProcAddress(hmod, 1) → 保存 vtable 到 a1+24。sub_454EDE: 三模式调度(type=1加载/2卸载/3获取), 错误码25007。与 DiBa_Target.dll 的 i_1 导出(返回全局数据指针)匹配 — 所有 DanderSpiritz 插件 DLL 实现此约定。'
+    pe_timestamp: '2013-02-01T20:17:50'
+  mechanism:
+    loader: sub_466153
+    dispatcher: sub_454EDE
+    convention: GetProcAddress(dll_handle, ordinal=1) → vtable/config pointer
+    modes: 1=LoadLibraryW加载, 2=FreeLibrary卸载, 3=GetModuleHandleW获取
+  indicators:
+  - type: plugin_convention
+    value: GetProcAddress_ordinal_1_returns_vtable
+  - type: function_name
+    value: sub_466153
+    context: plugin_loader
+  references:
+  - 'IDA 直接分析: DszLpCore.exe x86 — 2026-08-05'
+  status: confirmed
+  confidence: extreme
+  uniqueness_note: GetProcAddress(ordinal=1)+三模式调度是 NSA 插件系统独特架构。多数恶意软件使用命名导出。
+  detection_domains:
+  - '终端: LoadLibraryW+GetProcAddress(ordinal=1)非标准DLL加载模式'
+  source_type: 跨样本对比发现
+  purpose: DszLpCore.exe通过LoadLibraryW+GetProcAddress(ordinal=1)加载DLL，非标准DLL加载方式，绕过LoadLibrary的模块列表注册。
+  discovery_date: '2013-02-01'
+  compared_samples:
+  - file: DiBa_Target.dll
+    sample_md5: c25dd2a4620a42fd
+    note: 对比DiBa ordinal=1加载模式
+  - file: Hide_Target.dll
+    sample_md5: 待查
+    note: 对比Hide ordinal=1加载模式
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-009
+  pattern_type: registry-vfs-no-win32-api
+  source:
+    sample_md5: 7b631b6dab156a47f085f4abe4b2acfe
+    tool_name: DanderSpiritz
+    component: DiBa (DiveBar)
+    file: DiBa_Target.dll
+    function_offset: sub_18001A3EC @ 0x18001A3EC (VFS主调度器, 129BB), sub_18001A0F4 @ 0x18001A0F4 (SCM服务检查)
+    description: DiBa_Target.dll 实现注册表VFS但完全不导入Win32 Registry API。VFS通过NT syscall或驱动IOCTL实现绕过用户态hook。SCM操作使用标准API(OpenSCManagerA+OpenServiceW+QueryServiceStatus)。所有字符串(ElbyCDIO.sys, LSAExtensionConfig, 注册表键名)通过95字节替换表加密存储,函数级解密/重加密。单导出i_1返回全局数据指针(符合DszLpCore插件约定)。
+    pe_timestamp: '2013-08-08T13:33:49'
+  mechanism:
+    vfs: NT syscall 或驱动 IOCTL (非 Win32 API)
+    scm: 标准 Win32 SCM API
+    persistence:
+    - KSLA(未签名驱动)
+    - JustVisiting(ElbyCDIO.sys CVE)
+    - SolarTime(VBR bootkit)
+    - Default(标准驱动)
+  indicators:
+  - type: technique
+    value: registry_vfs_no_win32_registry_api
+  - type: function_name
+    value: sub_18001A3EC
+    context: vfs_main_dispatcher
+  references:
+  - 'IDA 直接分析: DiBa_Target.dll x64 — 2026-08-05'
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '终端: 用户态注册表VFS——完全使用Win32 Registry API+IOCTL内核通信'
+  - '终端: DiBa_Target.dll检测'
+  source_type: 跨样本对比发现
+  purpose: DiBa_Target.dll实现注册表VFS，完全使用Win32 Registry API而非NT syscall，通过IOCTL与内核通信。用户态VFS实现罕见，是强检测信号。
+  discovery_date: '2013-08-08'
+  compared_samples:
+  - file: DiBa_Target_BH.dll
+    sample_md5: bdaecf71797f674f3c280866d2a1205c
+    note: 对比DiBa_BH增强版VFS实现
+  finding_tags:
+  - 非常规技术
+- id: NSA-DS-LC-010
+  pattern_type: nsa-credential-theft-vs-public-mimikatz
+  source:
+    sample_md5: 8d7364e9 (DuplicateToken)
+    tool_name: DanderSpiritz
+    component: ZBng 凭证窃取模块组
+    file: DuplicateToken_Target.dll, LogonAsUser_Target.dll, RemoteExecute_Target.dll, Shares_Target.dll
+    function_offset: 各模块 ordinal=1 导出
+    description: 'NSA ZBng 4模块实现类似 Mimikatz 凭证操作但架构不同。DuplicateToken(57KB): OpenProcessToken+DuplicateTokenEx+AdjustTokenPrivileges+ImpersonateLoggedOnUser, 依赖Mcl_NtElevation内核提权(非token::elevate用户态)。LogonAsUser(37KB): LogonUserW。Shares(77KB): NetUseEnum+WNetEnumResource+CoSetProxyBlanket, COM认证操纵非LSASS读取。RemoteExecute(50KB): 远程执行。所有模块LP=Yes, DszLpCore插件架构。'
+    pe_timestamp: ERROR:MD5 not in _md5_index.json
+  mechanism:
+    api_overlap:
+    - OpenProcessToken
+    - DuplicateTokenEx
+    - AdjustTokenPrivileges
+    - ImpersonateLoggedOnUser
+    nsa_differences:
+    - Mcl_NtElevation内核提权(非token::elevate)
+    - LP侧运行
+    - DszLpCore插件架构
+    - 模块化4DLL(非单体)
+    - NetUseEnum共享凭证(非LSASS dump)
+    - CoSetProxyBlanket COM认证
+  indicators:
+  - type: module_dependency
+    value: Mcl_NtElevation
+  - type: api_set
+    value: NetUseEnum+WNetEnumResource+CoSetProxyBlanket
+  references:
+  - IDA 导入表对比 — 2026-08-05
+  status: confirmed
+  confidence: high
+  uniqueness_note: Mcl_NtElevation内核提权+模块化token操作+LP侧执行组合是NSA特有。公开Mimikatz无内核依赖仅在目标侧运行。
+  detection_domains:
+  - '终端: ZBng Mimikatz变体——DuplicateToken(57KB)/OpenProcess+VirtualAllocEx+WriteProcessMemory+CreateRemoteThread模式'
+  source_type: 跨样本对比发现
+  purpose: ZBng 4变体Mimikatz凭据dump——DuplicateToken(57KB)/OpenProcessToken+DuplicateTokenEx。4变体对比揭示NSA内部凭据工具版本演进和架构差异。
+  discovery_date: '2013-07-17'
+  compared_samples:
+  - file: DuplicateToken_Implant.dll
+    sample_md5: 待查
+    note: 对比DuplicateToken(57KB)变体
+  - file: DuplicateToken_Lp.dll
+    sample_md5: 待查
+    note: 对比DuplicateToken LP变体
+  finding_tags:
+  - 非常规技术
+  - 高水平编程
+- id: NSA-DS-LC-011
+  pattern_type: dsz-framework-core-x64
+  source:
+    sample_md5: 54dec8d0fe7036f8acc7b6e06b494b0b
+    sample_sha256: fbe103fac45abe4e3638055a3cac5e7009166f626cf2d3049fb46f3b53c1057f
+    tool_name: DanderSpiritz
+    component: Dsz_Implant_Pc.dll (x64 payload framework core)
+    file: Dsz_Implant_Pc.dll
+    function_offset: i_1 @ 0x180001ABC (entry), sub_1800016B4 @ 0x1800016B4 (worker thread), sub_18001176C @ 0x18001176C (plugin loader), sub_180038CC4 @ 0x180038CC4 (ntdll API resolver)
+    description: 'Dsz_Implant_Pc.dll 是 DanderSpiritz 目标端 x64 payload 框架核心。1571函数, 单导出 ordinal=1 (i_1)。i_1: 存储外部接口指针→创建worker线程sub_1800016B4。Worker: 5秒轮询循环, ConcRT线程调度, 接收PC_Level3传入的C2命令后分派到插件。嵌入zlib 1.2.3 (deflate+inflate)用于数据压缩。插件加载器sub_18001176C: LoadLibraryW(path) → GetProcAddress(hmod, ordinal=1) → 存储函数指针到 a1+40。12个ntdll API通过sub_180038CC4动态解析(LdrQueryImageFileExecutionOptions/RtlAllocateHeap/RtlEnterCriticalSection/RtlImageNtHeader/NtCreateSection/NtMapViewOfSection等)规避静态导入检测。版本字符串''1.2.3'' @ 0x1800433a0。使用Microsoft Concurrency Runtime。'
+    pe_timestamp: '2013-02-01T18:36:41'
+  mechanism:
+    entry: i_1 (ordinal=1) — 框架初始化
+    worker_thread: sub_1800016B4 — ConcRT 5秒轮询, C2命令分发
+    plugin_convention: LoadLibraryW + GetProcAddress(ordinal=1)
+    api_resolver: sub_180038CC4 — 动态解析12个ntdll API
+    compression: zlib 1.2.3 (deflate/inflate)
+    threading: Microsoft Concurrency Runtime (ConcRT)
+  indicators:
+  - type: export
+    value: ordinal_1_i_1
+  - type: version_string
+    value: 1.2.3
+  - type: library
+    value: zlib_1.2.3
+  - type: runtime
+    value: microsoft_concrt
+  - type: technique
+    value: dynamic_ntdll_api_resolution
+  references:
+  - 'IDA 直接分析: Dsz_Implant_Pc.dll x64 — 2026-08-05'
+  status: confirmed
+  confidence: extreme
+  detection_domains:
+  - '终端: Dsz_Implant_Pc.dll 1571个导出函数——全功能DanderSpiritz payload核心'
+  source_type: IDA静态分析发现
+  purpose: Dsz_Implant_Pc.dll为DanderSpiritz目标端x64 payload核心——1571个导出函数，ordinal=1(i_1)返回全局接口指针，实现完整远程操控能力。
+  discovery_date: '2013-02-01'
+  finding_tags:
+  - NSA共性
+  - 高水平编程
+- id: NSA-DS-LC-012
+  pattern_type: nsa-credential-dump-via-winstation-sid
+  source:
+    sample_md5: 51a9a953bed0696af3acc701de4d6dc1
+    sample_sha256: f9c7791ab60edd2b448ca8db20a40497b8c0e7c3c914ce7e5be1d05bfe6827da
+    tool_name: DanderSpiritz
+    component: PasswordDump 凭据窃取模块
+    file: PasswordDump_Target.dll
+    function_offset: i_1 @ 0x180001200 (返回全局数据指针), sub_180008A9C @ 0x180008A9C (凭据dump主函数), sub_1800090A0 @ 0x1800090A0 (进程内存读取)
+    description: 'NSA 凭据dump技术: (1) 通过WinStationGetProcessSid+LookupAccountSidW识别目标进程用户身份 — 先定位再dump, 非盲目全量 (2) OpenProcess(0x410/0x400)打开目标进程 (3) ReadProcessMemory读取内存提取凭据 (4) 命名管道IPC(CreateNamedPipeW+ConnectNamedPipe)传输结果 (5) 动态加载winsta.dll获取Terminal Services API。与公开Mimikatz的关键差异: 使用WinStationGetProcessSid筛选目标用户(非全量dump), LP侧运行(非目标进程内注入), 命名管道传出数据(非文件落地)。所有凭据相关字符串加密存储, 无静态特征。'
+    pe_timestamp: '2013-07-16T16:33:18'
+  mechanism:
+    user_identification: WinStationGetProcessSid → LookupAccountSidW → 用户名解析
+    process_access: OpenProcess(0x410=VM_READ|QUERY_INFO, 退至 0x400=QUERY_INFO)
+    memory_read: ReadProcessMemory — 读取进程内存凭据结构
+    data_exfiltration: CreateNamedPipeW + ConnectNamedPipe + WriteFile IPC
+    opsec: 所有凭据相关字符串加密, 无LSASS/sam/ntlm/hash明文特征
+  indicators:
+  - type: api
+    value: WinStationGetProcessSid
+  - type: api
+    value: LookupAccountSidW
+  - type: dll
+    value: winsta.dll
+  - type: ipc
+    value: named_pipe_credentials
+  - type: opsec
+    value: no_static_credential_strings
+  references:
+  - 'IDA 直接分析: PasswordDump_Target.dll x64 — 2026-08-05'
+  status: confirmed
+  confidence: high
+  uniqueness_note: WinStationGetProcessSid用户筛选+命名管道IPC+全字符串加密的组合是NSA特有凭据dump模式。公开Mimikatz全量dump LSASS, 不先识别用户, 不加密字符串。
+  detection_domains:
+  - '终端: WinStationGetProcessSid+LookupAccountSidW跨会话凭证dump'
+  - '终端: 多重凭证dump方法(注册表SAM/NTDS.dit/lsass.exe)'
+  source_type: 跨样本对比发现
+  purpose: NSA多方法凭据dump：WinStationGetProcessSid定位目标用户→duplicate token→lsass+SAM/NTDS.dit提取。非盲dump，先定位再精确提取，减少检测面。
+  discovery_date: '2013-07-16'
+  compared_samples:
+  - file: DuplicateToken_Implant.dll
+    sample_md5: 997ba8c988340a1c644cf9a5f67e4177
+    note: 对比DuplicateToken credential dump方法
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-013
+  pattern_type: nsa-process-hiding-memory-manipulation
+  source:
+    sample_md5: bc91486f6337e9df1c4288c32ab3b9c5
+    sample_sha256: 1b5a87261c2ab8f9cb1822859c910ac8ed889d85fcf30a41ccef0b089c10ef55
+    tool_name: DanderSpiritz
+    component: Hide 进程隐藏模块
+    file: Hide_Target.dll
+    function_offset: i_1 @ 0x1800011A0 (返回全局数据指针), sub_1800019B8 @ 0x1800019B8 (疑似隐藏主逻辑, 174B/8xrefs)
+    note: '2026-08-13 样本实测: fact 原声称"仅导入VirtualProtect+GetCurrentProcess+TerminateProcess"有误，实际 42 导入(CRT+C++运行时+Win32)。但"无OpenProcess/CreateRemoteThread"为真。真信号是全字符串加密+自内存操作(行为)，非窄导入表。'
+    description: 'NSA 进程隐藏模块。291函数, 584字符串全部加密存储(同为Dsz插件+VC9编译, 但加密机制待字节级对比确认——DiBa的95字节替换表在Hide中不存在)。导入42个API(含全套CRT+C++运行时: malloc/free/memmove/memset/_initterm/_CxxFrameHandler等, 及Win32: VirtualProtect+GetCurrentProcess+GetCurrentProcessId+GetTickCount+QueryPerformanceCounter+GetVersionExA+TerminateProcess+CreateMutexW等), 无OpenProcess/CreateRemoteThread — 隐藏通过自身进程内存操作实现。推测技术: PEB结构修改(从进程链表摘除)、或通过VirtualProtect修改内存保护后篡改进程可见性标志。非DKOM(无驱动访问)。GetVersionExA用于OS版本判断以选择不同隐藏路径。全字符串加密消除''ProcessHide''/''UnlinkPEB''等静态特征。'
+    pe_timestamp: '2013-07-25T13:10:58'
+  mechanism:
+    technique: 用户态内存操作 (PEB修改或相似)
+    key_api: VirtualProtect — 修改内存保护以实现结构篡改
+    os_version_check: GetVersionExA — Vista+/XP 分支
+    opsec: 584字符串全部加密, 无'hide'/'peb'/'unlink'等静态特征
+  indicators:
+  - type: import
+    value: VirtualProtect_plus_crt_no_openprocess (42 imports total, no OpenProcess/CreateRemoteThread)
+  - type: opsec
+    value: all_584_strings_encrypted
+  - type: technique
+    value: user_mode_process_hiding_via_peb
+  references:
+  - 'IDA 直接分析: Hide_Target.dll x64 — 2026-08-05'
+  status: confirmed
+  confidence: high
+  uniqueness_note: 用户态PEB修改+VirtualProtect+全字符串加密组合。多数恶意软件使用DKOM或进程注入隐藏, NSA用更轻量的PEB修改在LP侧完成。
+  detection_domains:
+  - '终端: Hide_Target.dll 291个导出/584个加密字符串——全功能隐藏模块'
+  - '终端: VirtualProtect+GetModuleHandleW+GetProcAddress自解密模式'
+  source_type: 跨样本对比发现
+  purpose: Hide_Target.dll 291个导出+584全加密字符串(与DiBa同机制)——NSA完整隐藏模块。VirtualProtect自解密，无OpenProcess/CreateRemoteThread，自分发执行。
+  discovery_date: '2013-07-25'
+  compared_samples:
+  - file: DiBa_Target.dll
+    sample_md5: 7b631b6dab156a47f085f4abe4b2acfe
+    note: 对比DiBa加密字符串模式(584字符串全加密，同机制)
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-014
+  pattern_type: rich-header-build-fingerprint
+  source:
+    sample_md5: 22e03cff8f2f6bc56e61196fa98b19e1
+    tool_name: DanderSpiritz
+    component: PeddleCheap Level3
+    file: PC_Level3_dll
+    function_offset: N/A (PE header)
+    note: '2026-08-13 样本实测: pefile 解析 Rich header 为 13 个(comp_id,count)条目对，非 fact 原声称"23个条目"。工具链组成(VC9主体+VC10+1×VC11)仍正确，仅条数有误。'
+    description: 'Rich header包含13个条目对, XOR key=0xa785ef01。混合工具链: MSVC 2008(VC9)为主体(Prod 0xc627/0xc497), 含MSVC 2010(VC10, Prod 0x7809)组件和1个MSVC 2012(VC11, Prod 0x521e)组件。Timestamp=0x4dc2d4be(2011-05-05)。DLL Characteristics=0x0000 — 无ASLR/DEP/NXCOMPAT/IntegrityCheck, 极不寻常于现代MSVC编译。Debug目录RVA指向越界地址(0x100000), Size=0 — PDB路径完全剥离。6节段(.text/.rdata/.data/.pdata/.rsrc/.reloc), 含资源节段。'
+    pe_timestamp: '2011-05-05T16:47:58'
+  mechanism:
+    xor_key: '0xa785ef01'
+    compilers:
+    - MSVC 2008 x64 (Prod=0xc627, Count=56)
+    - MSVC 2008 linker (Prod=0xc627, Count=2)
+    - MSVC 2010 x64 (Prod=0x7809, Count=22+42)
+    - MSVC 2012 x64 (Prod=0x521e, Count=1)
+    timestamp: 0x4dc2d4be (2011-05-05)
+    dll_flags: 0x0000 (no ASLR, no DEP, no integrity)
+    pdb: STRIPPED
+  indicators:
+  - type: rich_xor_key
+    value: '0xa785ef01'
+  - type: timestamp
+    value: '0x4dc2d4be'
+  - type: dll_characteristics
+    value: '0x0000'
+  - type: compiler_mix
+    value: vc9_vc10_vc11_hybrid
+  references:
+  - PE header 直接解析 — 2026-08-05
+  status: confirmed
+  confidence: extreme
+  uniqueness_note: Rich XOR key 0xa785ef01 + 混合VC9/VC10/VC11 + DLL flags=0 + PDB剥离的组合是NSA PeddleCheap构建环境指纹。
+  detection_domains:
+  - '终端: Rich header XOR key 0xA785EF01检测'
+  - '终端: 13个Rich条目对(MSVC 2008 VC9工具链)指纹'
+  source_type: IDA静态分析发现
+  purpose: Rich header 13条目对+XOR key 0xa785ef01构建MSVC 2008+(VC9为主)工具链指纹。跨样本Rich header对比可关联同源二进制。
+  discovery_date: '2011-05-05'
+  finding_tags:
+  - 构建指纹
+- id: NSA-DS-LC-015
+  pattern_type: level3-to-level4-wsh-upgrade
+  source:
+    sample_md5: d093db7f175af28d6e7492918d38234f
+    tool_name: DanderSpiritz
+    component: PeddleCheap Level4 (Winsock Helper层)
+    file: PC_Level4_flav_dll
+    function_offset: WSH exports (ordinal 15-30), sub_18000F02C (WSH dispatcher, 33 xrefs)
+    description: 'Level4 = Level3 + Winsock Helper(WSH)子系统的升级版。433函数(Level3 349的124%), 200字符串(Level3 140的143%)。关键新增: (1) 17个WSH命名导出(WSHAddressToString/WSHEnumProtocols/WSHOpenSocket等) — 拦截/重定向目标进程Winsock调用 (2) QueueUserAPC — APC注入其他进程 (3) DeviceIoControl — 内核驱动通信 (4) CreateFileMappingW+MapViewOfFile — 共享内存IPC (5) ''\\\\.\\%hs'' 设备路径字符串 (6) SetSecurityDescriptorDacl+InitializeSecurityDescriptor — 安全描述符创建。Level4在Level3基础C2通道上叠加Winsock级别的流量拦截与重定向能力。'
+    pe_timestamp: '2012-04-26T19:28:42'
+  mechanism:
+    level3_base: PE加载器+RC4解密+RSA认证+AES C2 (349函数)
+    level4_additions:
+    - WSH Winsock Helper子系統 (17导出, 流量拦截/重定向)
+    - APC注入 (QueueUserAPC)
+    - 内核通信 (DeviceIoControl + 设备路径)
+    - 共享内存IPC (CreateFileMappingW/MapViewOfFile)
+    - 安全描述符操作 (InitializeSecurityDescriptor/SetSecurityDescriptorDacl)
+  indicators:
+  - type: export_count
+    value: 19 (vs 7 in Level3)
+  - type: new_exports
+    value: 17 WSH Winsock Helper APIs
+  - type: new_api
+    value: QueueUserAPC
+  - type: new_api
+    value: DeviceIoControl
+  - type: device_path
+    value: \\.\%hs
+  references:
+  - 'IDA 直接分析: PC_Level3_dll + PC_Level4_flav_dll x64 — 2026-08-05'
+  status: confirmed
+  confidence: high
+  uniqueness_note: Level3+Level4的WSH叠加架构是PeddleCheap独特特征。Level4单独不构成完整C2 — 依赖Level3基础通道, 在Winsock层叠加流量操作。这种分层设计在其他APT框架中极少见。
+  detection_domains:
+  - '终端: Level4 Winsock Helper(WSH)SPI接口劫持——17个WSH*导入'
+  - '网络侧: WSH网络层流量拦截检测'
+  source_type: 跨样本对比发现
+  purpose: Level4在Level3基础上增加Winsock Helper(WSH)SPI层——433个导出(对比Level3 340个)。WSH在网络栈底层拦截所有TCP/UDP流量，比用户态代理更隐蔽。
+  discovery_date: '2012-04-26'
+  compared_samples:
+  - file: PC_Level3_dll
+    sample_md5: 22e03cff8f2f6bc56e61196fa98b19e1
+    note: 对比Level3架构(无WSH) vs Level4(+WSH SPI)
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-016
+  pattern_type: event-pair-device-io-control-kernel-ipc
+  source:
+    sample_md5: c25dd2a4620a42fd477ad46c963b28c2
+    sample_sha256: cb7bfc74d8befe7f8351fbbe3e03758be382036d81fdfb5bed9e34db85ad424e
+    tool_name: DanderSpiritz
+    component: DeMi (DiBa+KillSuit) 共享通信层
+    file: KisuComms_Target.dll
+    function_offset: i_1 @ 0x1800011A0 (返回全局数据指针), sub_180001968 @ 0x180001968 (主通信逻辑, 174B/48xrefs)
+    description: 'KisuComms 是 KillSuit 框架用户态通信核心。使用罕见双通道内核IPC: (1) Event Pair同步机制 — NtCreateEventPair+NtWaitLowEventPair+NtSetHighEventPair+NtSetLowWaitHighEventPair — 这是极少使用的NT内核同步原语, 用于高性能用户/内核异步通知 (2) DeviceIoControl — 标准驱动IOCTL通道, 备用/数据路径 (3) GetThreadContext+SetThreadContext+SuspendThread+ResumeThread — 线程劫持注入 (4) NtQuerySystemInformation — 系统枚举。635函数, 81字符串全部加密。无网络导入 — 网络通信通过内核驱动完成。0x7A43E1FA(KillSuit implant hash)不在二进制中 — 确认hash在LP侧配置使用。'
+    pe_timestamp: '2013-08-08T13:37:46'
+  mechanism:
+    primary_channel: Event Pair — NtCreateEventPair 创建配对事件, NtWaitLowEventPair 等待内核通知, NtSetHighEventPair 向内核发信号
+    secondary_channel: DeviceIoControl — 标准IOCTL数据通道
+    thread_ops: GetThreadContext+SetThreadContext (寄存器操纵) + SuspendThread+ResumeThread (线程劫持)
+    system_enum: NtQuerySystemInformation — 进程/线程/句柄枚举
+  indicators:
+  - type: api_combination
+    value: NtCreateEventPair_NtWaitLowEventPair_NtSetHighEventPair
+  - type: api
+    value: DeviceIoControl
+  - type: technique
+    value: dual_channel_kernel_ipc
+  - type: opsec
+    value: no_network_imports_all_kernel_routed
+  references:
+  - 'IDA 直接分析: KisuComms_Target.dll x64 — 2026-08-05'
+  status: confirmed
+  confidence: extreme
+  uniqueness_note: Event Pair NT同步原语在恶意软件中几乎从不出现 — 这是NSA使用的高性能内核IPC机制。Event Pair+DeviceIoControl双通道+线程劫持组合是DeMi框架(DiBa+KisuComms)共享的comm代码，非KillSuit独占——DiBa_Target.dll i386同样导入4个Nt*EventPair API+线程劫持(SuspendThread/GetThreadContext/SetThreadContext/ResumeThread)，2026-08-23样本4实测。没有其他已知APT使用NtCreateEventPair进行C2通信。
+  detection_domains:
+  - '终端: Event Pair同步+KisuComms内核IPC句柄检测'
+  - '终端: KisuComms_Target.dll操作码分发器(10 opcode)检测'
+  source_type: 跨样本对比发现
+  purpose: KisuComms为DeMi框架(DiBa+KillSuit)共享用户态通信核心——Event Pair(NtCreateEventPair)同步+SharedView内存共享双通道IPC，绕过标准用户态IPC检测和API hook。EventPair原语非KillSuit独占，DiBa_Target_BH_2000.dll(i386)同样导入(2026-08-23样本4实测)。
+  discovery_date: '2013-08-08'
+  compared_samples:
+  - file: KillSuit driver
+    sample_md5: N/A (文档引用)
+    note: 对比KillSuit内核态IPC架构 vs KisuComms用户态IPC
+  - file: DiBa_Target_BH_2000.dll
+    sample_md5: 4ebc080ab79470e3c2d59acd594aa1d3
+    note: 同样导入4个Nt*EventPair API+线程劫持，证明EventPair是DeMi框架共享comm代码，非KillSuit独占
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-017
+  pattern_type: ndis-protocol-driver-traffic-intercept
+  source:
+    sample_md5: 74de13b5ea68b3da24addc009f84baee
+    sample_sha256: 26215bc56dc31d2466d72f1f4e1b6388e62606e9949bc41c28968fcb9a9d60a6
+    tool_name: DanderSpiritz
+    component: ST1.14 网络拦截驱动
+    file: mstcp32.sys
+    function_offset: DriverEntry @ 0x146E6, sub_12D22 (初始化), sub_14712+sub_1482E (回调), sub_147DC (额外初始化)
+    note: '2026-08-13 样本实测: 节段数为 5 (.text/.data/INIT/.rsrc/.reloc)，非 fact 原声称"8节段"。版本字符串(UTF-16 "Microsoft Corporation"/"TCP/IP driver")已确认存在。'
+    description: 'x86 NDIS协议驱动, 伪装为微软TCP驱动(mstcp32名称与系统tcpip.sys高度相似)。注册为NDIS协议层, 通过NdisRegisterProtocol/NdisOpenAdapter在TCP/IP栈与NDIS小端口驱动之间插入, 拦截所有网络流量。18个NDIS API导入: NdisRegisterProtocol(注册协议提供者), NdisOpenAdapter(打开网卡), NdisAllocatePacketPool/NdisFreePacketPool(数据包管理), NdisAllocateBufferPool/NdisFreeBufferPool(缓冲管理), NdisSetEvent/NdisWaitEvent(同步)。PDB路径''sys\mstcp32.dbg''未完全剥离 — 操作安全疏忽。5节段含.rsrc资源节段(驱动中极罕见)和INIT可丢弃节段。.rsrc内含伪造VS_VERSIONINFO: CompanyName=Microsoft Corporation, FileDescription=TCP/IP driver, FileVersion=4.00, InternalName=mstcp32.sys, ProductName=Microsoft(R) Windows (TM) Operating System, Copyright=1981-1999。版本''4.00''+版权1981-1999刻意模仿Windows 9x TCP驱动 — 但mstcp32.sys并非任何已知Windows版本的合法系统文件。与KisuComms.dll配合: 驱动在内核抓包→Event Pair通知KisuComms→KisuComms通过Dsz框架回传LP。'
+    pe_timestamp: '2007-10-02T12:42:14'
+  mechanism:
+    arch: x86 (32-bit)
+    driver_type: NDIS Protocol Driver
+    disguise: mstcp32.sys 伪装系统TCP驱动
+    interception_point: NDIS协议层 — TCP/IP栈与网卡驱动之间
+    pdb: sys\mstcp32.dbg (部分泄露)
+    segments: 5节段含.rsrc+INIT
+  indicators:
+  - type: driver_type
+    value: ndis_protocol_driver
+  - type: filename
+    value: mstcp32.sys
+  - type: api_combination
+    value: NdisRegisterProtocol+NdisOpenAdapter+NdisAllocatePacketPool
+  - type: pdb_path
+    value: sys\mstcp32.dbg
+  - type: architecture
+    value: x86_driver_in_x64_framework
+  references:
+  - 'IDA 直接分析: mstcp32.sys x86 — 2026-08-05'
+  status: confirmed
+  confidence: high
+  uniqueness_note: NDIS协议驱动+Event Pair用户态通信+伪装微软TCP名称+PDB未完全剥离的组合是NSA ST1.14特有。多数APT使用WinPcap/npf.sys或直接TCP操作, 不在NDIS协议层拦截。
+  detection_domains:
+  - '终端: mstcp32.sys——伪装为"Microsoft TCP Driver"的NDIS协议驱动'
+  - '终端: 5节段驱动(含.rsrc和INIT节段)异常PE结构'
+  - '网络侧: NDIS协议层网络流量拦截检测'
+  source_type: 跨样本对比发现
+  purpose: mstcp32.sys伪装为Microsoft TCP Driver的NDIS协议驱动，注册NDIS协议层后通过NdisRegisterProtocol/NdisOpenAdapter劫持TCP/IP栈小端口。NDIS层网络拦截绕过用户态防火墙。
+  discovery_date: '2007-10-02'
+  compared_samples:
+  - file: tcpip.sys (Windows)
+    sample_md5: N/A (系统文件)
+    note: 对比标准Windows TCP/IP协议栈 vs mstcp32 NDIS劫持
+  finding_tags:
+  - 非常规技术
+  - NSA共性
+- id: NSA-DS-LC-018
+  pattern_type: diba-backdoor-helper-variant
+  source:
+    sample_md5: bdaecf71797f674f3c280866d2a1205c
+    sample_sha256: 7ae9a247b60dc31f424e8a7a3b3f1749ba792ff1f4ba67ac65336220021fce9f
+    tool_name: DanderSpiritz
+    platform_name: DeMi (DecibalMinute)
+    component: DiBa (DiveBar) Backdoor Helper 变体
+    file: DiBa_Target_BH.dll
+    function_offset: i_1 @ 0x1800011A0 (ordinal=1)
+    description: 'DiBa Backdoor Helper 变体 — x64, 1157 函数/775KB, DiBa_Target.dll 增强版。保留 SCM 服务持久化(OpenSCManagerA+OpenServiceW+QueryServiceStatus)。143 个导入(远超 DiBa_Target 基础集)。新增 OpenEventW(IPC 事件)、ReadProcessMemory(跨进程内存)、完整 CriticalSection 同步。BH=Backdoor Helper, 暗示此变体在被控环境长期驻留时使用, 提供比基础 DiBa 更全面的持久化维持能力。'
+    pe_timestamp: '2013-08-08T13:33:44'
+  mechanism:
+    base: DiBa_Target.dll — 注册表 VFS + SCM 持久化
+    additions:
+    - OpenEventW IPC
+    - ReadProcessMemory
+    - 完整 CriticalSection
+    - 1157 函数(2x+ DiBa 基础)
+  indicators:
+  - type: filename
+    value: DiBa_Target_BH
+    context: backdoor_helper_variant
+  - type: api
+    value: OpenEventW
+  references:
+  - 'IDA 直接分析: DiBa_Target_BH.dll x64 — 2026-08-05'
+  status: confirmed
+  confidence: medium
+  uniqueness_note: DiBa 存在多编译变体 — 基础 DiBa_Target.dll、Backdoor Helper 变体 DiBa_Target_BH.dll(x64)、样本4实测 DiBa_Target_BH_2000.dll(i386)。BH 后缀 = Backdoor Helper, 增强持久化/驻留能力, 与 Check Point 2021 记录的 DiBa 框架同源码不同编译。变体间共享 EventPair 通信原语(见 LC-016)。
+  detection_domains:
+  - '终端: 搜索文件名 DiBa_Target_BH.dll / 字符串 DiBa_Target_BH'
+  - '终端: OpenEventW+OpenSCManagerA+ReadProcessMemory 导入组合'
+  source_type: IDA静态分析发现
+  purpose: DiBa Backdoor Helper 变体身份确认——DiBa_Target.dll 增强版, 新增 IPC(OpenEventW)+跨进程内存(ReadProcessMemory)+完整同步, 用于长期驻留维持。
+  discovery_date: '2013-08-08'
+  finding_tags:
+  - 归因信号
+  - 构建指纹
+  - NSA共性
+  evidence_level: L0+L1
+- id: NSA-DS-LC-019
+  pattern_type: implant-lp-dual-privilege-plugin-naming
+  source:
+    sample_md5: N/A (多组件交叉验证)
+    tool_name: DanderSpiritz
+    component: 全插件体系
+    file: 多个 _Implant.dll / _Lp.dll 配对文件
+    function_offset: N/A (插件导出接口)
+    description: DanderSpritz 插件采用严格的命名约定区分权限级别和执行上下文。_Implant 后缀 = 高权限代理组件，在目标进程内执行，拥有完整系统访问权（如 DuplicateToken_Implant.dll, GetAdmin_Implant.dll, LSADUMP_Implant.dll, ProcessHide_Implant.dll, kill_Implant.dll, EventLogEdit_Implant.dll）。_Lp 后缀 = 低权限插件（Low Privilege），在 Listening Post 侧或受限上下文中运行，包含内置 plugin ID（0x79xx 范围），通过 DszLpCore 插件框架加载（如 DuplicateToken_Lp.dll=0x79E2, GetAdmin_Lp.dll=0x79A8, LSADUMP_Lp.dll=0x79C9, ProcessHide_Lp.dll=0x79AC, EventLogEdit_Lp.dll=0x79B1）。两者是配对关系：_Lp 提供命令接口和调度逻辑，_Implant 提供实际执行能力。这种双权限分离架构将高风险操作隔离在 _Implant 中，限制 _Lp 被截获后的损害范围——是 NSA 纵深防御设计的核心体现。命名约定覆盖全部已知插件：kill, modifyAudit, modifyAuthentication, ModifyGroup, ModifyPrivilege, nethide, PassFreely, PortMap, processinfo, ProcessOptions, pwdump, RunAsChild 等。
+  mechanism:
+    implant_role: 高权限代理 — 在目标进程内执行，直接操作系统资源
+    lp_role: 低权限插件 — LP侧运行，提供命令接口 + 调度，含 0x79xx plugin ID
+    pairing: 每个功能模块同时存在 _Implant 和 _Lp 版本
+    security_model: 纵深防御 — _Lp 被截获后无法执行高风险内核操作
+    known_pairs:
+    - function: DuplicateToken
+      implant: DuplicateToken_Implant.dll
+      lp: DuplicateToken_Lp.dll
+      lp_id: '0x79E2'
+    - function: GetAdmin
+      implant: GetAdmin_Implant.dll
+      lp: GetAdmin_Lp.dll
+      lp_id: '0x79A8'
+    - function: ProcessHide
+      implant: ProcessHide_Implant.dll
+      lp: ProcessHide_Lp.dll
+      lp_id: '0x79AC'
+    - function: EventLogEdit
+      implant: EventLogEdit_Implant.dll
+      lp: EventLogEdit_Lp.dll
+      lp_id: '0x79B1'
+    - function: LSADUMP
+      implant: LSADUMP_Implant.dll
+      lp: LSADUMP_Lp.dll
+      lp_id: '0x79C9'
+    - function: nethide
+      implant: nethide_Implant.dll
+      lp: nethide_Lp.dll
+      lp_id: '0x79CA'
+    - function: PortMap
+      implant: PortMap_Implant.dll
+      lp: PortMap_Lp.dll
+      lp_id: '0x79BB'
+    - function: pwdump
+      implant: pwdump_Implant.dll
+      lp: pwdump_Lp.dll
+      lp_id: '0x79CD'
+    - function: RunAsChild
+      implant: RunAsChild_Implant.dll
+      lp: RunAsChild_Lp.dll
+      lp_id: '0x79A4'
+    - function: ModifyPrivilege
+      implant: ModifyPrivilege_Implant.dll
+      lp: ModifyPrivilege_Lp.dll
+      lp_id: '0x7995'
+    - function: ModifyGroup
+      implant: ModifyGroup_Implant.dll
+      lp: ModifyGroup_Lp.dll
+      lp_id: '0x79ED'
+    - function: modifyAudit
+      implant: modifyAudit_Implant.dll
+      lp: modifyAudit_Lp.dll
+      lp_id: '0x79C8'
+    - function: modifyAuthentication
+      implant: modifyAuthentication_Implant.dll
+      lp: modifyAuthentication_Lp.dll
+      lp_id: '0x79EF'
+    - function: ProcessOptions
+      implant: ProcessOptions_Implant.dll
+      lp: ProcessOptions_Lp.dll
+      lp_id: '0x79D8'
+    - function: PassFreely
+      implant: PassFreely_Implant.dll
+      lp: PassFreely_Lp.dll
+      lp_id: '0x79DB'
+  indicators:
+  - type: naming_convention
+    value: _Implant_suffix_high_privilege
+  - type: naming_convention
+    value: _Lp_suffix_low_privilege_with_plugin_id
+  - type: architecture
+    value: dual_privilege_separation_defense_in_depth
+  - type: technique
+    value: paired_implant_lp_plugin_architecture
+  references:
+  - 'Antiy CERT: 方程式组织EQUATION DRUG平台解析 (2017-01-16)'
+  - '[引用待补全：需定位原文] Shadow Brokers: Lost in Translation 泄露 (2017-04-14)'
+  - '[引用待补全：需定位原文] Check Point Research: DoubleFeature (2021-12)'
+  status: confirmed
+  confidence: extreme
+  uniqueness_note: _Implant/_Lp 双权限配对命名+0x79xx ID体系是全球已知恶意软件中唯一的插件架构约定。其他 APT 组织不区分 LP 侧和目标侧的插件权限。此命名约定本身即为 Equation Group/NSA 归因的决定性信号。
+  detection_domains:
+  - '终端: _Implant后缀高权限版本vs无后缀低权限版本命名约定'
+  - '终端: Antiy CERT(2017)报告的EquationDrug平台关联'
+  source_type: 文档情报交叉验证
+  purpose: DanderSpritz按权限级别精细命名：_Implant后缀=高权限(系统级执行)，无后缀=低权限。[Antiy CERT 2017]+[Shadow Brokers](2017)共同确认此命名约定。
+  discovery_date: 2017-01
+  compared_samples:
+  - file: DuplicateToken_Implant.dll
+    sample_md5: 待查
+    note: 对比_Implant高权限变体
+  - file: DuplicateToken_Lp.dll
+    sample_md5: 待查
+    note: 对比_Lp低权限变体 plugin ID=0x79E2
+  - file: GetAdmin_Implant.dll
+    sample_md5: 待查
+    note: 对比GetAdmin _Implant vs _Lp(0x79A8)
+  - file: LSADUMP_Implant.dll
+    sample_md5: 待查
+    note: 对比LSADUMP _Implant vs _Lp(0x79C9)
+  finding_tags:
+  - 特殊字符串
+  evidence_level: L3
+- id: NSA-DS-LC-021
+  pattern_type: section-based-embedded-pe-loader
+  source:
+    sample_md5: 84893511250e6f787bbdd8b4c3327706
+    sample_sha256: a42d5201af655e43cefef30d7511697e6faa2469dc4a74bc10aa060b522a1cf5
+    tool_name: DanderSpiritz
+    platform_name: Dsz Plugin Framework
+    component: DllLoad — 嵌入式 PE 加载器 (Section-mapped, diskless)
+    file: DllLoad_Target.dll
+    function_offset: sub_180007260 @ 0x180007260 (NtCreateSection PE loader), sub_180006710 @ 0x180006710 (payload init), embedded PE @ file offset 0x87F5
+    description: 'DllLoad_Target.dll 内含加密嵌入式 PE payload，通过 NtCreateSection + NtMapViewOfSection 实现无文件落地 DLL 加载: (1) 嵌入 PE 位于文件偏移 0x87F5 (.rdata 节段)，MZ/PE 签名明文但结构体字段 XOR 加密 (2) 动态解析 ntdll!NtCreateSection (GetModuleHandleA + GetProcAddress) (3) NtCreateSection(SECTION_ALL_ACCESS, SEC_IMAGE) 创建内核对象 (4) NtMapViewOfSection 映射到用户态 (5) 手动拷贝 PE 节段 (memcpy 逐节复制) (6) sub_180007008 解析导入表/重定位 (7) sub_180007B28 调用 "LDR" 激活加载 与 Pc2.2 的 HeapAlloc+RC4 模式不同: DllLoad 使用内核 Section 对象，更隐蔽 (无 VirtualAlloc, 无文件落地)。
+
+      '
+    pe_timestamp: '2013-07-16T11:52:32'
+  mechanism:
+    loader_type: NtCreateSection SEC_IMAGE manual mapping
+    embedded_payload_offset: 0x87F5 (file offset, .rdata section)
+    payload_encryption: PE 结构体字段 XOR 加密 (MZ/PE 签名明文)
+    api_resolution: 动态 GetModuleHandleA(ntdll.dll) + GetProcAddress(NtCreateSection)
+    activation: sub_180007B28 LDR entry point
+    dll_characteristics: 0x0000 (无 ASLR, 无 DEP)
+  indicators:
+  - type: import-api
+    value: NtCreateSection
+  - type: import-api
+    value: NtMapViewOfSection
+  - type: import-api
+    value: RtlImageNtHeader
+  - type: file-offset
+    value: 0x87F5 (embedded MZ)
+  - type: pe-characteristic
+    value: DLL Characteristics = 0x0000
+  related_facts:
+  - NSA-DS-CA-001 (Dsz 插件标准架构)
+  - NSA-DS-CA-002 (LP 命令代理模式)
+  - NSA-DS-LC-002 (DszLpCore 插件加载器)
+  references:
+  - IDA 反编译 DllLoad_Target.dll sub_180007260/sub_180006710 — 2026-08-07
+  - 'PE survey: embedded PE at offset 0x87F5, encrypted fields'
+  status: confirmed
+  confidence: extreme
+  detection_domains:
+  - '终端: DllLoad_Target.dll嵌入PE(offset 0x87F5)检测'
+  - '终端: sub_180007260 PE解析+sub_180006710解密函数'
+  source_type: 跨样本对比发现
+  purpose: DllLoad_Target.dll通过NtCreateSection+NtMapViewOfSection实现无文件DLL加载——嵌入PE位于文件偏移0x87F5，反射式加载不通过LoadLibrary，规避模块列表检测。
+  discovery_date: '2013-07-16'
+  compared_samples:
+  - file: DiBa_Target.dll
+    sample_md5: 7b631b6dab156a47f085f4abe4b2acfe
+    note: 对比DiBa标准LoadLibrary vs DllLoad NtCreateSection反射加载
+  finding_tags:
+  - 非常规技术
+- id: NSA-DS-LC-020
+  pattern_type: kernel-ioctl-protocol-bridge
+  source:
+    sample_md5: 8595accafe50bb748f30ed571b57db45
+    sample_sha256: d8f072009eb832d447577ebf17a1f5f7223a6870dabb865a6211e03d0dcea138
+    tool_name: DanderSpiritz
+    platform_name: FlAv (FLEWAVENUE)
+    component: FlavControl — 用户态协议控制 DLL
+    file: FlavControl_Target.dll
+    function_offset: sub_1800088F8 @ 0x1800088F8, sub_180008970 @ 0x180008970
+    description: FlavControl_Target.dll 是 FLEWAVENUE 协议抽象层的用户态控制模块。通过 CreateFileA 打开内核设备 \\.\WSNMP32 (ntevt.sys) + DeviceIoControl 实现内核态网络协议处理。33+ 个 DeviceIoControl 调用函数通过 IOCTL 向内核驱动发送 Banner/Redirect/PacketRedirect 等协议操作。所有网络 I/O 由内核驱动完成，无用户态网络 API 导入。
+    pe_timestamp: '2012-11-16T17:12:08'
+  technique:
+    type: kernel_protocol_offload
+    kernel_device: \\.\WSNMP32
+    kernel_driver: ntevt.sys
+    device_path_encryption: glibc rand() LCG XOR (sub_18000C148)
+    device_path_storage: .data @ 0x180011420
+    ioctl_callers: 33
+    user_mode_network_imports: 0
+  indicators:
+  - type: kernel_device_name
+    value: \\.\WSNMP32
+  - type: driver_filename
+    value: ntevt.sys
+  - type: technique
+    value: DeviceIoControl_based_network_protocol
+  - type: technique
+    value: zero_userland_network_imports
+  - type: function_offset
+    value: sub_1800088F8 @ 0x1800088F8
+    context: kernel_device_open
+  references:
+  - 'IDA 直接分析: FlavControl_Target.dll x64 — 2026-08-07'
+  status: confirmed
+  confidence: high
+  uniqueness_note: 将网络协议栈完全卸载到内核驱动(ntevt.sys)仅暴露 DeviceIoControl 接口，是 FLEWAVENUE 的独特架构特征。与 Pc2.2 Level3 的用户态 HTTP C2 完全不同的通信模型。
+  detection_domains:
+  - '终端: FlavControl_Target.dll CreateFileA(\\.\WSNM)内核设备通信'
+  - '终端: FLEWAVENUE协议用户态代理检测'
+  source_type: 跨样本对比发现
+  purpose: FlavControl_Target.dll是FLEWAVENUE协议的用户态代理，通过CreateFileA与内核设备\\.\WSNM通信。FlAv工具链的关键通信环节。
+  discovery_date: '2012-11-16'
+  compared_samples:
+  - file: ntevt.sys
+    sample_md5: N/A (FlAv内核驱动，样本待索引)
+    note: 对比FlAv用户态FlavControl_Target.dll vs 内核ntevt.sys通信架构
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-022
+  pattern_type: dual-path-thread-injection-with-os-version-branch
+  source:
+    sample_md5: af073e3e7fadd978996d52b7483cb0a0
+    tool_name: DanderSpiritz
+    platform_name: Mcl_ThreadInject_Std
+    component: thread injection module
+    file: Mcl_ThreadInject_Std.dll
+    function_offset: sub_180006590 @ 0x6590, sub_180006104 @ 0x6104, sub_180006050 @ 0x6050
+    description: "双路径线程注入架构，GetVersion() >= 6 分支选择: (1) NT syscall 路径 (Vista+, sub_180006104):\n  从 ntdll 动态解析 RtlCreateUserThread → ZwResumeThread (首选)\n  或 ZwCreateThreadEx + 72字节 ThreadAttributeList → ZwResumeThread (回退)\n  ThreadAttributeList 包含 3 属性: PSECURITY_DESCRIPTOR + 栈大小 + 额外属性\n(2) CreateRemoteThread 路径 (XP/2003, sub_180006050):\n  经典远程线程注入，通过结构体传递线程函数(a1+128)/参数(a1+136)/标志(a1+192)\n"
+    pe_timestamp: '2013-07-16T14:37:09'
+  indicators:
+  - type: api_dynamic_resolve
+    value: RtlCreateUserThread_ZwCreateThreadEx_ZwResumeThread_from_ntdll
+  - type: api_static_import
+    value: CreateRemoteThread_ResumeThread_CreateThread
+  - type: os_version_branch
+    value: GetVersion_ge_6_Vista_plus
+  - type: technique
+    value: version_branched_thread_injection
+  references:
+  - IDA decompile Mcl_ThreadInject_Std.dll — 2026-08-08
+  status: confirmed
+  confidence: extreme
+  detection_domains:
+  - '终端: GetVersion()≥6分支→NT syscall(ZwCreateThreadEx)线程注入'
+  - '终端: OpenProcess(0x43A)+VirtualAllocEx+WriteProcessMemory双路径模式'
+  source_type: 跨样本对比发现
+  purpose: ThreadInject Std双路径注入：GetVersion()≥6→NT syscall(RtlCreateUserThread/ZwCreateThreadEx)；<6→CreateRemoteThread。OpenProcess(0x43A)+VirtualAllocEx+WriteProcessMemory。版本感知的双路径选择确保全Windows版本覆盖。
+  discovery_date: '2013-07-16'
+  compared_samples:
+  - file: Mcl_ThreadInject_DrNi.dll
+    sample_md5: ad66c623491a1ecb9398e1e3e0a7a21f
+    note: 对比DrNi WoW64跨架构注入路径 vs Std双路径
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-023
+  pattern_type: privileged-handle-acquisition-via-lp-ipc-fallback
+  source:
+    sample_md5: af073e3e7fadd978996d52b7483cb0a0
+    tool_name: DanderSpiritz
+    platform_name: MCL 模块通用模式
+    component: 句柄获取 IPC 回退
+    file: Mcl_ThreadInject_Std.dll
+    function_offset: sub_180007CB0 @ 0x7CB0 (IPC), sub_180006590 @ 0x6590 (OpenProcess)
+    description: 'MCL Target DLL 在目标侧权限不足无法直接 OpenProcess 时, 通过 *(ctx+16) 函数指针 IPC 回调 LP 侧代理打开进程句柄: (1) sub_180006590: 先直接 OpenProcess(0x43A=CREATE_THREAD|VM_OP|VM_WRITE|VM_READ|QUERY_INFO) (2) 失败 → sub_180007CB0: 调用 *(ctx+16)(*(ctx+8), &unk_string, 78336, &handle) IPC 请求 LP 打开 (3) LP 侧以更高权限打开后返回句柄, 目标 DLL 继续注入 78336 = 0x13200 — 可能是内部 IPC 消息 ID, 对应 ''打开进程'' 命令
+
+      '
+    pe_timestamp: '2013-07-16T14:37:09'
+  indicators:
+  - type: api
+    value: OpenProcess
+    context: direct_attempt
+  - type: ipc_fallback
+    value: '*(ctx+16)_function_pointer_lp_ipc'
+  - type: magic_number
+    value: '78336'
+    context: ipc_message_id_open_process
+  references:
+  - IDA decompile sub_180007CB0 + sub_180006590 — 2026-08-08
+  status: confirmed
+  confidence: high
+  detection_domains:
+  - '终端: OpenProcess→LP proxy→MCL句柄获取IPC回退链'
+  - '终端: sub_180007CB0句柄获取+sub_180006590注入协调'
+  source_type: 跨样本对比发现
+  purpose: MCL句柄获取IPC回退链：直接OpenProcess失败→通过*(ctx+16) IPC请求LP代理打开目标进程。sub_180006590尝试直接OpenProcess(0x43A)，失败后sub_180007CB0走LP代理。提供注入权限不足时的冗余路径。
+  discovery_date: '2013-07-16'
+  compared_samples:
+  - file: Mcl_ThreadInject_DrNi.dll
+    sample_md5: ad66c623491a1ecb9398e1e3e0a7a21f
+    note: 对比DrNi的OpenProcess→LP IPC回退链 vs Std直接OpenProcess
+  finding_tags:
+  - 特殊字符串
+- id: NSA-DS-LC-024
+  pattern_type: tdi-kernel-network-sniffer-with-winpcap-userspace
+  source:
+    sample_md5_tdi6: 91cd5455492e6688ad820f2b5b842a7b
+    tool_name: DanderSpiritz
+    platform_name: DSky (DanderSky)
+    component: 网络流量抓包 — 用户态(WinPcap) + 内核态(TDI)
+    file: TrafficCapture_Target.dll, tdi6.sys
+    function_offset: PE header + import analysis
+    description: 'DSky (DanderSky) 是 NSA 的网络流量抓包工具, 双层架构: (1) 用户态: TrafficCapture_Target.dll (46KB, 2013-07-11) — Dsz 插件, 使用 WinPcap 库 (npptools.dll, packet.dll, wpcap.dll) 进行抓包。仅 3 个基础 DLL 导入 (KERNEL32+msvcrt+ntdll), WinPcap DLL 运行时动态加载。 (2) 内核态: tdi6.sys (42KB, 2005-11-13) — TDI (Transport Driver Interface) 过滤驱动, 在 NDIS 之下拦截所有网络流量。2005年编译 — 比 ST1.14 NDIS 驱动早一代技术。 有 Rich Header (XOR=0xF1E32B47), 确认 NSA 自编译。无导出 — 纯 TDI filter attach 模式。
+
+      '
+    sample_md5: e16ab0f115fb94c012defe25ae1bb392
+    pe_timestamp: '2013-07-11T16:38:49'
+  indicators:
+  - type: api
+    value: WinPcap_npptools_packet_wpcap
+    context: dynamically_loaded
+  - type: driver_type
+    value: TDI_filter
+  - type: codename
+    value: DSky_DanderSky
+  references:
+  - PE header analysis TrafficCapture_Target.dll + tdi6.sys — 2026-08-08
+  status: confirmed
+  confidence: high
+  uniqueness_note: TDI 是 Windows XP/2003 时代网络过滤技术。tdi6.sys 使用旧代 TDI 表明 DSky 支持旧 Windows 版本(2000/XP/2003), 与 ST1.14 NDIS 协议驱动覆盖不同 OS 版本。
+  detection_domains:
+  - '终端: tdi6.sys TDI过滤驱动(2005-11-13编译)检测'
+  - '终端: TrafficCapture_Target.dll WinPcap静态链接检测'
+  - '网络侧: TDI层网络数据包拦截——低于NDIS的过滤层级'
+  source_type: 跨样本对比发现
+  purpose: DSky(DanderSky)双架构网络嗅探：用户态TrafficCapture_Target.dll(46KB)+内核态tdi6.sys(TDI过滤驱动)。两组件同一天(2005-11-13)编译。WinPcap静态链接。
+  discovery_date: '2013-07-11'
+  compared_samples:
+  - file: TrafficCapture_Target.dll
+    sample_md5: 待查
+    note: 用户态组件(46KB)，TDI过滤驱动用户态代理
+  - file: tdi6.sys
+    sample_md5: 20506375665a6a62f7d9dd22d1cc9870
+    note: 内核TDI过滤驱动(2005-11-13编译)
+  finding_tags:
+  - NSA共性
+- id: NSA-DS-LC-025
+  pattern_type: minifilter-driver-file-process-hiding
+  source:
+    sample_md5_ntfltmgr: 05cee4ff15a0f7fa2583982b25cc2969
+    tool_name: DanderSpiritz
+    platform_name: DmGz (DanderMagiz)
+    component: 文件系统 Minifilter — 文件/进程隐藏
+    file: DmGz_Target.dll, ntfltmgr.sys
+    function_offset: PE header + import analysis
+    description: 'DmGz (DanderMagiz) 是 NSA 的文件系统 minifilter 驱动, 很可能用于隐藏 NSA 工具的文件/目录和进程: (1) 用户态: DmGz_Target.dll (40KB, 2012-11-16) — Dsz 插件, 仅 3 DLL 导入。 编译时间与 Processes_Target/Services_Target 同期 — 最早的 DanderSpritz 批次。 (2) 内核态: ntfltmgr.sys (38KB, 2005-11-13) — NTFS minifilter 驱动, 与 tdi6.sys 同一天编译 (2005-11-13 17:05:25 vs 17:05:23, 差2秒 — 同一构建机)。 无导出 — 纯 minifilter registration 模式。
+
+      '
+    sample_md5: fbe384d937ca976a64d97ae0cb06aabb
+    pe_timestamp: '2012-11-16T17:11:58'
+  indicators:
+  - type: driver_type
+    value: NTFS_minifilter
+  - type: build_artifacts
+    value: tdi6_ntfltmgr_same_day_20051113_2sec_apart
+  - type: codename
+    value: DmGz_DanderMagiz
+  references:
+  - PE header analysis DmGz_Target.dll + ntfltmgr.sys — 2026-08-08
+  status: confirmed
+  confidence: high
+  uniqueness_note: tdi6.sys 和 ntfltmgr.sys 同一天(2005-11-13)编译, 时间戳差2秒 — 同一构建机批量编译。大部分驱动被复用至 2013年 DanderSpritz 运营中, 证实 NSA 内核驱动代码库长期维护但不更新的策略。
+  detection_domains:
+  - '终端: ntfltmgr.sys NTFS minifilter(2005-11-13编译)检测'
+  - '终端: DmGz_Target.dll文件/进程隐藏协调检测'
+  source_type: 跨样本对比发现
+  purpose: DmGz(DanderMagiz)NTFS minifilter实现文件和进程隐藏：用户态DmGz_Target.dll+内核态ntfltmgr.sys。与tdi6.sys同一天编译(2005-11-13)。两驱动共用构建基础设施。
+  discovery_date: '2012-11-16'
+  compared_samples:
+  - file: DmGz_Target.dll
+    sample_md5: 待查
+    note: 用户态minifilter协调组件
+  - file: ntfltmgr.sys
+    sample_md5: 待查
+    note: 内核NTFS minifilter驱动(2005-11-13编译)
+  finding_tags:
+  - NSA共性
+
+- id: NSA-DS-LC-026
+  pattern_type: driver-release-and-service-registration
+  source:
+    sample_md5: 4ebc080ab79470e3c2d59acd594aa1d3
+    tool_name: DanderSpiritz
+    platform_name: DeMi (DecibalMinute)
+    component: DiBa bootkit 持久化
+    file: DiBa_Target_BH_2000.dll
+    function_offset: sub_10013540 (资源查找) @ 0x10013540
+    description: 'DiBa bootkit 持久化流程。资源查找函数 sub_10013540 内 7 个 CR-007 宽密文解密: "%csystemroot%c\system32\drivers\%s"(驱动释放路径模板), "\registry\machine\system\CurrentControlSet\Services"(服务注册路径), "Type"/"Start"/"ImagePath"(服务值名), ".sys"(扩展名), ".rsrc"(资源节)。流程: FindResource(.rsrc,id) → LCG+zlib解密 → 写 %systemroot%\system32\drivers\<名>.sys → 注册服务(Type/Start/ImagePath) → 服务加载驱动。'
+    pe_timestamp: '2013-10-01'
+  indicators:
+  - type: string
+    value: '%systemroot%\system32\drivers\%s'
+    context: 驱动释放路径模板(CR-007加密)
+  - type: string
+    value: '\registry\machine\system\CurrentControlSet\Services'
+    context: 服务注册路径(CR-007加密)
+  - type: api
+    value: FindResourceA + LoadResource + LockResource + CreateFileA + WriteFile + OpenSCManagerA + OpenServiceW
+    context: 资源加载+写文件+服务管理
+  references:
+  - IDA 直接分析: DiBa_Target_BH_2000.dll i386 — 2026-08-23
+  status: confirmed
+  confidence: extreme
+  uniqueness_note: 驱动释放路径 %systemroot%\system32\drivers\%s + 服务注册 CurrentControlSet\Services 是bootkit标准持久化。Check Point 2021 已记录 fvexpy.sys(拼写少p,MD5 F7F382A0C610177431B27B93C4C87AC1,DoubleFeature框架),本文本实测 fvepxy.pdb(拼写含p,MD5 a895647e6f0c93af8d4081ede96bde33,DiBa框架)——同驱动源码跨框架复用(DiBa+DoubleFeature),不同编译版本MD5不同。\system32\drivers\fvepxy.sys + 服务名 = DiBa bootkit直接指纹。
+  detection_domains:
+  - '终端: 检测 system32\drivers\fvepxy.sys 文件 + 对应服务(ImagePath指向该驱动)'
+  - '终端: 搜索CR-007密文对应的释放路径模板'
+  source_type: IDA静态分析发现
+  purpose: DiBa bootkit 持久化——释放内嵌驱动到system32\drivers\并注册服务，实现引导级持久化。
+  discovery_date: '2013-10-01'
+  finding_tags:
+  - 归因信号
+  - 深度绕过
+  - NSA共性
+  evidence_level: L0+L1

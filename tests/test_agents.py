@@ -71,3 +71,25 @@ def test_static_agent_does_not_infer_behavior_from_unrelated_facts() -> None:
     )
 
     assert agent.propose_claims(facts, "document.txt") == ()
+
+
+def test_decode_window_claim_does_not_describe_unverified_bytes_as_staged_payload() -> None:
+    agent = StaticAnalysisAgent(PromptRegistry.load_builtin(), model_route="deterministic")
+    facts = (
+        StaticFact(
+            "decryption",
+            "mechanism_decode_window",
+            {
+                "verification_result": {
+                    "status": "CANDIDATE",
+                    "decoded_strings": ["}},Q", "-^@Nr"],
+                    "formula": "single_key_plus_step_xor_const",
+                }
+            },
+            {"type": "file_offset", "offset": 0},
+        ),
+    )
+    claims = agent.propose_claims(facts, "notepad.exe")
+    statement = next(claim.statement for claim in claims if claim.module == "decryption")
+    assert "staged payload" not in statement.casefold()
+    assert "candidate decode" in statement.casefold()

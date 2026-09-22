@@ -1,0 +1,253 @@
+{
+  "nodes": [
+    {
+      "id": "file:src/threat_report_agent/mechanism_completeness.py",
+      "type": "file",
+      "name": "mechanism_completeness.py",
+      "filePath": "src/threat_report_agent/mechanism_completeness.py",
+      "summary": "机制投影的共享语义完整度打分：按 target / inputs / transformation_or_control / conditions / outputs / consumers / side_effects / evidence_ids 八个字段加权计分，并把 UNKNOWN、通用占位符与纯导航性短语排除在「语义证据」之外。",
+      "tags": ["语义打分", "完整度", "机制投影", "质量门"],
+      "complexity": "moderate",
+      "languageNotes": "用 FIELD_WEIGHTS 常量表驱动加权，另设 _GENERIC_PLACEHOLDER_MARKERS 与 _NAVIGATION_MARKERS 黑名单，防止占位文本把 candidate 机制刷到满分。"
+    },
+    {
+      "id": "file:src/threat_report_agent/mechanism_ready.py",
+      "type": "file",
+      "name": "mechanism_ready.py",
+      "filePath": "src/threat_report_agent/mechanism_ready.py",
+      "summary": "机制就绪 façade：inspect_mechanism_ready 从机制投影 mapping 读取分层就绪度（completeness / persist_how_recovered / claim_eligible / critical_ready / missing），其中 critical_ready 会额外排除 status 为 CANDIDATE 的行，因此 CANDIDATE 永远不会被计为 critical_ready。",
+      "tags": ["报告就绪", "façade", "机制", "claim"],
+      "complexity": "moderate",
+      "languageNotes": "MechanismReady 是 frozen dataclass，各字段互相独立：persist_how_recovered 可以为真而 critical_ready 仍为假；claim_eligible 来自 coverage，不由完整度反推。这个 façade 刻意不跑 ClaimGate、目录评估或报告 FUN-dump 过滤。"
+    },
+    {
+      "id": "function:src/threat_report_agent/mechanism_completeness.py:is_unknown_value",
+      "type": "function",
+      "name": "is_unknown_value",
+      "filePath": "src/threat_report_agent/mechanism_completeness.py",
+      "lineRange": [44, 49],
+      "summary": "判定字段值是否为 UNKNOWN 类占位文本。",
+      "tags": ["unknown", "validation", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/mechanism_completeness.py:is_navigation_value",
+      "type": "function",
+      "name": "is_navigation_value",
+      "filePath": "src/threat_report_agent/mechanism_completeness.py",
+      "lineRange": [52, 57],
+      "summary": "判定字段值是否只是导航性/引用性短语，而非描述具体行为语义。",
+      "tags": ["导航短语", "validation", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/mechanism_completeness.py:has_semantic_value",
+      "type": "function",
+      "name": "has_semantic_value",
+      "filePath": "src/threat_report_agent/mechanism_completeness.py",
+      "lineRange": [60, 74],
+      "summary": "判断某字段是否含有真实语义值：排除空值、UNKNOWN、通用占位符与导航性短语。",
+      "tags": ["语义判定", "validation", "核心"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_completeness_score",
+      "type": "function",
+      "name": "mechanism_completeness_score",
+      "filePath": "src/threat_report_agent/mechanism_completeness.py",
+      "lineRange": [77, 94],
+      "summary": "按八个字段的权重计算机制完整度总分。",
+      "tags": ["评分", "完整度", "入口点"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_is_critical_ready",
+      "type": "function",
+      "name": "mechanism_is_critical_ready",
+      "filePath": "src/threat_report_agent/mechanism_completeness.py",
+      "lineRange": [97, 107],
+      "summary": "判定机制是否达到 critical 级就绪：语义字段齐备且 verifier 状态通过。",
+      "tags": ["报告就绪", "判定", "入口点"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/threat_report_agent/mechanism_completeness.py:verify_semantic_closure",
+      "type": "function",
+      "name": "verify_semantic_closure",
+      "filePath": "src/threat_report_agent/mechanism_completeness.py",
+      "lineRange": [110, 135],
+      "summary": "验证机制的语义闭包，返回是否闭合以及缺失的字段清单。",
+      "tags": ["语义闭包", "validation", "入口点"],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/threat_report_agent/mechanism_ready.py:MechanismReady",
+      "type": "class",
+      "name": "MechanismReady",
+      "filePath": "src/threat_report_agent/mechanism_ready.py",
+      "lineRange": [25, 41],
+      "summary": "单条机制的分层就绪度记录，各字段相互独立，用于认证与报告的计数口径。",
+      "tags": ["data-model", "报告就绪", "dataclass"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "type": "function",
+      "name": "inspect_mechanism_ready",
+      "filePath": "src/threat_report_agent/mechanism_ready.py",
+      "lineRange": [44, 68],
+      "summary": "从机制投影 mapping 读取分层就绪度；critical_ready 额外要求 status 不是 CANDIDATE，因此候选机制永远不会被算作 critical_ready。",
+      "tags": ["入口点", "报告就绪", "机制"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:is_unknown_value",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:is_navigation_value",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:has_semantic_value",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_completeness_score",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_is_critical_ready",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:verify_semantic_closure",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_ready.py",
+      "target": "class:src/threat_report_agent/mechanism_ready.py:MechanismReady",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_ready.py",
+      "target": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:is_unknown_value",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:is_navigation_value",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:has_semantic_value",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_completeness_score",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_is_critical_ready",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_completeness.py",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:verify_semantic_closure",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_ready.py",
+      "target": "class:src/threat_report_agent/mechanism_ready.py:MechanismReady",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_ready.py",
+      "target": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/threat_report_agent/mechanism_ready.py",
+      "target": "file:src/threat_report_agent/mechanism_completeness.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_completeness_score",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:verify_semantic_closure",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:has_semantic_value",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/threat_report_agent/mechanism_ready.py:inspect_mechanism_ready",
+      "target": "function:src/threat_report_agent/mechanism_completeness.py:mechanism_is_critical_ready",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ]
+}

@@ -9,12 +9,14 @@ the complete evidence ledger remains available through the explorer.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+import re
 
+from threat_report_agent.investigation_protocol import s4_closed_has_audit_trail
 from threat_report_agent.mechanism_completeness import (
     has_semantic_value,
     mechanism_completeness_score,
-    mechanism_is_critical_ready,
 )
+from threat_report_agent.mechanism_ready import inspect_mechanism_ready
 
 
 _STRONG_LABELS = (
@@ -32,6 +34,24 @@ _STATIC_CERTAINTY_TERMS = (
     "injected into", "exfiltrated successfully", "successfully persisted",
 )
 _CLOSED_STATUSES = {"VERIFIED", "SUPPORTED", "CONFIRMED"}
+# These are the mechanism projections that can appear in an analyst-facing
+# report.  Keep quality metrics aligned with the report renderer: an
+# unresolved observation/link is still visible candidate noise even when it
+# is not represented by the legacy ``mechanism_candidate`` type.
+_REPORT_MECHANISM_TYPES = frozenset(
+    {"mechanism_candidate", "mechanism_link", "mechanism_observation", "security_finding"}
+)
+
+
+def _is_visible_mechanism(row: Mapping[str, object]) -> bool:
+    """Return whether a mechanism participates in analyst-facing metrics.
+
+    ``suppressed_by_verified`` is presentation-only deduplication.  The
+    source Evidence remains immutable and auditable, but the duplicate must
+    not lower closure/readiness metrics or inflate candidate noise when a
+    snapshot is replayed with both visible and hidden projections.
+    """
+    return not bool(row.get("suppressed_by_verified"))
 NO_NEW_EVIDENCE_CATEGORIES = frozenset(
     {
         "LOW_INFORMATION_ACTION",
@@ -53,6 +73,241 @@ _AUTOPSY_NEXT_ACTIONS = {
     "DEDUP_SUPPRESSED": "USE_EXISTING_ACTION_RESULT",
     "STATIC_BOUNDARY": "RECORD_STATIC_BOUNDARY",
 }
+
+_ADVERSARIAL_RULES = {
+    "NETWORK_IS_C2": "A network/API observation is not a C2 or beacon conclusion without a loop, protocol/tasking, and response-consumer relation.",
+    "REGISTRY_IS_PERSISTENCE": "A registry operation is not persistence without a trigger, payload, lifetime/re-execution semantics, and a supported relation.",
+    "PROCESS_API_IS_INJECTION": "Process/thread/APC APIs are not injection without a cross-process target, source/target memory relation, and execution transfer.",
+    "INJECTS_SELF_LOOP": "An INJECTS relation with the same source and target artifact is not cross-process injection.",
+    "COLLECTION_IS_EXFILTRATION": "Collection is not exfiltration without a producer-to-staging-to-network-sink relation.",
+    "SIMULATION_IS_RUNTIME": "A stub, static abstraction, or unlabelled emulator result is not real runtime observation.",
+    "API_IS_BEHAVIOR": "An API or string name is a seed, not a behavior, without HOW, condition, output, and consumer evidence.",
+}
+_INJECTION_OVERCLAIM_RULES = frozenset({"PROCESS_API_IS_INJECTION", "INJECTS_SELF_LOOP"})
+_INJECTION_OVERCLAIM_STATUSES = frozenset({
+    "VERIFIED", "SUPPORTED", "CONFIRMED", "INFERRED", "OBSERVED",
+})
+_CHECKED_OVERCLAIM_TYPES = frozenset({
+    "mechanism_candidate", "mechanism_link", "mechanism_observation",
+    "security_finding", "analytical_claim", "behavior_finding", "behavior_relation",
+})
+
+
+def _flatten_text(value: object) -> str:
+    """Flatten report fields for deterministic rule checks without parsing prose semantics."""
+    if isinstance(value, Mapping):
+        return " ".join(
+            f"{key} {_flatten_text(item)}" for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return " ".join(_flatten_text(item) for item in value)
+    return str(value or "")
+
+
+def _overclaim_row_identity(row: Mapping[str, object], fallback: str = "") -> str:
+    return str(
+        row.get("relation_id")
+        or row.get("finding_id")
+        or row.get("mechanism_id")
+        or row.get("claim_id")
+        or row.get("id")
+        or fallback
+        or ""
+    )
+
+
+def _relation_type_of(row: Mapping[str, object]) -> str:
+    return str(row.get("relation_type") or row.get("relation") or "").strip().upper()
+
+
+def _injects_endpoints(row: Mapping[str, object]) -> tuple[str, str]:
+    source = str(
+        row.get("source_artifact_id") or row.get("source_object") or ""
+    ).strip()
+    target = str(
+        row.get("target_artifact_id") or row.get("target_object") or ""
+    ).strip()
+    return source, target
+
+
+def _is_injects_self_loop(row: Mapping[str, object]) -> bool:
+    """True when an INJECTS edge has no distinct target artifact/process."""
+    nested = row.get("relations")
+    if isinstance(nested, (list, tuple)):
+        if any(
+            _is_injects_self_loop(item)
+            for item in nested
+            if isinstance(item, Mapping)
+        ):
+            return True
+    if _relation_type_of(row) not in {"INJECTS", "INJECT"}:
+        return False
+    source, target = _injects_endpoints(row)
+    source_finding = str(row.get("source_finding_id") or "").strip()
+    target_finding = str(row.get("target_finding_id") or "").strip()
+    if source and source == target:
+        return True
+    if source_finding and source_finding == target_finding:
+        return True
+    if source and not target:
+        return True
+    return False
+
+
+def _adversarial_overclaim_checks(rows: Iterable[Mapping[str, object]]) -> list[dict[str, object]]:
+    """Find common evidence-to-behaviour leaps before a report is released.
+
+    This is deliberately a gate, not a classifier.  A hit means the row must
+    remain candidate/unknown or acquire the missing typed relation; it never
+    changes a row to a stronger status on its own.
+    """
+    checks: list[dict[str, object]] = []
+    row_fields = (
+        "statement", "what", "how", "mechanism", "security_meaning", "target",
+        "inputs", "transformation_or_control", "conditions", "outputs", "consumers",
+        "side_effects", "loop", "loop_repetition", "unknowns", "evidence_natures",
+        "relation_ids", "relations", "mechanism_type", "verifier",
+        "relation_type", "relation", "source_artifact_id", "target_artifact_id",
+        "source_object", "target_object",
+    )
+    for row in rows:
+        row_type = str(row.get("type") or "")
+        relation_type = _relation_type_of(row)
+        if row_type not in _CHECKED_OVERCLAIM_TYPES and relation_type not in {"INJECTS", "INJECT"}:
+            continue
+        text = " ".join(_flatten_text(row.get(key)) for key in row_fields).casefold()
+        identity = _overclaim_row_identity(row, row_type or relation_type)
+        evidence_natures = _flatten_text(row.get("evidence_natures")).upper()
+
+        def add(rule_id: str, missing: list[str]) -> None:
+            checks.append({
+                "rule_id": rule_id,
+                "row_id": identity,
+                "status": "BLOCKED",
+                "missing": missing,
+                "action": "DOWNGRADE_OR_RECOVER_TYPED_EVIDENCE",
+                "reason": _ADVERSARIAL_RULES[rule_id],
+            })
+
+        if _is_injects_self_loop(row):
+            add("INJECTS_SELF_LOOP", ["distinct_target_artifact", "cross_process_target"])
+
+        if any(token in text for token in ("active c2", "beacon", "heartbeat", "command and control")):
+            loop_markers = ("loop", "back-edge", "back edge", "poll", "jitter", "tasking", "response consumer")
+            if not any(marker in text for marker in loop_markers):
+                add("NETWORK_IS_C2", ["loop_or_back_edge", "protocol_or_tasking", "response_consumer_relation"])
+
+        if "persistence" in text and any(token in text for token in ("registry", "runonce", "scheduled task", "service", "startup")):
+            persistence_markers = ("trigger", "lifetime", "re-execution", "reexecution", "trigger_to_payload", "payload")
+            missing = [marker for marker in ("trigger", "lifetime", "payload") if marker not in text]
+            if missing or not any(marker in text for marker in persistence_markers):
+                add("REGISTRY_IS_PERSISTENCE", missing or ["trigger_to_payload_relation"])
+
+        if any(token in text for token in (
+            "process injection", "remote injection", "injected into", "process hollowing",
+            "apc injection", "queueuserapc", "ntqueueapcthread", "queue apc",
+            "same-process apc", "same process apc", "ppid spoof", "ppid spoofing",
+        )):
+            required = ("cross_process", "target_process", "source_region", "target_region")
+            missing = [marker for marker in required if marker not in text]
+            if missing:
+                add("PROCESS_API_IS_INJECTION", missing)
+
+        if "exfiltration" in text or "exfiltrated" in text:
+            required = ("collection_source", "staging", "network_sink")
+            missing = [marker for marker in required if marker not in text]
+            if missing:
+                add("COLLECTION_IS_EXFILTRATION", missing + ["collected_to_network_relation"])
+
+        if any(token in text for token in ("runtime confirmed", "executed successfully", "actual runtime", "runtime observed")):
+            if "EMULATION_OBSERVED" not in evidence_natures and "DYNAMIC_OBSERVED" not in evidence_natures:
+                add("SIMULATION_IS_RUNTIME", ["EMULATION_OBSERVED evidence nature or real runtime provenance"])
+
+        what = _flatten_text(row.get("what")).strip()
+        if row_type in {"behavior_finding", "security_finding", "analytical_claim"} and re.fullmatch(r"(?:[A-Za-z_][A-Za-z0-9]*)(?:A|W)?", what or ""):
+            if not all(_flatten_text(row.get(key)).strip() for key in ("how", "conditions", "outputs", "consumers")):
+                add("API_IS_BEHAVIOR", ["how", "conditions", "outputs", "consumers"])
+    return checks
+
+
+def _s4_orchestration_status(
+    threads: Iterable[Mapping[str, object]],
+    actions: Iterable[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    """Persist the S4 closure/boundary decision for every investigation thread."""
+    action_by_id = {str(row.get("id")): row for row in actions if row.get("id")}
+    result: list[dict[str, object]] = []
+    for row in threads:
+        thread_id = str(row.get("id") or row.get("thread_id") or "")
+        state = str(row.get("state") or "").upper()
+        action_ids = [str(item) for item in (row.get("action_ids") or []) if item]
+        evidence_ids = [str(item) for item in (row.get("evidence_ids") or []) if item]
+        if state in {"REJECTED", "CONTRADICTED", "NOT_APPLICABLE"}:
+            status = "NOT_APPLICABLE"
+            reason = "thread was rejected or explicitly marked not applicable"
+        elif state in {"CLAIM_READY", "MECHANISM_READY", "CLOSED", "CANDIDATE"} and evidence_ids:
+            # Kunglao leftover remainder: persist HOW skip writes CLAIM_READY
+            # with Evidence and zero TRACE actions. That is report content,
+            # not a vacuous S4 CLOSED that should ask the operator to 再深入.
+            status = "CLOSED"
+            reason = (
+                "thread reached a verifier-ready state with recorded actions and evidence"
+                if action_ids
+                else (
+                    "persist/verifier-ready HOW is leftover remainder; "
+                    "isolated emu is not another TRACE round"
+                )
+            )
+        elif state in {"UNKNOWN", "PARTIAL", "UNSUPPORTED", "STATIC_BOUNDARY"} and evidence_ids:
+            status = "RECORDED"
+            reason = (
+                "honest static boundary is report UNKNOWN/CANDIDATE content, "
+                "not a planner ticket"
+            )
+        elif isinstance(row.get("s_ladder"), Mapping):
+            ladder = row.get("s_ladder") or {}
+            ladder_status = str(ladder.get("s4_orchestration") or "").upper()
+            if ladder_status == "CLOSED" and s4_closed_has_audit_trail(ladder):
+                status = "CLOSED"
+                reason = "S1-S3 were attempted or marked N/A/unsupported; S4 is recorded closed"
+            elif ladder_status == "CLOSED":
+                status = "BLOCKED"
+                reason = (
+                    "S4 CLOSED with empty attempts is not an auditable S1-S3 trail; "
+                    "retain BLOCKED until attempts or an explicit family N/A reason exist"
+                )
+            elif state in {"CLAIM_READY", "MECHANISM_READY", "CLOSED"} and action_ids and evidence_ids:
+                status = "CLOSED"
+                reason = "thread reached a verifier-ready state with recorded actions and evidence"
+            else:
+                status = "BLOCKED"
+                reason = "S4 remains open because S1-S3 are incomplete or blocked"
+        elif state in {"CLAIM_READY", "MECHANISM_READY", "CLOSED"} and action_ids and evidence_ids:
+            status = "CLOSED"
+            reason = "thread reached a verifier-ready state with recorded actions and evidence"
+        else:
+            failed = [
+                action_by_id[action_id]
+                for action_id in action_ids
+                if action_id in action_by_id
+                and str(action_by_id[action_id].get("status") or "").upper() in {"FAILED", "BLOCKED", "CANCELLED"}
+            ]
+            status = "BLOCKED"
+            reason = (
+                "thread has a recorded failed/boundary action"
+                if failed
+                else "S4 orchestration closure was not reached; retain the frontier and unknowns"
+            )
+        result.append({
+            "thread_id": thread_id,
+            "state": state,
+            "status": status,
+            "question": str(row.get("question") or ""),
+            "action_ids": action_ids[:64],
+            "evidence_ids": evidence_ids[:64],
+            "reason": reason,
+        })
+    return result
 
 
 def _mapping(item: object) -> Mapping[str, object]:
@@ -253,13 +508,13 @@ def report_depth_score(document: Mapping[str, object]) -> dict[str, object]:
     rows = _rows(document)
     mechanisms = [
         row for row in rows
-        if row.get("type") in {"mechanism_candidate", "security_finding"}
+        if row.get("type") in _REPORT_MECHANISM_TYPES and _is_visible_mechanism(row)
     ]
     closed = [
         row for row in mechanisms
         if str(row.get("status") or row.get("verdict") or "").upper()
         in {"VERIFIED", "SUPPORTED", "CONFIRMED"}
-        and mechanism_is_critical_ready(row)
+        and inspect_mechanism_ready(row).critical_ready
     ]
 
     def ratio(predicate) -> float:
@@ -357,6 +612,7 @@ def critic_pass(document: Mapping[str, object]) -> dict[str, object]:
                     wording_violations.append(identity)
             elif status in {"SUPPORTED", "CONFIRMED"} and missing:
                 wording_violations.append(identity)
+    overclaim_checks = _adversarial_overclaim_checks(rows)
     return {
         "unsupported_claims": sorted(set(unsupported)),
         "alternative_hypotheses_not_ruled_out": sorted(set(alternatives_missing))[:64],
@@ -368,19 +624,126 @@ def critic_pass(document: Mapping[str, object]) -> dict[str, object]:
         "candidate_only_findings": sorted(set(candidate_only))[:64],
         "navigation_rows_excluded": sorted(set(navigation))[:64],
         "static_wording_violations": sorted(set(wording_violations))[:64],
-        "status": "PASS" if not unsupported and not wording_violations and not alternatives_missing and not unknown_metadata_missing else "BLOCKED",
+        "overclaim_checks": overclaim_checks[:128],
+        "status": "PASS" if not unsupported and not wording_violations and not alternatives_missing and not unknown_metadata_missing and not overclaim_checks else "BLOCKED",
     }
+
+
+_CLOSED_FINDING_STATUSES = frozenset({"VERIFIED", "SUPPORTED", "CONFIRMED"})
+
+
+def apply_adversarial_downgrades(
+    rows: Iterable[Mapping[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Downgrade closed findings that fail structured overclaim checks.
+
+    M06: a blocked API-is-behavior / network-is-C2 / registry-is-persistence
+    check cannot remain a VERIFIED/SUPPORTED/CONFIRMED row.  The critic still
+    records the check; the finding itself becomes CANDIDATE/UNKNOWN.
+    Same-artifact INJECTS and process-API-as-injection rows, including
+    INFERRED self-loops, cannot remain closed or HIGH injection.
+    """
+    materialized = [dict(row) for row in rows]
+    checks = _adversarial_overclaim_checks(materialized)
+    blocked_by_id: dict[str, set[str]] = {}
+    for item in checks:
+        row_id = str(item.get("row_id") or "")
+        if not row_id:
+            continue
+        blocked_by_id.setdefault(row_id, set()).add(str(item.get("rule_id") or ""))
+    if not blocked_by_id:
+        return materialized, checks
+    downgraded: list[dict[str, object]] = []
+    for row in materialized:
+        identity = _overclaim_row_identity(row)
+        status = str(row.get("status") or row.get("verdict") or row.get("finding_status") or "").upper()
+        rules = blocked_by_id.get(identity, set())
+        injection_overclaim = bool(rules & _INJECTION_OVERCLAIM_RULES)
+        should_downgrade = bool(rules) and (
+            status in _CLOSED_FINDING_STATUSES
+            or (injection_overclaim and status in _INJECTION_OVERCLAIM_STATUSES)
+        )
+        if should_downgrade:
+            unknown = "UNKNOWN(adversarial overclaim check failed; typed relation missing)"
+            unknowns = [item for item in list(row.get("unknowns") or []) if item]
+            if unknown not in unknowns:
+                unknowns.append(unknown)
+            next_status = "UNKNOWN" if "INJECTS_SELF_LOOP" in rules else "CANDIDATE"
+            row = {
+                **row,
+                "status": next_status,
+                "finding_status": next_status,
+                "verdict": next_status,
+                "validation_status": next_status,
+                "maliciousness_assessment": (
+                    "not_assessed"
+                    if next_status == "UNKNOWN"
+                    else "candidate_security_relevant_behavior"
+                ),
+                "severity": "UNASSESSED",
+                "is_behavior_edge": False if injection_overclaim else row.get("is_behavior_edge"),
+                "unknowns": unknowns,
+                "adversarial_downgrade": True,
+            }
+        elif injection_overclaim and str(row.get("severity") or "").upper() == "HIGH":
+            row = {**row, "severity": "UNASSESSED", "adversarial_downgrade": True}
+        downgraded.append(row)
+    return downgraded, checks
 
 
 def deep_analysis_metrics(
     *,
     document: Mapping[str, object],
     mechanisms: Iterable[Mapping[str, object]] = (),
+    mechanism_projections: Iterable[Mapping[str, object]] = (),
     investigation_threads: Iterable[Mapping[str, object]] = (),
     investigation_actions: Iterable[Mapping[str, object]] = (),
 ) -> dict[str, object]:
     """Return closure, noise, action productivity and report-depth metrics."""
-    mechanism_rows = [_mapping(item) for item in mechanisms]
+    mechanism_rows = [
+        _mapping(item) for item in mechanisms
+        if _is_visible_mechanism(_mapping(item))
+    ]
+    projection_rows = [
+        _mapping(item) for item in mechanism_projections
+        if _is_visible_mechanism(_mapping(item))
+    ]
+    # The ORM Mechanism record deliberately stores lifecycle/verifier state,
+    # while the report projection carries the analyst-facing unknowns,
+    # limitations, and concrete field values.  Quality must inspect the same
+    # semantic rows that the user sees.  Merge by stable mechanism identity and
+    # prefer the richer projection without dropping a formal ORM record that
+    # has no visible counterpart.
+    if projection_rows:
+        def mechanism_identity(row: Mapping[str, object]) -> str:
+            return str(
+                row.get("mechanism_id")
+                or row.get("id")
+                or row.get("claim_id")
+                or ""
+            )
+
+        merged: list[Mapping[str, object]] = []
+        seen: set[str] = set()
+        for row in projection_rows:
+            identity = mechanism_identity(row)
+            if identity and identity in seen:
+                continue
+            if identity:
+                seen.add(identity)
+            merged.append(row)
+        for row in mechanism_rows:
+            identity = mechanism_identity(row)
+            if identity and identity in seen:
+                continue
+            if identity:
+                seen.add(identity)
+            merged.append(row)
+        mechanism_rows = [dict(row) for row in merged]
+    # A formal mechanism record can carry the same presentation marker during
+    # replay.  Apply the filter after merging as well so it cannot re-enter
+    # the population through the ORM collection.
+    mechanism_rows = [row for row in mechanism_rows if _is_visible_mechanism(row)]
     if not mechanism_rows:
         # Some API task projections expose mechanisms only through the frozen
         # report document.  Derive the same rows here so evaluation does not
@@ -388,7 +751,7 @@ def deep_analysis_metrics(
         # candidate-noise rate) when the caller omits the optional collection.
         mechanism_rows = [
             row for row in _rows(document)
-            if row.get("type") in {"mechanism_candidate", "security_finding", "analytical_claim"}
+            if row.get("type") in _REPORT_MECHANISM_TYPES and _is_visible_mechanism(row)
         ]
     thread_rows = [_mapping(item) for item in investigation_threads]
     action_rows = [_mapping(item) for item in investigation_actions]
@@ -447,12 +810,12 @@ def deep_analysis_metrics(
         )
     document_mechanisms = [
         row for row in _rows(document)
-        if row.get("type") in {"mechanism_candidate", "security_finding", "analytical_claim"}
+        if row.get("type") in _REPORT_MECHANISM_TYPES and _is_visible_mechanism(row)
     ]
     candidate_count = sum(
         1 for row in document_mechanisms
-        if row.get("type") == "mechanism_candidate"
-        and str(row.get("status", "")).upper() not in {"VERIFIED", "SUPPORTED", "CONFIRMED"}
+        if str(row.get("status", row.get("verdict", ""))).upper()
+        not in _CLOSED_STATUSES
     )
     quality = report_depth_score(document)
     critic = critic_pass(document)
@@ -496,7 +859,7 @@ def deep_analysis_metrics(
     critical_ready_count = sum(
         1 for row in critical_rows
         if str(row.get("status", row.get("verdict", ""))).upper() in _CLOSED_STATUSES
-        and mechanism_is_critical_ready(row)
+        and inspect_mechanism_ready(row).critical_ready
     )
     if critical_rows and critical_ready_count / len(critical_rows) < 0.8:
         blockers.append("critical_mechanism_closure")
@@ -508,6 +871,9 @@ def deep_analysis_metrics(
         blockers.append("report_depth")
     if critic["status"] == "BLOCKED":
         blockers.append("critic")
+    s4_orchestration = _s4_orchestration_status(thread_rows, action_rows)
+    if any(row["status"] == "BLOCKED" for row in s4_orchestration):
+        blockers.append("s4_orchestration")
     return {
         "high_value_seed_closure_rate": round(closure, 4),
         "candidate_noise_ratio": round(candidate_noise_ratio, 4),
@@ -548,6 +914,7 @@ def deep_analysis_metrics(
         "readiness_blockers": tuple(dict.fromkeys(blockers)),
         "report_depth": quality,
         "critic": critic,
+        "s4_orchestration": s4_orchestration,
         "readiness": "READY_FOR_REPORT" if not blockers and quality["score"] >= 80 else "BOUNDED_WITH_LIMITATIONS",
         "static_only": True,
     }
@@ -556,6 +923,7 @@ def deep_analysis_metrics(
 __all__ = [
     "NO_NEW_EVIDENCE_CATEGORIES",
     "action_is_productive",
+    "apply_adversarial_downgrades",
     "critic_pass",
     "deep_analysis_metrics",
     "no_new_evidence_autopsy",

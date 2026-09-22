@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import io
+import os
 import zipfile
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
 import logging
+import sys
+import threading
 import time
+import traceback
 from typing import Annotated, Literal
 
 from fastapi import (
@@ -24,10 +28,11 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from sqlalchemy import text
 
 from threat_report_agent.config import Settings
+from threat_report_agent.investigation import normalize_target_selector
 from threat_report_agent.auth import require_permission, AuthAdapter
 from threat_report_agent.contracts import BackgroundContextInput
 from threat_report_agent.content_store import LocalContentStore, S3ContentStore
@@ -174,6 +179,10 @@ class WorkbenchStartAnalysisRequest(BaseModel):
     selected_modules: list[str] | None = None
 
 
+class WorkbenchAnalysisIntentRequest(BaseModel):
+    question: str = Field(default="", max_length=1000)
+
+
 class WorkbenchBindAnalysisRequest(BaseModel):
     task_id: str = Field(min_length=1, max_length=36)
 
@@ -192,15 +201,88 @@ class EvidenceQueryRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
 
 
+_FAILURE_INTERPRETATION_TOKENS = ("NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "UNKNOWN")
+
+
+def _coerce_failure_interpretation(raw: object) -> tuple[str, str]:
+    """Map DSH prose onto the catalog token; leftover text belongs in failure_meaning."""
+    text = str(raw or "").strip()
+    if text in _FAILURE_INTERPRETATION_TOKENS:
+        return text, ""
+    folded = text.upper().replace("-", "_")
+    token = "UNKNOWN"
+    for candidate in ("NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "UNKNOWN"):
+        if candidate in folded.replace(" ", "_") or candidate in text.upper():
+            token = candidate
+            break
+    leftover = text if text != token else ""
+    return token, leftover
+
+
 class WorkbenchActionRequest(BaseModel):
     action_type: str = Field(min_length=1, max_length=64)
     target_artifact_id: str = Field(min_length=1, max_length=36)
     hypothesis_id: str | None = Field(default=None, max_length=120)
     reason: str = Field(min_length=1, max_length=2000)
+    # Model-origin actions must carry this plan-first contract through the
+    # Workbench API. Human queries may omit it and remain evidence-only.
+    question: str = Field(default="", max_length=1200)
+    hypothesis: str = Field(default="", max_length=1200)
+    alternatives: list[str] = Field(default_factory=list, max_length=8)
+    missing_evidence: list[str] = Field(default_factory=list, max_length=16)
+    failure_meaning: str = Field(default="", max_length=1200)
     target_selector: dict[str, str | int]
     expected_evidence_kinds: list[str] = Field(min_length=1, max_length=32)
     success_condition: str = Field(default="new_targeted_evidence", min_length=1, max_length=160)
     failure_interpretation: Literal["UNKNOWN", "NO_NEW_EVIDENCE", "STATIC_BOUNDARY"] = "UNKNOWN"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_prose_failure_interpretation(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        updated = dict(data)
+        raw = updated.get("failure_interpretation")
+        if raw not in (None, *_FAILURE_INTERPRETATION_TOKENS):
+            token, leftover = _coerce_failure_interpretation(raw)
+            updated["failure_interpretation"] = token
+            meaning = str(updated.get("failure_meaning") or "").strip()
+            extra = leftover.strip()
+            if extra and extra not in {token, meaning}:
+                updated["failure_meaning"] = (f"{meaning}; {extra}" if meaning else extra)[:1200]
+        success = updated.get("success_condition")
+        if isinstance(success, str) and len(success) > 160:
+            leftover_success = success[160:].strip()
+            updated["success_condition"] = success[:160]
+            if leftover_success:
+                meaning = str(updated.get("failure_meaning") or "").strip()
+                if leftover_success not in meaning:
+                    updated["failure_meaning"] = (
+                        f"{meaning}; {leftover_success}" if meaning else leftover_success
+                    )[:1200]
+        selector = updated.get("target_selector")
+        if isinstance(selector, dict):
+            updated["target_selector"] = normalize_target_selector(selector)
+        return updated
+    # Model/Workbench provenance is audit metadata only.  The backend still
+    # validates the catalog, target and evidence scope before execution.
+    evidence_ids: list[str] = Field(default_factory=list, max_length=32)
+    origin: Literal["model", "deterministic_fallback", "human"] | None = None
+    planner_turn_id: str | None = Field(default=None, max_length=200)
+    model_call_id: str | None = Field(default=None, max_length=160)
+    model_run_id: str | None = Field(default=None, max_length=160)
+    model_provider: str | None = Field(default=None, max_length=120)
+    model_name: str | None = Field(default=None, max_length=160)
+    # OpenAI-compatible gateways conventionally call these fields provider
+    # and model; accept both spellings at the Workbench boundary.
+    provider: str | None = Field(default=None, max_length=120)
+    model: str | None = Field(default=None, max_length=160)
+    prompt_sha256: str | None = Field(default=None, max_length=64)
+    profile_digest: str | None = Field(default=None, max_length=64)
+    policy_digest: str | None = Field(default=None, max_length=64)
+    action_validation_digest: str | None = Field(default=None, max_length=64)
+    action_validation: dict[str, object] = Field(default_factory=dict)
+    model_provenance: dict[str, object] = Field(default_factory=dict)
 
 
 class WorkbenchCurrentEvidenceRequest(BaseModel):
@@ -208,6 +290,22 @@ class WorkbenchCurrentEvidenceRequest(BaseModel):
     module: str | None = Field(default=None, max_length=120)
     artifact_id: str | None = Field(default=None, max_length=36)
     limit: int = Field(default=100, ge=1, le=500)
+    filter_text: str | None = Field(
+        default=None,
+        max_length=120,
+        description=(
+            "Match stored evidence whose anchor or value carries this text. Use a "
+            "function entry (0x140038ae0 / FUN_140038ae0) or an address to drill into "
+            "one function instead of paging a flat list."
+        ),
+    )
+
+
+class WorkbenchReportFileRequest(BaseModel):
+    """One bounded report write: a flat markdown file name and its content."""
+
+    filename: str = Field(min_length=1, max_length=200)
+    markdown: str = Field(min_length=1, max_length=400000)
 
 
 class WorkbenchModelRequest(BaseModel):
@@ -327,8 +425,49 @@ def _package_uploads(
     return "batch-submission.zip", output.getvalue(), "zip"
 
 
+def _enable_stack_dump_on_signal() -> None:
+    """Let an operator dump every Python thread's stack without ptrace or a restart.
+
+    Why this exists. A run stalled at 7,332 evidence rows with one API thread in state `R` burning
+    100% CPU and the GIL held for minutes, so nothing else in the process - including the HTTP event
+    loop - could make progress. Diagnosing it the normal way was impossible in this deployment:
+
+      * `py-spy` needs `CAP_SYS_PTRACE`, which the API container does not carry (`Permission denied`
+        on `process_vm_readv`), and adding it means recreating the container, which kills the very run
+        being profiled;
+      * `/proc/1/task/*/stat` showed WHICH thread was hot but not what it was executing, and the
+        thread's `wchan` was `0`, i.e. running in userspace;
+      * a throwaway profiler container could not be pulled because this host has no Docker Hub egress.
+
+    `faulthandler` needs no privileges at all: it is stdlib, it installs a signal handler, and on that
+    signal it writes the traceback of EVERY thread to stderr, which the container log already keeps.
+    That turns "one thread is spinning somewhere in 250k lines of code" into a named file and line.
+
+    `SIGUSR1` is used rather than `SIGABRT` because aborting the process would destroy the run; the
+    dump is additive. Enable with `THREAT_STACK_DUMP=1` (or leave it off and lose nothing - the cost
+    when enabled is one signal handler).
+
+        docker kill -s USR1 threat-report-agent-api-1
+        docker logs threat-report-agent-api-1 --tail 200
+    """
+    import faulthandler  # noqa: PLC0415 - only needed when the operator opts in
+    import signal  # noqa: PLC0415
+
+    if str(os.getenv("THREAT_STACK_DUMP", "")).strip().casefold() not in {"1", "true", "yes", "on"}:
+        return
+    try:
+        faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+    except (AttributeError, ValueError, OSError):
+        # A platform without SIGUSR1 (Windows) loses the facility, not the service.
+        return
+    logging.getLogger("threat_report_agent.operational").info(
+        "stack dump armed: send SIGUSR1 to dump all thread stacks to stderr"
+    )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or Settings.from_environment()
+    _enable_stack_dump_on_signal()
     database = Database(app_settings.database_url)
     content_store = (
         S3ContentStore(
@@ -351,6 +490,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI):
         database.create_schema()
         analysis_service.reload_model_configuration()
+        # Analysis runs as in-process BackgroundTasks, so a restart silently ends
+        # any run that was in flight and leaves its row RUNNING forever.  At this
+        # point we are by definition the only process and own no in-flight work,
+        # so every RUNNING/FINALIZING row is orphaned.  Fail them through the
+        # normal failure contract; the retry machinery then decides what may run
+        # again.  Without this the workbench waits on a session that can never
+        # complete.
+        try:
+            reconciled = analysis_service.reconcile_orphaned_analysis_runs()
+        except Exception:  # noqa: BLE001 - startup must not be blocked by this
+            operational_logger.exception("orphaned analysis run reconciliation failed")
+        else:
+            if reconciled:
+                operational_logger.warning(
+                    "reconciled orphaned analysis runs",
+                    extra={"task_ids": reconciled},
+                )
         try:
             yield
         finally:
@@ -370,6 +526,87 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="Evidence-backed static malware analysis control plane.",
         lifespan=lifespan,
     )
+
+    @app.get("/internal/thread-stacks", tags=["internal"])
+    def internal_thread_stacks(samples: int = 1) -> dict[str, object]:
+        """Live Python stacks for every thread, for runaway-loop diagnosis.
+
+        Added because a real sample drove the API to 99.9% CPU on one pure-Python
+        thread while the database received no writes for many minutes, and there
+        was no way to see where the time went: no debugger, no profiler, and
+        ``py-spy`` cannot read ``/proc/1/root`` in this deployment.  Sampling the
+        running process is the only diagnostic that does not require guessing from
+        table counts, and it is reusable for every future "it hangs" report.
+
+        Read-only and stdlib-only (``sys._current_frames``), but it exposes source
+        paths and line numbers, so callers must pass the same permission gate as
+        other diagnostic surfaces.
+
+        Pass ``samples`` > 1 to aggregate: each sample attributes one hit to every
+        frame in the stack, so the deepest frame with a large count is where the
+        time actually goes.  That is what turns "it hangs" into a line number.
+        """
+
+        def collect() -> list[dict[str, object]]:
+            frames = sys._current_frames()
+            snapshot = []
+            for thread in threading.enumerate():
+                frame = frames.get(thread.ident)
+                stack = (
+                    [
+                        f"{item.filename}:{item.lineno} in {item.name}"
+                        for item in traceback.extract_stack(frame)
+                    ]
+                    if frame is not None
+                    else []
+                )
+                snapshot.append(
+                    {
+                        "name": thread.name,
+                        "ident": thread.ident,
+                        "daemon": thread.daemon,
+                        "alive": thread.is_alive(),
+                        "depth": len(stack),
+                        "stack": stack[-40:],
+                    }
+                )
+            return snapshot
+
+        import collections
+
+        totals: collections.Counter[str] = collections.Counter()
+        busiest: dict[str, object] = {}
+        # Frames belonging to this endpoint and to threads parked in a long-poll
+        # wait are noise: the first version of this probe reported its own
+        # `collect()` as a top frame and `workbench_wait_for_analysis_update` as the
+        # hottest function, which is the request that is *waiting*, not working.
+        ignored_paths = ("/main.py", "/starlette/", "/anyio/", "/uvicorn/")
+        ignored_names = {"collect", "internal_thread_stacks", "workbench_wait_for_analysis_update"}
+        for _ in range(max(1, min(samples, 200))):
+            for thread in collect():
+                # Only worker threads executing Python can be in a compute loop;
+                # the event loop's idle poll would otherwise dominate the counts.
+                if thread["name"] in {"MainThread"} or not thread["stack"]:
+                    continue
+                frames = [
+                    frame
+                    for frame in thread["stack"]
+                    if not any(path in frame for path in ignored_paths)
+                    and frame.rsplit(" in ", 1)[-1] not in ignored_names
+                ]
+                if frames:
+                    totals[frames[-1]] += 1
+                    busiest = thread
+            if samples > 1:
+                time.sleep(0.01)
+        return {
+            "threads": collect(),
+            "samples": samples,
+            "hottest_frame": totals.most_common(20),
+            "busiest_thread": busiest,
+        }
+
+
     # The product workbench is served by DSH on port 3080 and uses the
     # same bounded backend API for upload and evidence projections. Keep the
     # allow-list explicit; arbitrary origins must not gain access to cases.
@@ -380,7 +617,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "http://localhost:3080",
         ],
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "OPTIONS"],
         # Session identity is injected by the DSH host and is required on
         # every task/artifact projection request.  It must be explicitly
         # allowed here because the workbench is served from port 3080 while
@@ -547,6 +784,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         require_permission(request, "task:read")
         return _service(request).workbench_capabilities()
 
+    @app.get("/api/v1/workbench/analysis-planner-model", tags=["workbench", "model"])
+    def workbench_analysis_planner_model(request: Request) -> dict[str, object]:
+        require_permission(request, "task:read")
+        return _service(request).workbench_analysis_planner_model_view()
+
     @app.get(
         "/api/v1/workbench/sessions/{dsh_session_id}/analysis-context",
         tags=["workbench", "context"],
@@ -689,6 +931,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.post(
+        "/api/v1/workbench/sessions/{dsh_session_id}/analysis/intent",
+        tags=["workbench", "analysis"],
+    )
+    def dispatch_workbench_analysis_intent(
+        dsh_session_id: str,
+        payload: WorkbenchAnalysisIntentRequest,
+        request: Request,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, object]:
+        principal = require_permission(request, "task:submit")
+        try:
+            result = _service(request).workbench_dispatch_analysis_intent(
+                dsh_session_id,
+                question=payload.question,
+                actor=principal.subject,
+            )
+            if result.get("created") and result.get("task_id"):
+                background_tasks.add_task(
+                    _service(request).execute_submission_task,
+                    task_id=str(result["task_id"]),
+                    actor=principal.subject,
+                )
+            return result
+        except LookupError as exc:
+            raise _not_found(exc) from exc
+        except ContextMismatchError as exc:
+            raise HTTPException(status_code=403, detail={"code": exc.code, "message": str(exc)}) from exc
+        except ValueError as exc:
+            status = 409 if str(exc).startswith("NO_ACTIVE_ANALYSIS") else 422
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
+
     @app.get(
         "/api/v1/workbench/sessions/{dsh_session_id}/analysis/status",
         tags=["workbench", "analysis"],
@@ -708,7 +982,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dsh_session_id: str,
         request: Request,
         after_seq: int = 0,
-        timeout_seconds: int = 30,
+        timeout_seconds: int = 180,
     ) -> dict[str, object]:
         """Wait for a state/event change without replaying full task context."""
         require_permission(request, "task:read")
@@ -760,6 +1034,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 module=payload.module,
                 artifact_id=payload.artifact_id,
                 limit=payload.limit,
+                filter_text=payload.filter_text,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -801,6 +1076,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 actor=principal.subject,
                 discard_staged=bool(payload and payload.discard_staged),
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/v1/workbench/sessions/{dsh_session_id}/report/analyst-draft",
+        status_code=201,
+        tags=["workbench", "reports"],
+    )
+    def workbench_submit_analyst_draft(
+        dsh_session_id: str,
+        request: Request,
+        payload: ReportEditRequest = Body(),
+    ) -> dict[str, object]:
+        """Agent-authored narrative for the session's bound task.
+
+        Session-scoped because the DSH client only permits ``/api/v1/workbench/``
+        paths.  The narrative is admitted only through 报告合成门 (ADR-0036); a
+        422 lists the violations so the agent can revise.
+        """
+        principal = require_permission(request, "report:edit")
+        try:
+            return _service(request).workbench_submit_analyst_draft(
+                dsh_session_id,
+                payload.markdown,
+                actor=principal.subject,
+            )
+        except LookupError as exc:
+            raise _not_found(exc) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/v1/workbench/sessions/{dsh_session_id}/report/file",
+        status_code=201,
+        tags=["workbench", "reports"],
+    )
+    def workbench_write_report_file(
+        dsh_session_id: str,
+        request: Request,
+        payload: WorkbenchReportFileRequest,
+    ) -> dict[str, object]:
+        """Write the agent's report document into the deployment's report root.
+
+        The analyst deliverable is a file; this is the one bounded write the
+        product exposes, because the host bundle disables DSH's own file tools
+        and they could not be re-enabled from a preset.
+        """
+        principal = require_permission(request, "report:edit")
+        try:
+            return _service(request).workbench_write_report_file(
+                dsh_session_id,
+                filename=payload.filename,
+                markdown=payload.markdown,
+                actor=principal.subject,
+            )
+        except LookupError as exc:
+            raise _not_found(exc) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1273,6 +1605,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.post(
+        "/api/v1/tasks/{task_id}/tool-runs/{tool_run_id}/cancel",
+        tags=["analysis"],
+    )
+    def cancel_tool_run(
+        task_id: str,
+        tool_run_id: str,
+        request: Request,
+    ) -> dict[str, object]:
+        principal = require_permission(request, "task:submit")
+        try:
+            return _service(request).cancel_tool_run(
+                task_id,
+                tool_run_id,
+                actor=principal.subject,
+            )
+        except LookupError as exc:
+            raise _not_found(exc) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.post("/api/v1/gates/{gate_id}/decision", tags=["analysis"])
     def decide_gate(
         gate_id: str,
@@ -1435,6 +1788,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 revision_id,
                 payload.markdown,
                 principal.subject,
+            )
+        except LookupError as exc:
+            raise _not_found(exc) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/v1/reports/{revision_id}/analyst-draft",
+        status_code=201,
+        tags=["reports"],
+    )
+    def submit_analyst_draft(
+        revision_id: str,
+        request: Request,
+        payload: ReportEditRequest = Body(),
+    ) -> dict[str, object]:
+        """Agent-authored narrative, admitted only through 报告合成门 (ADR-0036).
+
+        422 carries the gate violations, so the caller can see exactly which fact
+        it introduced that the deterministic fragments do not contain.
+        """
+        principal = require_permission(request, "report:edit")
+        try:
+            return _service(request).submit_analyst_draft(
+                revision_id,
+                payload.markdown,
+                actor=principal.subject,
             )
         except LookupError as exc:
             raise _not_found(exc) from exc

@@ -82,13 +82,20 @@ export class ThreatApiClient {
     })
   }
 
+  dispatchAnalysisIntent(sessionId: string, question: string): Promise<Record<string, unknown>> {
+    return this.request(`/api/v1/workbench/sessions/${encodeURIComponent(sessionId)}/analysis/intent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    })
+  }
+
   analysisStatus(sessionId: string): Promise<Record<string, unknown>> {
     return this.request(`/api/v1/workbench/sessions/${encodeURIComponent(sessionId)}/analysis/status`)
   }
 
-  waitForAnalysisUpdate(sessionId: string, afterSeq = 0, timeoutSeconds = 30): Promise<Record<string, unknown>> {
-    const params = new URLSearchParams({ after_seq: String(Math.max(0, afterSeq)), timeout_seconds: String(Math.min(30, Math.max(0, timeoutSeconds))) })
-    return this.request(`/api/v1/workbench/sessions/${encodeURIComponent(sessionId)}/analysis/wait?${params}`)
+  waitForAnalysisUpdate(sessionId: string, afterSeq = 0, timeoutSeconds = 120): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams({ after_seq: String(Math.max(0, afterSeq)), timeout_seconds: String(Math.min(180, Math.max(0, timeoutSeconds))) })
+    return this.request(`/api/v1/workbench/sessions/${encodeURIComponent(sessionId)}/analysis/wait?${params}`, this.scopedInit(sessionId))
   }
 
   proposeStaticAction(sessionId: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -97,10 +104,25 @@ export class ThreatApiClient {
     })
   }
 
-  currentEvidence(sessionId: string, filters: { kind?: string; module?: string; artifactId?: string; limit?: number } = {}): Promise<Record<string, unknown>> {
+  currentEvidence(sessionId: string, filters: { kind?: string; module?: string; artifactId?: string; limit?: number; filterText?: string } = {}): Promise<Record<string, unknown>> {
     return this.request(`/api/v1/workbench/sessions/${encodeURIComponent(sessionId)}/evidence/query`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: filters.kind, module: filters.module, artifact_id: filters.artifactId, limit: filters.limit ?? 100 }),
+      body: JSON.stringify({ kind: filters.kind, module: filters.module, artifact_id: filters.artifactId, limit: filters.limit ?? 100, filter_text: filters.filterText }),
+    })
+  }
+
+  /**
+   * Write the analyst report document into the deployment's report root.
+   *
+   * The deliverable is a file, so the agent writes one; the chat reply carries
+   * only a summary. Bounded by the backend to a flat markdown file name under a
+   * dedicated writable mount -- the sample workspace stays read-only.
+   */
+  async writeReportFile(sessionId: string, filename: string, markdown: string): Promise<Record<string, unknown>> {
+    return this.request(`/api/v1/workbench/sessions/${encodeURIComponent(sessionId)}/report/file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, markdown }),
     })
   }
 
@@ -138,6 +160,28 @@ export class ThreatApiClient {
 
   report(taskId: string, sessionId?: string): Promise<Record<string, unknown>> {
     return this.request(`/api/v1/workbench/tasks/${encodeURIComponent(taskId)}/report`, this.scopedInit(sessionId))
+  }
+
+  /**
+   * Submit an agent-authored analyst narrative for the session's bound task.
+   *
+   * Session-scoped on purpose: this client refuses any path outside
+   * ``/api/v1/workbench/``, and the backend admits the narrative only through
+   * 报告合成门 (ADR-0036) -- it may reorganise and explain the recovered facts
+   * but may not introduce an endpoint, IPv4, process image or creation-flags
+   * value the deterministic fragments do not contain.  A rejection surfaces as
+   * a thrown error whose message carries the gate violations, so the agent can
+   * revise rather than believe it published.
+   */
+  async submitAnalystDraft(sessionId: string, markdown: string): Promise<Record<string, unknown>> {
+    return this.request(
+      `/api/v1/workbench/sessions/${encodeURIComponent(sessionId)}/report/analyst-draft`,
+      this.scopedInit(sessionId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markdown }),
+      }),
+    )
   }
 
   action(actionId: string, sessionId?: string): Promise<Record<string, unknown>> {

@@ -28,6 +28,11 @@ x-static-worker-environment: &static-worker-environment
   TEMPORAL_ADDRESS: temporal:7233
   HOME: /tmp
   TMPDIR: /tmp
+  SIMULATION_PROFILE: static-first-controlled-emulation
+  SIMULATION_WORKER_IDENTITY: controlled-emu-worker-v1
+  SIMULATION_WORKER_IMAGE_DIGEST: sha256:emu-worker-v1
+  SIMULATION_ALLOWED_SIMULATORS: unicorn,speakeasy,qiling
+  SIMULATION_ALLOW_LOCAL_PROCESS: "false"
 
 services:
   api:
@@ -37,6 +42,23 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-threat_agent}:${POSTGRES_PASSWORD:-change-this-before-deployment}@postgres:5432/${POSTGRES_DB:-threat_agent}
+      # Armed by default: a run that stalls with the GIL held cannot be diagnosed from outside the
+      # container, because py-spy needs CAP_SYS_PTRACE (which these containers deliberately do not
+      # carry) and adding it means recreating the container, killing the run being profiled.
+      # `faulthandler` needs no privilege: `docker kill -s USR1 <container>` then writes every Python
+      # thread's stack to the container log.  Measured need: a 1 MB PE stalled at 7,332 evidence rows
+      # with one thread at 100% CPU for 325 s, one repeating instruction pointer and zero syscalls -
+      # a userspace loop holding the GIL - and no way to name the frame that was spinning.
+      THREAT_STACK_DUMP: ${THREAT_STACK_DUMP:-1}
+      # Bounded glibc malloc arenas.  Measured on a live API process: RSS 2,411 MiB of which
+      # `Pss_Anon` was 2,382 MiB and `[heap]` only 104 MiB, across 26 threads - and the Python side was
+      # tiny (`gc.get_objects()` held 64,253 objects; all three identity-memo caches were EMPTY). So the
+      # footprint is per-thread arena retention, not Python objects: glibc creates up to 8 x ncores
+      # arenas of 64 MiB each and does not return them to the OS eagerly.
+      #
+      # The value is a ceiling on RSS growth, not a fix for the SIGSEGV seen once at 97,806 evidence
+      # rows - that crash is unfixed and this does not claim to fix it.
+      MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-2}
       GATE_SECRET_KEY: ${GATE_SECRET_KEY:-change-this-before-deployment}
       CONTENT_STORE_PATH: /var/lib/threat-agent/content
       CONTENT_STORE_BACKEND: s3
@@ -55,12 +77,23 @@ services:
       SCRIPT_TASK_QUEUE: ${SCRIPT_TASK_QUEUE:-static-script}
       DOCUMENT_TASK_QUEUE: ${DOCUMENT_TASK_QUEUE:-static-document}
       GHIDRA_TASK_QUEUE: ${GHIDRA_TASK_QUEUE:-static-ghidra}
+      EMU_TASK_QUEUE: ${EMU_TASK_QUEUE:-static-emu}
       WORKBENCH_WORKSPACE_ROOT: ${WORKBENCH_WORKSPACE_ROOT:-/workspace}
+      SIMULATION_PROFILE: static-first-controlled-emulation
+      SIMULATION_WORKER_IDENTITY: controlled-emu-worker-v1
+      SIMULATION_WORKER_IMAGE_DIGEST: sha256:emu-worker-v1
+      SIMULATION_ALLOWED_SIMULATORS: unicorn,speakeasy,qiling
+      SIMULATION_ALLOW_LOCAL_PROCESS: "false"
     ports:
       - "8000:8000"
     volumes:
       - content-data:/var/lib/threat-agent/content
       - ${WORKBENCH_WORKSPACE_HOST_ROOT:-./workspace}:/workspace:ro
+      # Writable report root: the agent's analyst deliverable is a markdown file
+      # on the host. The sample workspace above stays read-only; this is the only
+      # path the product lets an agent write, and the service confines it to a
+      # flat basename under this root.
+      - ${WORKBENCH_REPORTS_HOST_ROOT:-./reports}:/reports:rw
     depends_on:
       postgres:
         condition: service_healthy
@@ -206,6 +239,52 @@ services:
       - ALL
     pids_limit: 256
     mem_limit: 4g
+    cpus: 2.0
+    networks:
+      - control-plane
+
+  emu-worker:
+    image: threat-report-agent-emu-worker
+    build:
+      context: .
+      dockerfile: tool-worker/Dockerfile.emu
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-threat_agent}:${POSTGRES_PASSWORD:-change-this-before-deployment}@postgres:5432/${POSTGRES_DB:-threat_agent}
+      GATE_SECRET_KEY: ${GATE_SECRET_KEY:-change-this-before-deployment}
+      TEMPORAL_ADDRESS: temporal:7233
+      TOOL_TASK_QUEUE: ${EMU_TASK_QUEUE:-static-emu}
+      TOOL_ALLOWED_TOOLS: controlled-emulator
+      CONTENT_STORE_BACKEND: s3
+      OBJECT_STORE_ENDPOINT: http://minio:9000
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-analysis-content}
+      OBJECT_STORE_ACCESS_KEY: ${MINIO_ROOT_USER:-threat_agent}
+      OBJECT_STORE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-this-before-deployment}
+      SIMULATION_PROFILE: static-first-controlled-emulation
+      SIMULATION_WORKER_IDENTITY: controlled-emu-worker-v1
+      SIMULATION_WORKER_IMAGE_DIGEST: sha256:emu-worker-v1
+      SIMULATION_ALLOWED_SIMULATORS: unicorn,speakeasy,qiling
+      SIMULATION_ALLOW_LOCAL_PROCESS: "false"
+      SIMULATION_QILING_ROOTFS: /opt/qiling-rootfs
+      QILING_PYTHON: /opt/qiling-venv/bin/python
+      QILING_LINUX_RUNNER: /opt/qiling_linux_runner.py
+      HOME: /tmp
+      TMPDIR: /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=1G,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 2g
     cpus: 2.0
     networks:
       - control-plane

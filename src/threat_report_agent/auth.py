@@ -175,7 +175,15 @@ class AuthAdapter:
             raise ValueError("JWT key id is required")
         now = time.time()
         if self._jwks_cache is None or self._jwks_cache[0] <= now:
-            response = httpx.get(self.jwks_url, timeout=10.0)
+            # trust_env=False because httpx reads proxy configuration in
+            # Client.__init__ and raises before any request exists.  This host sets
+            # NO_PROXY=localhost,127.0.0.1,::1,[::1]; httpx turns the bracketed
+            # entry into the mount key `all://*[::1]`, fails to parse it, and dies
+            # with InvalidURL("Invalid port: ':1]'").  InvalidURL is not an
+            # httpx.HTTPError, so it escaped the handler below and surfaced as a
+            # 500 instead of a clean auth failure.  A JWKS endpoint is fetched
+            # directly and must not be routed through an interception proxy.
+            response = httpx.get(self.jwks_url, timeout=10.0, trust_env=False)
             response.raise_for_status()
             payload = response.json()
             if not isinstance(payload, dict):

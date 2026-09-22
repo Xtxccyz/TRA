@@ -1,5 +1,12 @@
 declare module '@deepseek-ai/cordis' {
-  export interface Context { tools: { register(value: unknown): unknown } }
+  export interface Context {
+    tools: { register(value: unknown): unknown }
+    inject(dependencies: readonly string[], callback: (context: Context) => unknown): unknown
+    on(name: string, listener: (...args: unknown[]) => unknown, options?: Record<string, unknown>): unknown
+    systemPrompt: {
+      context(value: { name: string; order: number; text: (context: unknown) => string }): unknown
+    }
+  }
 }
 
 declare module '@deepseek-ai/dsh-session' {

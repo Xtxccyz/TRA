@@ -196,6 +196,9 @@ def test_static_decode_materializes_non_executable_child_artifact(test_settings)
     children = [item for item in task["artifacts"] if item["role"] == "DECODED_PAYLOAD"]
     assert children
     assert children[0]["parent_artifact_id"] == task["artifacts"][0]["id"]
+    # Opaque decoded bytes remain in the static queue, but do not create a
+    # false deep-disassembly failure for the parent task.
+    assert children[0]["obligation"] == "SUPPORTING"
     assert any(item["kind"] == "decoded_artifact" for item in task["evidence"])
 
 

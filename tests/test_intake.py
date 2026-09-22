@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import zipfile
 
+import py7zr
 import pytest
 
 from threat_report_agent.intake import IntakeGateRequired, expand_directory, expand_submission
@@ -20,6 +21,22 @@ def make_nested_zip() -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("inner.zip", inner)
+    return output.getvalue()
+
+
+def make_7z(path: str, content: bytes, *, password: str | None = None) -> bytes:
+    output = io.BytesIO()
+    with py7zr.SevenZipFile(
+        output,
+        "w",
+        # Keep the in-memory fixture deterministic on constrained CI/worker
+        # hosts.  py7zr's default preset is tuned for large archives and can
+        # allocate hundreds of megabytes even for this tiny test payload.
+        filters=[{"id": py7zr.FILTER_LZMA2, "preset": 0}],
+        password=password,
+        header_encryption=bool(password),
+    ) as archive:
+        archive.writestr(content, path)
     return output.getvalue()
 
 
@@ -68,6 +85,58 @@ def test_zip_path_traversal_requires_input_gate() -> None:
             max_bytes=1024 * 1024,
             max_depth=2,
         )
+
+
+def test_7z_expands_through_the_same_bounded_static_intake_path() -> None:
+    content = make_7z("nested/stage.py", b"import socket\n")
+
+    entries = expand_submission(
+        "bundle.7z",
+        content,
+        max_files=10,
+        max_bytes=1024 * 1024,
+        max_depth=2,
+    )
+
+    assert [entry.logical_path for entry in entries] == [
+        "bundle.7z",
+        "bundle.7z!/nested/stage.py",
+    ]
+    assert entries[0].is_container is True
+    assert entries[1].content == b"import socket\n"
+
+
+def test_encrypted_7z_requires_the_existing_input_gate_password() -> None:
+    content = make_7z("payload.bin", b"static bytes", password="unit-secret")
+
+    with pytest.raises(IntakeGateRequired, match="requires a password"):
+        expand_submission(
+            "bundle.7z",
+            content,
+            max_files=10,
+            max_bytes=1024 * 1024,
+            max_depth=2,
+        )
+
+    with pytest.raises(IntakeGateRequired, match="password was rejected"):
+        expand_submission(
+            "bundle.7z",
+            content,
+            max_files=10,
+            max_bytes=1024 * 1024,
+            max_depth=2,
+            archive_password="wrong",
+        )
+
+    entries = expand_submission(
+        "bundle.7z",
+        content,
+        max_files=10,
+        max_bytes=1024 * 1024,
+        max_depth=2,
+        archive_password="unit-secret",
+    )
+    assert entries[-1].content == b"static bytes"
 
 
 def test_corrupt_deflate_zip_requires_input_gate() -> None:

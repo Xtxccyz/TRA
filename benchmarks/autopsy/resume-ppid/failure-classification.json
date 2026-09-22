@@ -1,0 +1,1 @@
+{"run_status":"BLOCKED_REAL_RUN","root_cause":"TOOL_RESULT_FAILURE","secondary_causes":["clean_product_environment_unavailable"],"evidence":"docker info cannot connect to dockerDesktopLinuxEngine"}

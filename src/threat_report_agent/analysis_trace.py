@@ -257,6 +257,7 @@ def _compact_model_call(row: Mapping[str, Any]) -> dict[str, Any]:
         "phase",
         "provider",
         "model",
+        "origin",
         "attempt",
         "status",
         "error_type",
@@ -288,6 +289,7 @@ def _compact_model_call(row: Mapping[str, Any]) -> dict[str, Any]:
             "error_detail",
             "context_evidence_count",
             "context_bytes",
+            "origin",
         ):
             if key not in result and parameters.get(key) is not None:
                 result[key] = parameters[key]
@@ -741,6 +743,10 @@ def build_analysis_trace(
                     else [],
                 },
                 "context_policy": raw_investigation.get("context_policy", {}),
+                "action_budget": dict(raw_investigation.get("action_budget", {}))
+                if isinstance(raw_investigation.get("action_budget"), Mapping)
+                else {},
+                "deferred_frontier": list(raw_investigation.get("deferred_frontier", []))[:256],
                 "private_chain_of_thought": False,
             }
 

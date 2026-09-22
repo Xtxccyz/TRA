@@ -3,11 +3,59 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import time
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
+
+
+def _git_output(*args: str) -> str | None:
+    """Return a repository identity value without making acceptance depend on Git."""
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _bind_acceptance_session(
+    client: httpx.Client,
+    task_id: str,
+    session_id: str,
+) -> str:
+    """Create the durable task/session link used by acceptance evidence."""
+    normalized = session_id.strip()
+    if not normalized:
+        raise ValueError("acceptance session id must not be empty")
+    response = client.post(
+        f"/api/v1/workbench/tasks/{task_id}/session",
+        json={"dsh_session_id": normalized, "profile": "threat-static"},
+    )
+    response.raise_for_status()
+    linked = response.json()
+    if not isinstance(linked, dict) or linked.get("dsh_session_id") != normalized:
+        raise ValueError("backend returned an unexpected acceptance session link")
+    return normalized
 
 
 def _wait_for_health(client: httpx.Client, timeout: float = 120.0) -> None:
@@ -42,6 +90,11 @@ def main() -> None:
     # production-shaped run instead of failing while the task is still
     # progressing.
     parser.add_argument("--timeout", type=float, default=600.0)
+    parser.add_argument(
+        "--session-id",
+        default=None,
+        help="bind the run to this DSH session id; otherwise create a unique acceptance session",
+    )
     args = parser.parse_args()
 
     sample = args.sample or Path(__file__).parents[1] / ".data" / "live-acceptance-sample.py"
@@ -69,10 +122,18 @@ def main() -> None:
             )
         submitted.raise_for_status()
         task_id = submitted.json()["task_id"]
+        session_id = _bind_acceptance_session(
+            client,
+            task_id,
+            args.session_id or f"live-acceptance-{uuid4().hex}",
+        )
 
         deadline = time.monotonic() + args.timeout
         while True:
-            task_response = client.get(f"/api/v1/tasks/{task_id}")
+            # The full task view may contain hundreds of megabytes of
+            # evidence.  Poll the bounded status projection and fetch the
+            # ledger exactly once after the workflow reaches a terminal state.
+            task_response = client.get(f"/api/v1/tasks/{task_id}/status")
             task_response.raise_for_status()
             task = task_response.json()
             if task["lifecycle"] in {"SUCCEEDED", "FAILED", "CANCELLED", "WAITING_GATE"}:
@@ -80,6 +141,10 @@ def main() -> None:
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"task {task_id} did not reach a terminal state")
             time.sleep(2)
+
+        full_task_response = client.get(f"/api/v1/tasks/{task_id}")
+        full_task_response.raise_for_status()
+        task = full_task_response.json()
 
         assert task["lifecycle"] == "SUCCEEDED", task
         # A small script can legitimately be PARTIAL/BOUNDED when the static
@@ -142,12 +207,22 @@ def main() -> None:
         result = {
             "schema_version": "live-static-acceptance-v2",
             "status": "PASS",
+            "evidence_level": "L2",
+            "generated_at": datetime.now(UTC).isoformat(),
+            "git_commit": _git_output("rev-parse", "HEAD"),
+            # Match the release gate's immutable checkout identity.  A
+            # writable index tree (``git write-tree``) can include staged
+            # changes that are not part of HEAD and would never certify the
+            # same source revision.
+            "git_tree": _git_output("rev-parse", "HEAD^{tree}"),
             "sample": {
                 "name": sample.name,
                 "size": sample.stat().st_size,
+                "sha256": _sha256(sample),
             },
             "case_id": case_id,
             "task_id": task_id,
+            "session_id": session_id,
             "lifecycle": task["lifecycle"],
             "outcome": task["outcome"],
             "analysis_class": task["analysis_class"],
@@ -178,6 +253,18 @@ def main() -> None:
                 "first_sequence": min(audit_sequences) if audit_sequences else None,
                 "last_sequence": max(audit_sequences) if audit_sequences else None,
                 "integrity_valid": True,
+            },
+            "provenance": {
+                "sample_sha256": _sha256(sample),
+                "case_id": case_id,
+                "task_id": task_id,
+                "session_id": session_id,
+                "event_cursor_range": {
+                    "first": min(audit_sequences) if audit_sequences else None,
+                    "last": max(audit_sequences) if audit_sequences else None,
+                },
+                "metadata_status": "COMPLETE",
+                "missing_fields": [],
             },
             "report": {
                 "revision_id": task["latest_report_revision_id"],

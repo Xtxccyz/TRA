@@ -5,7 +5,7 @@ import pytest
 from threat_report_agent.investigation import mechanism_completeness_score
 from threat_report_agent.investigation import MechanismPlaybookRegistry, verify_dynamic_api_mechanism
 from threat_report_agent.product_certification import AnalysisResultClass, classify_artifact_result
-from threat_report_agent.product_certification import analysis_coverage
+from threat_report_agent.product_certification import analysis_coverage, mechanism_coverage_metrics
 from threat_report_agent.reporting import build_mechanism_projections, document_to_markdown
 from threat_report_agent.service import AnalysisService
 from threat_report_agent.static_analysis import derive_function_mechanism_facts
@@ -79,19 +79,49 @@ def test_unknown_mandatory_fields_do_not_score_as_complete() -> None:
     assert mechanism_completeness_score(mechanism) <= 60
 
 
-def test_navigation_action_is_not_projected_as_side_effect() -> None:
+def test_dynamic_resolution_template_fields_do_not_score_as_concrete() -> None:
+    """Generic resolver/consumer labels must not masquerade as recovered values."""
+    mechanism = {
+        "mechanism_type": "DYNAMIC_API_RESOLUTION",
+        "target": "FUN_14000a2c0@14000a2c0",
+        "inputs": ["module name and exported entry-point name"],
+        "transformation_or_control": ["LoadLibrary -> GetProcAddress"],
+        "conditions": ["static evidence only"],
+        "outputs": ["resolved function pointer"],
+        "consumers": ["indirect call/jump consumer"],
+        "side_effects": ["may hide imports"],
+        "evidence_ids": ["e1", "e2"],
+    }
+    assert mechanism_completeness_score(mechanism) <= 60
+
+
+@pytest.mark.parametrize(
+    "claim_type,action",
+    [
+        ("FUNCTION_REVIEW_PRIORITY", "prioritizes"),
+        ("CROSS_FUNCTION_MECHANISM", "exhibits_cross_function_chain"),
+        ("FALLBACK_CODE_CALL_GRAPH", "contains_rva_level_call_sites"),
+    ],
+)
+def test_navigation_claims_do_not_materialize_as_mechanism_candidates(
+    claim_type: str,
+    action: str,
+) -> None:
+    """Navigation Claims stay auditable without diluting mechanism closure."""
     claim = SimpleNamespace(
-        id="c1",
+        id=f"c-{claim_type}",
+        claim_type=claim_type,
         subject="sample.exe",
-        action="prioritizes",
+        action=action,
         object="function@0x1000",
         mechanism="xref/cfg prominence",
         condition="static evidence only",
         status="CANDIDATE",
     )
-    evidence = {"e1": SimpleNamespace(id="e1", kind="function", value={"name": "f"})}
-    projection = build_mechanism_projections([claim], {"c1": ["e1"]}, evidence)[0]
-    assert "prioritizes" not in projection["side_effects"]
+    evidence = {
+        "e1": SimpleNamespace(id="e1", kind="function", value={"name": "f"})
+    }
+    assert build_mechanism_projections([claim], {claim.id: ["e1"]}, evidence) == []
 
 
 def test_navigation_only_claim_is_not_a_core_finding() -> None:
@@ -162,6 +192,37 @@ def test_semantic_coverage_hard_caps_without_verified_mechanism_or_flow() -> Non
         relation_flow_coverage=0.0,
     )
     assert coverage["score"] <= 60.0
+
+
+def test_verified_mechanism_coverage_is_not_inflated_by_artifact_count() -> None:
+    mechanisms = [
+        {
+            "status": "VERIFIED",
+            "target": "sample.exe",
+            "inputs": ["config"],
+            "transformation_or_control": ["decode"],
+            "outputs": ["payload"],
+            "consumers": ["loader"],
+            "side_effects": ["prepares payload"],
+            "evidence_ids": ["e1", "e2"],
+            "verifier": {"status": "VERIFIED"},
+        },
+        {
+            "status": "CANDIDATE",
+            "target": "sample.exe",
+            "inputs": ["UNKNOWN(input)"],
+            "transformation_or_control": ["UNKNOWN(transformation_or_control)"],
+            "outputs": ["UNKNOWN(output)"],
+            "consumers": ["UNKNOWN(consumer)"],
+            "side_effects": ["UNKNOWN(side_effect)"],
+            "evidence_ids": ["e3"],
+            "verifier": {"status": "CANDIDATE"},
+        },
+    ]
+    metrics = mechanism_coverage_metrics(mechanisms)
+    assert metrics["mechanism_count"] == 2
+    assert metrics["verified_mechanism_count"] == 1
+    assert metrics["verified_mechanism_coverage"] == 0.5
 
 
 def test_empty_static_condition_is_not_semantic_mechanism_condition() -> None:
@@ -246,6 +307,73 @@ def test_dynamic_resolution_verifier_accepts_static_loader_consumer_chain() -> N
     result = verify_dynamic_api_mechanism(evidence)
     assert result.accepted is True
     assert result.status == "VERIFIED"
+
+
+def test_dynamic_resolution_verifier_accepts_provenance_backed_link() -> None:
+    """A derived link is usable only when its cited static rows are present."""
+    evidence = [
+        {
+            "id": "resolver-context",
+            "kind": "function_context",
+            "value": {
+                "name": "FUN_00402000",
+                "entry": "00402000",
+                "call_targets": [
+                    {"target_name": "LoadLibraryA"},
+                    {"target_name": "GetProcAddress"},
+                ],
+                "data_references": [{"target_name": "plugin.dll"}],
+            },
+            "anchor": {"function_entry": "00402000"},
+        },
+        {
+            "id": "pointer-consumer",
+            "kind": "indirect_function_pointer_link",
+            "value": {
+                "resolver": "GetProcAddress",
+                "consumer": "CALL RAX",
+                "indirect": True,
+            },
+            "anchor": {"function_entry": "00402000"},
+        },
+        {
+            "id": "derived-link",
+            "kind": "mechanism_dynamic_api_link",
+            "nature": "STATIC_DERIVED",
+            "value": {
+                "apis": ["getprocaddress", "loadlibrarya"],
+                "module": "dynamically loaded module",
+                "function_pointer": "resolved function pointer",
+                "consumer": ["indirect function-pointer consumer"],
+                "source_evidence_ids": ["resolver-context", "pointer-consumer"],
+            },
+            "anchor": {"function_entry": "00402000"},
+        },
+    ]
+    result = verify_dynamic_api_mechanism(evidence)
+    assert result.accepted is True
+    assert result.status == "VERIFIED"
+
+
+def test_dynamic_resolution_link_without_bridge_is_not_self_authenticating() -> None:
+    """A copied link label cannot satisfy the verifier without its sources."""
+    result = verify_dynamic_api_mechanism(
+        [
+            {
+                "id": "unbacked-link",
+                "kind": "mechanism_dynamic_api_link",
+                "value": {
+                    "apis": ["getprocaddress", "loadlibrarya"],
+                    "module": "dynamically loaded module",
+                    "function_pointer": "resolved function pointer",
+                    "consumer": ["indirect function-pointer consumer"],
+                    "source_evidence_ids": ["missing-source"],
+                },
+                "anchor": {"function_entry": "00402000"},
+            }
+        ]
+    )
+    assert result.accepted is False
 
 
 def test_verified_specialist_fields_are_not_overwritten_by_generic_projection() -> None:

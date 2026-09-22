@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 import hashlib
@@ -49,6 +49,18 @@ with workflow.unsafe.imports_passed_through():
         analyze_bytes,
         identify_format,
     )
+    from threat_report_agent.controlled_emulation import is_placeholder_status
+    from threat_report_agent.emulation_plan import (
+        _as_int_address,
+        controlled_emulation_windows,
+    )
+    from threat_report_agent.simulation_adapters import (
+        IsolatedSimulationRunner,
+        default_simulation_runner,
+        qiling_unavailable_observation,
+        request_for_granted_window,
+        simulation_policy_from_settings,
+    )
 
 
 STATIC_TOOL_ALLOWLIST = frozenset(
@@ -59,6 +71,7 @@ STATIC_TOOL_ALLOWLIST = frozenset(
         "script-parser",
         "document-carrier-parser",
         "ghidra-headless",
+        "controlled-emulator",
     }
 )
 
@@ -168,6 +181,7 @@ class StaticToolRunWorkflow:
                 result = await workflow.execute_activity(
                     "execute_static_tool",
                     execution_request,
+                    schedule_to_start_timeout=timedelta(seconds=30),
                     start_to_close_timeout=timedelta(seconds=validated.max_cpu_seconds + 30),
                     heartbeat_timeout=timedelta(seconds=min(30, validated.max_cpu_seconds)),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -249,6 +263,55 @@ class DailyAuditSealWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
             task_queue=str(payload.get("control_task_queue", "static-control")),
         )
+
+
+def emulation_overall_from_results(
+    results: Iterable[Mapping[str, object]],
+    *,
+    current_overall: str = "FAILED",
+    current_error: str | None = None,
+) -> tuple[str, str | None]:
+    """Kunglao leftover remainder: Unicorn HOW is not Speakeasy poison.
+
+    A Speakeasy/Qiling EXECUTION_ERROR used to set the worker overall FAILED
+    even when a granted Unicorn window SUCCEEDED. One-round reports then
+    listed controlled-emulator FAILED and Unique OS threads as NOT_ATTEMPTED.
+    """
+    rows = [item for item in results if isinstance(item, Mapping)]
+    if not rows:
+        return current_overall or "FAILED", current_error
+    # A row for a window that NEVER RAN says nothing about the run's outcome, so it must not participate in
+    # the aggregation. MEASURED why this filter exists (T1a audit finding F2): the `all(...)` test below
+    # requires every status to be UNSUPPORTED/UNAVAILABLE, so one NOT_EXECUTED row falsified it and a run
+    # whose executed windows were all UNSUPPORTED fell through to `current_overall == "SUCCEEDED"` and
+    # reported FAILED instead. `is_placeholder_status` is the shared definition, so this cannot drift from
+    # the predicate that decides whether a real simulation landed.
+    rows = [item for item in rows if not is_placeholder_status(item.get("status"))]
+    if not rows:
+        return current_overall or "FAILED", current_error
+    statuses = [str(item.get("status") or "").upper() for item in rows]
+    if "CANCELLED" in statuses:
+        return "CANCELLED", current_error or "TOOL_ACTIVITY_CANCELLED"
+
+    def _sim(item: Mapping[str, object]) -> str:
+        return str(item.get("simulator") or "").casefold()
+
+    def _st(item: Mapping[str, object]) -> str:
+        return str(item.get("status") or "").upper()
+
+    unicorn_ok = any(
+        _sim(item) == "unicorn" and _st(item) in {"SUCCEEDED", "PARTIAL"} for item in rows
+    )
+    any_ok = any(_st(item) in {"SUCCEEDED", "PARTIAL"} for item in rows)
+    if unicorn_ok or any_ok:
+        if any(_st(item) == "SUCCEEDED" for item in rows):
+            return "SUCCEEDED", None
+        return "PARTIAL", current_error
+    if statuses and all(item in {"UNSUPPORTED", "UNAVAILABLE"} for item in statuses):
+        return "UNSUPPORTED", current_error
+    if current_overall == "SUCCEEDED":
+        return "FAILED", current_error
+    return current_overall or "FAILED", current_error
 
 
 class StaticToolActivities:
@@ -413,6 +476,8 @@ class StaticToolActivities:
             if request.tool_name == "python-zipfile-safe-reader"
             else "ghidra"
             if request.tool_name == "ghidra-headless"
+            else "emulation"
+            if request.tool_name == "controlled-emulator"
             else "static"
         )
         if not isinstance(decoded, dict) or decoded.get("kind") != expected_kind:
@@ -661,6 +726,16 @@ class StaticToolActivities:
             }
             status = run.status
             error = run.error
+        elif request.tool_name == "controlled-emulator":
+            payload, status, error = self._execute_controlled_emulator(
+                request, content, cancellation_requested
+            )
+            if status == "CANCELLED":
+                return ToolRunResult(
+                    status=status,
+                    error=error,
+                    worker_metadata=self._worker_metadata(request),
+                ).model_dump(mode="json")
         else:
             result = analyze_bytes(content, request.logical_path)
             payload = self._static_result_payload(result)
@@ -668,6 +743,310 @@ class StaticToolActivities:
             error = None
         return self._store_result(
             request, payload, status, error, content_store, worker_metadata=analysis_metadata
+        )
+
+    def _execute_controlled_emulator(
+        self,
+        request: ToolRunRequest,
+        content: bytes,
+        cancellation_requested: Callable[[], bool] | None = None,
+    ) -> tuple[dict[str, object], str, str | None]:
+        """Emulate granted content-store bytes inside this worker process.
+
+        The original sample path is never opened. Explicit ``granted_windows``
+        treat the stored object as the bounded snippet; otherwise windows are
+        sliced from the PE using planner parameters.
+        """
+        if cancellation_requested is not None and cancellation_requested():
+            return (
+                {
+                    "kind": "emulation",
+                    "status": "CANCELLED",
+                    "results": [],
+                    "error": "TOOL_ACTIVITY_CANCELLED",
+                },
+                "CANCELLED",
+                "TOOL_ACTIVITY_CANCELLED",
+            )
+        policy = simulation_policy_from_settings(self.settings)
+        runner = IsolatedSimulationRunner(
+            default_simulation_runner(policy, execute_in_process=True).adapters,
+            policy=policy,
+            execute_in_process=True,
+        )
+        windows: list[dict[str, object]] = []
+        explicit = request.parameters.get("granted_windows")
+
+        # The full-PE plan is built for BOTH branches, not only for the empty-grant one.
+        #
+        # MEASURED why (plan T1a): when `granted_windows` is non-empty the worker used to skip
+        # `controlled_emulation_windows` entirely, so the Speakeasy window the API had ALREADY planned was
+        # never built - and Speakeasy is the only adapter here with Windows API semantics. Measured on the real
+        # Resume run: 20 Unicorn runs, 9 of them "SUCCEEDED", every single one with ZERO api observations,
+        # while Speakeasy was never dispatched once. 白象 escaped only because its bootstrap-trampoline entry
+        # makes the Unicorn window unserializable (`input_bytes=b""`), leaving the grant list empty.
+        #
+        # `content` is the stored artifact in BOTH branches (it comes from
+        # `content_store.read(request.storage_key)` above), so the plan costs nothing extra to build and
+        # nothing has to be inlined into the request - which matters because Temporal rejects payloads over
+        # 2 MiB (measured) while a 4 MiB sample inlined as hex is ~8 MiB.
+        pe_summary: dict[str, object] = {}
+        try:
+            identity = analyze_bytes(content, request.logical_path)
+            pe_raw = identity.summary.get("pe")
+            if isinstance(pe_raw, dict):
+                pe_summary = pe_raw
+        except (AttributeError, TypeError, ValueError, KeyError):
+            pe_summary = {}
+        functions = request.parameters.get("functions")
+        traces = request.parameters.get("traces")
+        allow_speakeasy = bool(request.parameters.get("allow_speakeasy", False)) and (
+            "speakeasy" in policy.allowed_simulators
+        )
+        allow_qiling = "qiling" in {str(item).casefold() for item in policy.allowed_simulators}
+        planned_windows = [
+            dict(item)
+            for item in controlled_emulation_windows(
+                content,
+                pe_summary,
+                functions if isinstance(functions, list) else (),
+                traces if isinstance(traces, list) else (),
+                allow_speakeasy=allow_speakeasy,
+                allow_qiling=allow_qiling,
+                max_windows=8,
+                snippet_length=min(512, policy.max_input_bytes),
+                max_pe_bytes=policy.max_input_bytes,
+            )
+        ]
+
+        # T1's incremental Speakeasy window, kept OUT of the execution budget below.
+        #
+        # R5 requires T1 to be incremental dispatch ("只做增量派发，不改既有窗口"). MEASURED violation this
+        # removes: the window is PREPENDED to `windows`, and the budget then sliced `windows[:4]`, so on every
+        # grant-carrying run the Speakeasy window consumed one of the four slots and grants executed 3 instead
+        # of 4. The literal 4 was unchanged, which is exactly why it was easy to miss - the REACH changed, not
+        # the number. The caller's grants are not T1's to spend.
+        incremental_windows: list[dict[str, object]] = []
+        if isinstance(explicit, list) and explicit:
+            # ALL grants, not `explicit[:4]`. MEASURED defect this removes (T1a audit finding F4c, found by the
+            # test written for the truncation report): slicing here dropped grants 5+ BEFORE they entered
+            # `windows`, so the truncation report below could not see them and they vanished without trace.
+            # The execution budget below still caps what RUNS; the difference is that what does not run is now
+            # recorded.
+            for item in explicit:
+                if not isinstance(item, dict):
+                    continue
+                hex_text = str(item.get("input_hex") or "").replace(" ", "")
+                granted = content
+                if hex_text:
+                    try:
+                        granted = bytes.fromhex(hex_text)
+                    except ValueError:
+                        continue
+                entry = item.get("entry_address", item.get("function_entry", 0x1000000))
+                entry_address = _as_int_address(entry)
+                if entry_address is None:
+                    entry_address = 0x1000000
+                windows.append(
+                    {
+                        "simulator": str(item.get("simulator") or "unicorn"),
+                        "input_bytes": granted,
+                        "entry_address": entry_address,
+                        "architecture": str(item.get("architecture") or "x86_64"),
+                        "anchor": {
+                            "type": "unique_thread_emulation",
+                            "simulator": str(item.get("simulator") or "unicorn"),
+                            "role": str(item.get("role") or "granted_window"),
+                            "function_entry": str(item.get("function_entry") or ""),
+                        },
+                    }
+                )
+            # The full-PE window - and ONLY that one - goes FIRST so the execution budget below cannot drop
+            # it. A Unicorn snippet the budget then excludes is recorded, not silently lost (see the
+            # truncation report after this block).
+            #
+            # Deliberately narrow: an earlier version appended every non-Unicorn planned window, which also
+            # injected the planner's QILING decision row into grant-carrying runs and changed that row's
+            # meaning for them (measured: `test_worker_records_qiling_unsupported_without_rootfs` failed with
+            # `UNSUPPORTED` becoming `NOT_APPLICABLE`). T1a's purpose is to make the full-PE emulator
+            # reachable, not to reshape the plan's other decisions, so the filter names what it wants.
+            incremental_windows = [
+                window
+                for window in planned_windows
+                if str(window.get("simulator") or "").casefold() == "speakeasy"
+            ]
+            windows = incremental_windows + windows
+        else:
+            windows.extend(planned_windows)
+        results: list[dict[str, object]] = []
+        overall = "SUCCEEDED" if windows else "FAILED"
+        error: str | None = None if windows else "NO_GRANTED_WINDOW"
+        if "unicorn" in policy.allowed_simulators and not any(
+            str(item.get("simulator") or "").casefold() == "unicorn" for item in windows
+        ):
+            results.append(
+                {
+                    "status": "FAILED",
+                    "simulator": "unicorn",
+                    "stop_reason": "NO_GRANTED_WINDOW",
+                    "limitations": [
+                        "no bounded start-routine or PE-entry window was recovered"
+                    ],
+                    "anchor": {
+                        "type": "unique_thread_emulation",
+                        "simulator": "unicorn",
+                        "role": "pe_entry",
+                    },
+                }
+            )
+            overall = "FAILED"
+            error = "NO_GRANTED_WINDOW"
+        # The per-run execution budget. Named so the truncation report below and the slice that enforces it
+        # share ONE source - a statement derived from the same value as the behaviour cannot drift from it
+        # (G2/G3). The VALUE is unchanged: this is the literal that was already there.
+        execution_budget = 4
+
+        # The budget governs the PRE-EXISTING windows only. T1's incremental windows sit ahead of them in
+        # `windows` and are NOT charged against it, so a grant-carrying run executes the same four grants it
+        # did before T1 plus the full-PE window, instead of three grants and the full-PE window.
+        incremental_count = len(incremental_windows)
+        budgeted_windows = windows[incremental_count:]
+
+        # Windows the budget excludes are recorded AFTER the ones that ran.
+        #
+        # Order matters to consumers: several read `results[0]` as "the first simulator outcome", so putting a
+        # never-executed placeholder first would misreport which simulator ran first. Collected here and
+        # appended once the execution loop below has finished.
+        excluded_windows = budgeted_windows[execution_budget:]
+
+        for window in windows[:incremental_count] + budgeted_windows[:execution_budget]:
+            if str(window.get("skip_reason") or "").strip():
+                # The plan already decided this window cannot succeed (for example a Linux-only adapter
+                # against a Windows PE). Record the decision as evidence and do NOT spend a worker turn -
+                # measured before this guard: 418 `os_mismatch` rows, none with an observation.
+                results.append(
+                    {
+                        "status": "NOT_APPLICABLE",
+                        "simulator": str(window.get("simulator") or ""),
+                        "stop_reason": str(window.get("skip_reason")),
+                        "limitations": [
+                            str((window.get("anchor") or {}).get("reason") or "")
+                            or "the granted bytes are outside this adapter's applicability"
+                        ],
+                        "anchor": dict(window.get("anchor") or {}),
+                    }
+                )
+                continue
+            if cancellation_requested is not None and cancellation_requested():
+                return (
+                    {
+                        "kind": "emulation",
+                        "status": "CANCELLED",
+                        "results": results,
+                        "error": "TOOL_ACTIVITY_CANCELLED",
+                    },
+                    "CANCELLED",
+                    "TOOL_ACTIVITY_CANCELLED",
+                )
+            result = runner.run(
+                request_for_granted_window(policy, window),
+                cancellation_requested=cancellation_requested,
+            )
+            payload = result.as_dict()
+            payload["anchor"] = dict(window.get("anchor") or {})
+            if result.status == "SUCCEEDED" and result.output_bytes:
+                payload["output_hex"] = result.output_bytes.hex()
+            results.append(payload)
+            if result.status == "CANCELLED":
+                return (
+                    {
+                        "kind": "emulation",
+                        "status": "CANCELLED",
+                        "results": results,
+                        "error": result.stop_reason or "TOOL_ACTIVITY_CANCELLED",
+                    },
+                    "CANCELLED",
+                    result.stop_reason or "TOOL_ACTIVITY_CANCELLED",
+                )
+            if result.status not in {"SUCCEEDED", "UNSUPPORTED", "UNAVAILABLE", "PARTIAL"}:
+                overall = result.status
+                error = result.stop_reason
+        have_qiling = any(
+            str(item.get("simulator") or "").casefold() == "qiling" for item in results
+        )
+        if not have_qiling and "qiling" in {str(item).casefold() for item in policy.allowed_simulators}:
+            if cancellation_requested is not None and cancellation_requested():
+                return (
+                    {
+                        "kind": "emulation",
+                        "status": "CANCELLED",
+                        "results": results,
+                        "error": "TOOL_ACTIVITY_CANCELLED",
+                    },
+                    "CANCELLED",
+                    "TOOL_ACTIVITY_CANCELLED",
+                )
+            results.append(
+                default_simulation_runner(policy, execute_in_process=True)
+                .run(
+                    request_for_granted_window(
+                        policy,
+                        {
+                            "simulator": "qiling",
+                            "input_bytes": content,
+                            "entry_address": 0x400000,
+                            "architecture": "x86_64",
+                            "anchor": {"type": "qiling_linux_usermode", "simulator": "qiling"},
+                        },
+                    ),
+                    cancellation_requested=cancellation_requested,
+                )
+                .as_dict()
+            )
+            results[-1]["anchor"] = {
+                "type": "qiling_linux_usermode",
+                "simulator": "qiling",
+                "role": "linux_elf" if content.startswith(b"\x7fELF") else "os_mismatch",
+            }
+        # Record what the budget excluded instead of dropping it in silence.
+        #
+        # The same rule the report side applies to a capped list: a truncated set must say it is truncated.
+        # It matters here because the full-PE window is placed ahead of the granted snippets, so with a full
+        # grant list the last snippet is the one that loses its slot - and a reader shown only four results
+        # could not tell that a fifth window existed at all.
+        for window in excluded_windows:
+            results.append(
+                {
+                    "status": "NOT_EXECUTED",
+                    "simulator": str(window.get("simulator") or ""),
+                    "stop_reason": "WINDOW_BUDGET_EXHAUSTED",
+                    "limitations": [
+                        f"the worker runs at most {execution_budget} planned/granted windows per run "
+                        "(the incremental full-PE window is not charged against that budget); this window "
+                        "was planned but not executed"
+                    ],
+                    "anchor": dict(window.get("anchor") or {}),
+                }
+            )
+        qiling_row = qiling_unavailable_observation(policy)
+        if qiling_row is not None and not any(
+            str(item.get("simulator") or "").casefold() == "qiling" for item in results
+        ):
+            results.append(qiling_row)
+        overall, error = emulation_overall_from_results(
+            results,
+            current_overall=overall,
+            current_error=error,
+        )
+        return (
+            {
+                "kind": "emulation",
+                "status": overall,
+                "results": results,
+                "error": error,
+            },
+            overall if overall in {"SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT"} else "FAILED",
+            error,
         )
 
     def _execution_content_store(self, request: ToolRunRequest) -> ContentStore:
@@ -882,6 +1261,16 @@ def intake_entries_from_payload(payload: dict[str, object]) -> list[PackageEntry
     return entries
 
 
+def client_result_timeout_seconds(max_cpu_seconds: int) -> float:
+    """Wait for the workflow at least as long as the tool CPU budget.
+
+    A flat 90s client wait cancelled Ghidra on Resume (policy 900s) after the
+    activity had already started. Keep a 90s floor so a worker that never
+    starts still fails fast via schedule_to_start plus this bound.
+    """
+    return float(max(90, int(max_cpu_seconds) + 45))
+
+
 class TemporalToolExecutor:
     """Client adapter for durable ToolRun workflows and cancellation propagation."""
 
@@ -899,7 +1288,26 @@ class TemporalToolExecutor:
             )
         except WorkflowAlreadyStartedError:
             handle = client.get_workflow_handle(request.workflow_id)
-        return ToolRunResult.model_validate(await handle.result())
+        try:
+            raw = await asyncio.wait_for(
+                handle.result(),
+                timeout=client_result_timeout_seconds(request.max_cpu_seconds),
+            )
+        except TimeoutError:
+            try:
+                await handle.cancel()
+            except Exception:
+                pass
+            return ToolRunResult(
+                status="FAILED",
+                error="TEMPORAL_WORKFLOW_TIMEOUT",
+                worker_metadata={
+                    "workflow_id": request.workflow_id,
+                    "task_queue": request.task_queue,
+                    "control_task_queue": request.control_task_queue,
+                },
+            )
+        return ToolRunResult.model_validate(raw)
 
     async def cancel(self, request: ToolRunRequest) -> None:
         await self.cancel_workflow(request.workflow_id)
