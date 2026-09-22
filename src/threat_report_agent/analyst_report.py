@@ -1144,21 +1144,6 @@ def _mechanism_records(rows: Sequence[Mapping[str, object]]) -> list[dict[str, o
     return records
 
 
-def _mechanism_catalog_id(row: Mapping[str, object], registry: BehaviorCatalog) -> str:
-    catalog_id = str(row.get("catalog_id") or "").strip()
-    if catalog_id in CATALOG_TITLES_ZH:
-        return catalog_id
-    token = str(row.get("mechanism_type") or row.get("verifier_id") or row.get("dimension") or "").strip()
-    if not token:
-        return ""
-    if token in CATALOG_TITLES_ZH:
-        return token
-    entry = registry.by_id(token)
-    if entry is not None and entry.id in CATALOG_TITLES_ZH:
-        return entry.id
-    return ""
-
-
 def _mechanism_ready(row: Mapping[str, object]) -> bool:
     status = str(row.get("status") or row.get("finding_status") or row.get("verdict") or "").upper()
     if status not in {"VERIFIED", "SUPPORTED", "CONFIRMED"}:
