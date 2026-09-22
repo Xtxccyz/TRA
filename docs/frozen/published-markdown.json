@@ -1,7 +1,7 @@
 {
   "measurement": {
-    "pytest_log": "full-suite-r49.log",
-    "pytest_summary": "6 failed, 2352 passed, 3 skipped, 3 warnings in 144.54s (0:02:24)"
+    "pytest_log": "full-suite-r53b.log",
+    "pytest_summary": "6 failed, 2358 passed, 3 skipped, 3 warnings in 173.48s (0:02:53)"
   },
   "tasks": {
     "resume": {
@@ -13,6 +13,8 @@
         "mode": "--render",
         "verdict": "ACCEPTED"
       },
+      "rendered_published_sha256": "753fd7cac68b66bb4e27e57af9e1229d6dc707a48e0b85ef8d435620727bb4d5",
+      "rendered_via": "compose_official_markdown",
       "stored": {
         "criteria_failed": 0,
         "criteria_passed": 24,

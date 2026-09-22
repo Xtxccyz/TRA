@@ -126,6 +126,43 @@ def grader_summary(task_id: str, mode: str) -> dict[str, object]:
     }
 
 
+def stored_document(task_id: str) -> str:
+    """The revision's stored `document` JSON - the input the PUBLISHER renders from."""
+    return sql(
+        "select document from report_revisions "
+        f"where task_id = '{task_id}' and author = 'system' order by created_at desc limit 1;"
+    )
+
+
+def rendered_published_sha(task_id: str) -> tuple[str, str]:
+    """sha256 of what the PUBLISHER would serve, plus the function that produced it.
+
+    WHY THIS EXISTS (adversarial audit of this instrument): the first version compared only the DB-stored
+    `markdown` sha256 and the grader's criteria COUNTS. It never hashed re-rendered markdown, so it could report
+    "published layer unchanged" while the rendered output had changed. Worse, the grader's `--render` mode calls
+    `render_official_markdown` (`.scratch/check-report-acceptance.py`), the INNER renderer - the exact blind spot
+    this file's own docstring claims to close, since the published body comes from
+    `compose_official_markdown` (which returns the analyst DRAFT when it clears the compose gate).
+    """
+    raw = stored_document(task_id)
+    if not raw.strip():
+        return "", "no stored document"
+    try:
+        sys.path.insert(0, str(ROOT / "src"))
+        from threat_report_agent.analyst_report import compose_official_markdown
+    except Exception as exc:  # noqa: BLE001
+        return "", f"import failed: {type(exc).__name__}: {exc}"
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return "", f"document is not JSON: {exc}"
+    try:
+        published = compose_official_markdown(document)
+    except Exception as exc:  # noqa: BLE001
+        return "", f"compose_official_markdown raised: {type(exc).__name__}: {exc}"
+    return hashlib.sha256(published.encode("utf-8")).hexdigest(), "compose_official_markdown"
+
+
 def measure() -> dict[str, object]:
     corpus: dict[str, object] = {"measurement": {}, "tasks": {}}
     # Newest by MTIME, not by name: the logs are named by round, so lexicographic order picks the wrong file.
@@ -137,10 +174,13 @@ def measure() -> dict[str, object]:
         corpus["measurement"]["pytest_log"] = baseline_log[-1].name
     for name, task_id in FROZEN_TASKS.items():
         revision, digest = stored_markdown_sha(task_id)
+        rendered, rendered_via = rendered_published_sha(task_id)
         corpus["tasks"][name] = {
             "task_id": task_id,
             "official_revision": revision,
             "stored_markdown_sha256": digest,
+            "rendered_published_sha256": rendered,
+            "rendered_via": rendered_via,
             "render": grader_summary(task_id, "--render"),
             "stored": grader_summary(task_id, "--stored"),
         }
@@ -200,9 +240,23 @@ def main() -> int:
     # anything that only checks the exit code. MEASURED while trying to can-fail this instrument.
     frozen = json.loads(CORPUS.read_text(encoding="utf-8-sig"))
     drift: list[str] = []
+
+    # The frozen pytest summary was never compared in the first version - a frozen-but-unchecked field is
+    # decoration. A structural move must not change the failure set either.
+    was_summary = str(frozen.get("measurement", {}).get("pytest_summary") or "")
+    now_summary = str(current.get("measurement", {}).get("pytest_summary") or "")
+    if was_summary and now_summary and was_summary != now_summary:
+        drift.append(f"measurement.pytest_summary: frozen={was_summary!r} now={now_summary!r}")
+
     for name, snapshot in frozen.get("tasks", {}).items():
         now = current["tasks"].get(name, {})
-        for key in ("official_revision", "stored_markdown_sha256"):
+        for key in (
+            "official_revision",
+            "stored_markdown_sha256",
+            # The one that makes the claim "published layer unchanged" mean the RENDERED bytes, not just the
+            # stored column and two integers.
+            "rendered_published_sha256",
+        ):
             if snapshot.get(key) != now.get(key):
                 drift.append(f"{name}.{key}: frozen={snapshot.get(key)!r} now={now.get(key)!r}")
         for mode in ("render", "stored"):
@@ -218,7 +272,15 @@ def main() -> int:
         print(f"\n{len(drift)} difference(s). A structural move must not change these.")
         return 1
     print("published layer UNCHANGED on the frozen corpus")
-    print(json.dumps({n: t["render"] for n, t in frozen["tasks"].items()}, ensure_ascii=False))
+    # Printed from the FRESH reading, not echoed from the corpus file: the first version echoed frozen values,
+    # so the output could not have differed from itself.
+    for name, task in current["tasks"].items():
+        print(
+            f"  {name}: rendered via {task['rendered_via']} "
+            f"sha={str(task['rendered_published_sha256'])[:16]} "
+            f"render={task['render']['criteria_passed']}/{task['render']['criteria_failed']} "
+            f"({task['render']['verdict']})"
+        )
     return 0
 
 
