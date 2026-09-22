@@ -641,8 +641,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         jwt_audience=app_settings.auth_jwt_audience,
         jwks_url=app_settings.auth_jwks_url,
     )
-    static_path = Path(__file__).parent / "static"
-    app.mount("/static", StaticFiles(directory=static_path, check_dir=False), name="static")
+    #: The served workbench assets live in `assets/`, NOT in `static/`: plan 7.7 makes `static/` the
+    #: static-recovery PACKAGE, and `packages.find` has no excludes, so an asset directory named `static`
+    #: could not become a package without changing published artefacts. The MOUNT URL stays `/static`, so
+    #: no client sees a difference between the directory name and the URL.
+    asset_path = Path(__file__).parent / "assets"
+    app.mount("/static", StaticFiles(directory=asset_path, check_dir=False), name="static")
 
     @app.middleware("http")
     async def observe_request(request: Request, call_next):
@@ -674,7 +678,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(static_path / "index.html")
+        return FileResponse(asset_path / "index.html")
 
     @app.get("/healthz", tags=["system"])
     def healthz() -> dict[str, object]:

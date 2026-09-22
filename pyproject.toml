@@ -67,7 +67,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 threat_report_agent = [
-  "static/*",
+  "assets/*",
   "policies/*.json",
   "prompts/*.json",
   "prompts/*.md",
