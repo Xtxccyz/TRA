@@ -119,7 +119,7 @@ def _api_tail(name: object) -> str:
     return text.rsplit(".", 1)[-1].rsplit("!", 1)[-1].casefold()
 
 
-def _function_call_names(value: Mapping[str, object]) -> list[str]:
+def function_call_names(value: Mapping[str, object]) -> list[str]:
     names: list[str] = []
     for key in ("call_targets", "references_from", "calls", "callees", "call_sequence"):
         items = value.get(key)
@@ -155,7 +155,7 @@ def _slots_from_row(row: Mapping[str, object]) -> list[tuple[str, object, str]]:
         add("loop", value.get("loop") or value.get("back_edge"))
         add("failure_fallback", value.get("exit") or value.get("return_condition"))
         add("state_config", value.get("shared_state") or value.get("parameter_object"))
-        call_names = _function_call_names(value)
+        call_names = function_call_names(value)
         tails = [_api_tail(name) for name in call_names]
         if call_names and any(tail in _THREAD_LOOP_HINTS for tail in tails):
             add("loop", " -> ".join(call_names[:8]))

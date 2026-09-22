@@ -118,3 +118,41 @@ def test_the_retired_cycle_is_recorded_as_retired_with_its_reason() -> None:
     assert "NO LONGER EXISTS" in note and "static_analysis -> investigation" in note, (
         "the retirement must keep the reason it disappeared, or a future reader will re-add it"
     )
+
+
+def test_the_function_call_names_helper_has_exactly_one_implementation() -> None:
+    """P2-V.1 resolved the ONE recorded duplicate implementation; this is its durable pin.
+
+    The policy record is gone (the gate treats a stale record as a problem), so the invariant needs a test or it
+    could regress silently. MEASURED at the consolidation: both copies were byte-identical (name-normalised body
+    hash 0c5ca4fb1ca89f71), the canonical home is `investigation_protocol.py` because
+    `investigation_protocol -> reporting` is a FORBIDDEN edge while `reporting -> investigation_protocol` already
+    existed, and nothing was reimplemented - the survivor is byte-identical to both HEAD copies.
+    """
+    import json
+
+    defined_in: list[str] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in {"function_call_names", "_function_call_names"}:
+                defined_in.append(path.relative_to(PACKAGE).as_posix())
+    assert defined_in == ["investigation_protocol.py"], (
+        f"the helper is defined in {defined_in}; plan 3.2 allows exactly ONE canonical implementation, and it must "
+        "live in investigation_protocol.py because the reverse direction is a forbidden edge"
+    )
+
+    protocol = importlib.import_module("threat_report_agent.investigation_protocol")
+    assert callable(protocol.function_call_names), "the canonical helper must be public now that it is imported"
+    reporting = importlib.import_module("threat_report_agent.report.reporting")
+    assert reporting.function_call_names is protocol.function_call_names, (
+        "reporting must IMPORT the canonical helper rather than hold its own copy"
+    )
+
+    policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    assert policy.get("known_duplicate_implementations") == [], (
+        "a resolved duplication must not keep a record: the gate reports a stale record as a problem, and an entry "
+        "that no longer matches anything cannot notice the duplication returning"
+    )

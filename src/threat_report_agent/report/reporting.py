@@ -30,7 +30,12 @@ from threat_report_agent.mechanism_completeness import (
     mechanism_is_critical_ready,
 )
 from threat_report_agent.deep_analysis_quality import apply_adversarial_downgrades, deep_analysis_metrics
-from threat_report_agent.investigation_protocol import TEN_QUESTION_SLOTS, fill_protocol, is_empty_marker
+from threat_report_agent.investigation_protocol import (
+    TEN_QUESTION_SLOTS,
+    fill_protocol,
+    function_call_names,
+    is_empty_marker,
+)
 from threat_report_agent.semantic_predicates import normalize_api_symbol, semantic_category
 from threat_report_agent.static.static_analysis import (
     credible_windows_process_creation_flags,
@@ -4892,7 +4897,7 @@ def _how_from_semantic_payload(value: Mapping[str, object]) -> str:
     calls = value.get("call_sequence")
     meaningful, _ = _meaningful_semantic_calls(list(calls) if isinstance(calls, tuple) else calls)
     formatted = [item for item in (_format_semantic_call(call) for call in meaningful[:12]) if item]
-    names = formatted or _function_call_names(value)
+    names = formatted or function_call_names(value)
     raw_function = value.get("function")
     if isinstance(raw_function, Mapping):
         function = str(raw_function.get("name") or "").strip()
@@ -5043,20 +5048,6 @@ def _evidence_function_entry(row: Mapping[str, object], value: Mapping[str, obje
     return ""
 
 
-def _function_call_names(value: Mapping[str, object]) -> list[str]:
-    names: list[str] = []
-    for key in ("call_targets", "references_from", "calls", "callees", "call_sequence"):
-        items = value.get(key)
-        if not isinstance(items, (list, tuple)):
-            continue
-        for item in items:
-            if isinstance(item, Mapping):
-                name = item.get("target_name") or item.get("target_function") or item.get("api") or item.get("name")
-                if name not in (None, ""):
-                    names.append(str(name))
-            elif isinstance(item, str) and item.strip():
-                names.append(item.strip())
-    return list(dict.fromkeys(names))
 
 
 def _instruction_texts(value: Mapping[str, object]) -> list[str]:
@@ -5121,7 +5112,7 @@ def _thread_exit_from_one_hop_callees(
             if not (callee_keys & set(_address_lookup_keys(entry, value.get("name"), value.get("function")))):
                 continue
             recovered = _thread_exit_from_names_and_ops(
-                _function_call_names(value),
+                function_call_names(value),
                 _instruction_texts(value),
             )
             if recovered:
@@ -5176,7 +5167,7 @@ def _thread_body_from_evidence(
                 exit_cond = str(payload.get("exit") or payload.get("return_condition"))
             if shared.startswith("UNKNOWN") and (payload.get("shared_state") or payload.get("parameter_object")):
                 shared = str(payload.get("shared_state") or payload.get("parameter_object"))
-            call_names = _function_call_names(payload)
+            call_names = function_call_names(payload)
             ops = _instruction_texts(payload)
             start_call_names.extend(call_names)
             start_ops.extend(ops)
