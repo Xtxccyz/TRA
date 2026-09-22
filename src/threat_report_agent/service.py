@@ -14197,6 +14197,17 @@ class AnalysisService:
             valid_actions: list[DynamicPlanAction] = []
             rejected = 0
             rejected_actions: list[dict[str, object]] = []
+            # Over-long lists the schema TRUNCATED in the provider's answer (see
+            # `DynamicPlanAction._truncate_oversized_lists`). Collected here so the notice REACHES A READER:
+            # recording it on the parsed object and dropping it there satisfies the rule only at the schema
+            # layer, which is precisely the half-done state the field was added to avoid (round 35). Collected
+            # from the ENVELOPE, not from the filtered `valid_actions`, so a truncation on an action that is
+            # later rejected is still reported.
+            truncated_fields: list[str] = []
+            for candidate_action in response.parsed.actions:
+                for notice in candidate_action.truncated_fields or []:
+                    if notice not in truncated_fields:
+                        truncated_fields.append(notice)
             for action in response.parsed.actions[:64]:
                 # Some OpenAI-compatible models copy the prompt's schema
                 # placeholder for a baseline tool action.  Normalize only the
@@ -14634,6 +14645,14 @@ class AnalysisService:
             limitations = list(response.parsed.limitations)
             if rejected:
                 limitations.append(f"Model planner rejected {rejected} unsafe or invalid actions.")
+            if truncated_fields:
+                # The bound is stated in the READER's document, and it says what was dropped rather than
+                # merely that something was: a consumer that sees a bounded list must not read it as complete
+                # (EC-4), and the provider's excess items are NOT represented anywhere else.
+                limitations.append(
+                    "Model planner returned lists longer than the accepted bound; the excess items were "
+                    "dropped and are not represented: " + ", ".join(truncated_fields) + "."
+                )
             if not valid_actions:
                 limitations.append(
                     "Model planner returned no executable actions; deterministic scheduler order retained."

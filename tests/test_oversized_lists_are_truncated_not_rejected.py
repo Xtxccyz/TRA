@@ -88,6 +88,36 @@ def test_a_real_schema_problem_is_still_rejected() -> None:
         DynamicPlanAction.model_validate({"reason": "r", "question": "q"})
 
 
+def test_the_notice_reaches_a_consumer_outside_this_module() -> None:
+    """STRUCTURAL GUARD, not a behavioural test - labelled as such on purpose.
+
+    Round 33 added `truncated_fields` and the round-33 write-up said truncation was "announced ... so a
+    consumer can see the set is bounded". It was not: `grep -r truncated_fields` returned only
+    `model_gateway.py` and this test file, so the notice lived and died on the parsed object. EC-4 was
+    satisfied at the schema layer and nowhere else. That is the half-done state the project treats as a
+    defect, and it took a round to notice.
+
+    This guard makes the gap mechanical: the notice must be referenced by a production module other than the
+    one that defines it. It does NOT prove the string reaches a rendered document - that needs an integration
+    test through `_run_model_planning`, which is still missing and is recorded as such.
+
+    FAILS BEFORE THE WIRING: at round 35 the only non-test references were inside `model_gateway.py`.
+    """
+    source_root = Path(__file__).resolve().parents[1] / "src"
+    consumers: list[str] = []
+    for path in source_root.rglob("*.py"):
+        if path.name == "model_gateway.py":
+            continue
+        if "truncated_fields" in path.read_text(encoding="utf-8", errors="replace"):
+            consumers.append(path.relative_to(source_root).as_posix())
+
+    assert consumers, (
+        "`truncated_fields` has no consumer outside model_gateway.py: the truncation is recorded on the parsed "
+        "object and then dropped, so no reader can learn that a list was bounded. Recording a truncation is "
+        "only half the rule - it must be STATED somewhere a consumer reads."
+    )
+
+
 def test_the_notice_survives_a_provider_that_supplied_one() -> None:
     """A provider-supplied notice is carried, not overwritten."""
     action = DynamicPlanAction.model_validate(
