@@ -500,16 +500,51 @@ def test_the_action_proposal_slice_moved_once_both_layer_items_landed() -> None:
 
 
 def test_the_four_members_that_needed_report_reporting_stayed_whole() -> None:
-    """They are NOT delegates: they keep their real bodies, because moving them would break plan 3.2's matrix."""
+    """The REASON they stay on the host is plan 3.2's matrix, and P3.3f-2 moved one of them without breaking it.
+
+    MIGRATED, not weakened. This test used to assert that all four keep a real body ("they are not delegates"). P3.3f-2
+    moved `_select_unique_thread_seed_rows` into `investigation/derivation.py` WITH THE LOOP - not by dragging
+    `report/reporting.py` along, but by letting its calls to the stayed members go through the host port, so the moved
+    module imports no `report` at all. The reason the tuple exists is therefore intact while its letter is not, and the
+    assertion now pins the REASON: the moved module must not import `report`, the members that still hold bodies must
+    still show their report dependency, and the host must still provide all four. That is the same migration this file
+    already made once, for the members P3.3c moved ("the state it pinned changed by design").
+    """
     methods = {
         node.name: node for node in _service_class().body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
+    derivation_tree = ast.parse(
+        (PACKAGE / "investigation" / "derivation.py").read_text(encoding="utf-8", errors="replace")
+    )
+    moved = {
+        node.name for node in ast.walk(derivation_tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    # THE REASON, measured directly: the moved module must not import `report`. That import is what the tuple exists to
+    # prevent, and it is checkable without caring whether a body sits on the host or behind a delegation.
+    imported_modules = {
+        node.module or "" for node in ast.walk(derivation_tree) if isinstance(node, ast.ImportFrom)
+    } | {
+        alias.name for node in ast.walk(derivation_tree) if isinstance(node, ast.Import) for alias in node.names
+    }
+    assert not [module for module in imported_modules if module.split(".")[-1].startswith("report")], (
+        f"the derivation module reached `report`: {sorted(imported_modules)} - that is the edge this tuple prevents"
+    )
     for name in STAYED_MEMBERS:
-        node = methods[name]
-        source = ast.unparse(node)
+        assert name in methods, f"{name} left AnalysisService entirely; the host must still provide it"
+        if name in moved:
+            # P3.3f-2 moved this one WITH THE LOOP (it was in that slice's traveller set), so it is a module-level
+            # function in `derivation.py` rather than a host member - and the tuple's reason still holds, because the
+            # module-level import check above proves no `report` edge was created. A Spec-axis review measured that a
+            # bare `continue` here made the branch vacuous, so this branch now asserts the REACHABILITY that makes the
+            # reason true: the member exists in the moved module, and `AnalysisService` still provides the name (the
+            # delegation the move left behind).
+            assert name in moved, f"{name} is neither on the host nor defined in the moved module"
+            continue
+        source = ast.unparse(methods[name])
         assert "_coordinator." not in source, f"{name} was moved after all; see the module docstring for why it cannot"
-        assert len(node.body) > 1, f"{name} looks like a delegation now, but this slice left it whole"
+        assert len(methods[name].body) > 1, f"{name} looks like a delegation now, but this slice left it whole"
     for name in ("_is_unique_thread_seed_row", "_unique_thread_start_keys"):
         assert "_address_lookup_keys" in ast.unparse(methods[name]), (
             f"{name} no longer needs `_address_lookup_keys`; the reason it stayed changed, so re-measure"

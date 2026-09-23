@@ -94,8 +94,13 @@ def test_protocol_fills_persist_how_command_named_api_and_decode() -> None:
     assert protocol["consumer"]["status"] == "ANSWERED"
     assert protocol["transformation"]["status"] == "ANSWERED"
     assert "kernel32.dll" not in str(protocol)
+    # MIGRATED in P3.3f-2: `_persist_time_seed_result` moved into `investigation/derivation.py`, so reading it off
+    # `AnalysisService` read a one-statement delegation and this assertion failed for the wrong reason. Same guard -
+    # the persistence path must call `fill_protocol(rows)` - pointed at the implementation's home.
     persist_source = __import__("inspect").getsource(
-        __import__("threat_report_agent.service", fromlist=["AnalysisService"]).AnalysisService._persist_time_seed_result
+        __import__(
+            "threat_report_agent.investigation.derivation", fromlist=["_persist_time_seed_result"]
+        )._persist_time_seed_result
     )
     assert '"protocol": fill_protocol(rows)' in persist_source or "fill_protocol(rows)" in persist_source
 

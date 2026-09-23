@@ -11,6 +11,8 @@ per-seed total for every seed that matched a mechanism playbook.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import replace
 from pathlib import Path
 
@@ -213,7 +215,12 @@ def test_live_budget_comes_from_the_setting_not_from_max_sample_files(
     assert min(settings.investigation_task_max_actions, OLD_SLOT_CAP) == OLD_SLOT_CAP
 
     _RecordingDriver.calls = []
-    monkeypatch.setattr(service_module, "InvestigationLoopDriver", _RecordingDriver)
+    # MIGRATED in P3.3f-2: the loop moved into `investigation/derivation.py` and resolves `InvestigationLoopDriver`
+    # from THAT module's namespace, so patching `service_module`'s copy intercepted nothing (MEASURED: the recording
+    # driver was never called and the assertion below failed). The patch follows where the moved body resolves names.
+    from threat_report_agent.investigation import derivation as derivation_module
+
+    monkeypatch.setattr(derivation_module, "InvestigationLoopDriver", _RecordingDriver)
     service._run_investigation_loop(task_id)
 
     assert _RecordingDriver.calls, "the investigation loop never reached the driver"
@@ -238,11 +245,30 @@ def test_seed_total_is_not_clipped_to_the_old_eight_action_slot() -> None:
 
     # Read the module text directly: ``inspect.getsource`` on a 180k-character
     # method depends on a line cache that concurrent edits invalidate.
+    #
+    # MIGRATED in P3.3f-2: the live call site this guards moved into `investigation/derivation.py` with the loop, so
+    # reading `service_module` checked a delegation and the positive guard below failed. The text is read from the
+    # implementation's home, and the negative guard tolerates the receiver rename the move performed
+    # (`self.settings` -> `host.settings`) so it still means what it says.
+    from threat_report_agent.investigation import derivation as derivation_module
+
     text = Path(service_module.__file__).read_text(encoding="utf-8")
-    # Regression guards for the two truncated expressions named in the defect.
+    loop_text = Path(derivation_module.__file__).read_text(encoding="utf-8")
+    loop_code = "\n".join(line for line in loop_text.splitlines() if not line.lstrip().startswith("#"))
+    # Regression guards for the two truncated expressions named in the defect. THE NEGATIVE GUARD WAS VACUOUS AND IS
+    # REPLACED BY ONE THAT CAN FAIL, measured rather than assumed: a Spec-axis review showed the first version asserted
+    # the absence of a literal this repo has never contained, and `git grep` at both `de2079c` (the phase's start) and
+    # `8059cfc` finds `max(8, files // 2)` ONLY inside the comment that documents the old defect - so a shape search over
+    # the whole text matches prose and a search over code alone matches nothing. What the guard must actually pin is the
+    # CALL SITE: it takes an explicit cap, and no `slot_cap` expression computes a fair share.
     assert "max(8, self.settings.max_sample_files // 2)" not in text
-    assert "slot_cap=0," in text
-    assert "slot_cap=_PER_SLOT_TRACE_CAP" not in text
+    assert "slot_cap=0," in loop_text
+    assert "slot_cap=_PER_SLOT_TRACE_CAP" not in loop_text
+    cap_lines = [line for line in loop_code.splitlines() if "slot_cap" in line]
+    assert cap_lines, "the budget call site no longer names a cap at all"
+    assert not any("//" in line for line in cap_lines), (
+        f"the loop's budget call site computes a fair-share cap again: {cap_lines}"
+    )
 
 
 def test_kept_bounds_still_bound() -> None:

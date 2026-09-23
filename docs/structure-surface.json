@@ -228,7 +228,7 @@
     ]
   },
   "test_getsource_count": {
-    "reaching_a_private_member": 20,
+    "reaching_a_private_member": 17,
     "total": 39
   },
   "threshold_comparisons": {
@@ -457,7 +457,7 @@
     "static_abstract_execution_max_steps": "65536",
     "structural_limitations": "[item for item in task.limitations if any((marker in str(item).casefold() for marker in ('missing custom dll', 'required artifact', 'packed', 'packer', 'virtualized', 'self-modif', 'runtime-only', 'runtime only', 'decompiler', 'decompilation failed', 'unresolved indirect', 'truncated', 'damaged', 'static boundary', 'code recovery', 'cannot parse', 'parsing incomplete')))]",
     "target_window_limit": "12",
-    "task_action_budget_limit": "max(1, int(self.settings.investigation_task_max_actions))",
+    "task_action_budget_limit": "max(1, int(host.settings.investigation_task_max_actions))",
     "text_limit": "240 if depth < 2 else 120",
     "threshold": "[\"''\", \"10\", \"how['threshold'] or 'UNKNOWN(threshold)'\", \"threshold or token\"]",
     "threshold_ids": "_environment_guard_ids_linked_to_probe(rows, probe_ids, [str(row.get('id')) for row in rows if row.get('id') and _environment_guard_threshold_from_row(row)])"

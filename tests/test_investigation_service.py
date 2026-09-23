@@ -11,6 +11,11 @@ from sqlalchemy import select
 from threat_report_agent.investigation.coordinator import (
     _build_investigation_frontier as frontier_implementation,
 )
+# The canonical implementation of the investigation loop, resolved by import for the same reason as the frontier above:
+# P3.3f-2 moved it into `investigation/derivation.py`, so reading it off `AnalysisService` would read the delegation.
+from threat_report_agent.investigation.derivation import (
+    _run_investigation_loop as loop_implementation,
+)
 
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
@@ -677,9 +682,17 @@ def test_sql_execution_corpus_prioritizes_late_high_signal_rows_before_limit(
     # Keep the fixture fast while preserving the production query shape.
     service._INVESTIGATION_EXECUTION_EVIDENCE_LIMIT = 5
     captured_rows: list[list[str]] = []
-    original_derive = service._derive_investigation_observations
+    # MIGRATED in P3.3f-2. This test intercepts the derivation call to capture the rows the loop hands it, and it used
+    # to patch the INSTANCE attribute `service._derive_investigation_observations`. The moved loop no longer reaches that
+    # method - it calls the CANONICAL function in `investigation/derivation.py` directly (the whole point of moving it),
+    # so the instance patch intercepted nothing and `captured_rows` stayed empty. The interception point follows the
+    # code, and the wrapper takes the host the loop now passes first.
+    from threat_report_agent.investigation import derivation as derivation_module
+
+    original_derive = derivation_module._derive_investigation_observations
 
     def capture_execution_rows(
+        host,
         source_rows,
         action,
         *,
@@ -688,6 +701,7 @@ def test_sql_execution_corpus_prioritizes_late_high_signal_rows_before_limit(
     ):
         captured_rows.append([str(row.id) for row in source_rows])
         return original_derive(
+            host,
             source_rows,
             action,
             artifact_content=artifact_content,
@@ -695,7 +709,7 @@ def test_sql_execution_corpus_prioritizes_late_high_signal_rows_before_limit(
         )
 
     monkeypatch.setattr(
-        service,
+        derivation_module,
         "_derive_investigation_observations",
         capture_execution_rows,
     )
@@ -2747,7 +2761,12 @@ def test_admit_investigation_seed_clusters_keeps_how_drops_empty_supporting() ->
     assert deferred_keeps_planner_open({"action_type": "CONTROLLED_EMULATE"}) is False
     assert deferred_keeps_planner_open({"reason": "INVESTIGATION_BUDGET_EXHAUSTED"}) is False
     assert deferred_keeps_planner_open({"reason": "dependency", "action_type": "GET_CALLEES"}) is True
-    loop_source = __import__("inspect").getsource(AnalysisService._run_investigation_loop)
+    # MIGRATED in P3.3f-2, following the pattern this same test already uses for the frontier: resolve the CANONICAL
+    # implementation through the import system and read its source there. The old form read
+    # `getsource(AnalysisService._run_investigation_loop)`, which is a one-statement delegation now, so it asserted about
+    # the delegation rather than about the loop. MEASURED: a grep for `getsource` sites found two others and MISSED this
+    # one until the suite failed - the phase's recorded lesson that this family is discovered by RUNNING the tests.
+    loop_source = __import__("inspect").getsource(loop_implementation)
     assert "admit_investigation_seed_clusters" in loop_source
     # P3.3b MOVED the frontier builder into `investigation/coordinator.py`. The old form here read
     # `getsource(AnalysisService._build_investigation_frontier)`, which is now a one-line DELEGATION - so it would have

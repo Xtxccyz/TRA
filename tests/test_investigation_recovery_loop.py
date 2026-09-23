@@ -271,7 +271,11 @@ def test_gap_driven_rounds_are_not_skipped_only_because_dsh_owns_chat() -> None:
     source = inspect.getsource(AnalysisService._run_gap_driven_model_rounds)
     early = source.split("limitations: list[str] = []", 1)[0]
     assert "dsh_conversation_owns_planning" not in early
-    loop_source = inspect.getsource(AnalysisService._run_investigation_loop)
+    # MIGRATED in P3.3f-2, the loop's move: the body this asserts on now lives in `investigation/derivation.py`, and
+    # `getsource` on the class would have read a one-statement delegation instead. Same guard, the implementation's home.
+    from threat_report_agent.investigation.derivation import _run_investigation_loop
+
+    loop_source = inspect.getsource(_run_investigation_loop)
     assert "how_timebox_disposition" in loop_source
     emu_source = inspect.getsource(run_emulation_informed_investigation)
     assert "_reverify_how_after_emulation" in emu_source

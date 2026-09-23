@@ -415,7 +415,6 @@ def test_investigation_loop_resolves_persist_how_before_budget_or_planner() -> N
         next_investigation_loop_path,
         resolve_persist_how_skip,
     )
-    from threat_report_agent.service import AnalysisService
 
     ready = PersistHowDecision(PERSIST_HOW_READY, object(), None)
     boundary = PersistHowDecision(PERSIST_HOW_BOUNDARY, object(), None)
@@ -425,7 +424,13 @@ def test_investigation_loop_resolves_persist_how_before_budget_or_planner() -> N
     assert next_investigation_loop_path(mine, budget_exhausted=True) == LOOP_PATH_BUDGET_DEFER
     assert next_investigation_loop_path(mine, budget_exhausted=False) == LOOP_PATH_PLANNER
 
-    loop_source = inspect.getsource(AnalysisService._run_investigation_loop)
+    # MIGRATED in P3.3f-2: `_run_investigation_loop` is a one-statement delegation on `AnalysisService` now, so
+    # `getsource` on the class returned the delegation and the assertions below failed for the wrong reason. The guard's
+    # intent is unchanged - the loop's own body must consult the loop-path decision and must not carry the retired
+    # `persist_zero_cost` shortcut - so it reads the implementation where it lives.
+    from threat_report_agent.investigation.derivation import _run_investigation_loop
+
+    loop_source = inspect.getsource(_run_investigation_loop)
     assert "next_investigation_loop_path" in loop_source
     assert "persist_zero_cost = not model_actions_only and not proposed_actions" not in loop_source
     assert "persist_zero_cost" not in inspect.getsource(next_investigation_loop_path)
