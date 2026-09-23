@@ -87,7 +87,8 @@ P3.3 **不能**照做：20 个直接端口面里包含上面那些**属于 P3.4/
 | ~~P3.3b 原范围~~ → **P3.3b(2)** | 唯一线程族（**受阻**） | `_is_unique_thread_seed_row`, `_unique_thread_start_keys`, `_unique_execution_threads_for_view`, `_select_unique_thread_seed_rows` | **97** | 需要 `report.reporting` → **违反方案 §3.2 允许依赖矩阵**，须先把 `_address_lookup_keys` / `build_unique_execution_threads` 下移到 facts/ 或 static/ 才能搬（第 11 节） |
 | **P3.3c** ✅ | Action Proposal 验证与选择 | `_grounded_planner_action_candidates`, `_action_payload`, `_deterministic_action_plan`, `_planner_user_action`, `_bound_completed_actions` | **253** | `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`（**已完成**，见第 13 节） |
 | **P3.3c(2)** | 受阻：模型动作计划 | `_model_action_plan`, `_has_complete_model_action_plan`, `_merge_planned_actions`, `_action_is_model_or_human` | **74** | 需要 `DynamicPlanAction`（`model/model_gateway.py`）与 `action_is_model_or_human`（`task/`）——**均为 §3.2 未允许的层**，且后者会成环（见第 13.1 节） |
-| P3.3d | 方法论动作与收敛合同 | `_run_methodology_action`, `_convergence_failure_contract`, `_build_convergence_alternate`, `_convergence_completed_fields`, `_convergence_alternate_type`, `_convergence_method_id` | **514** | `_audit`, `_is_reference_isolated_blind`, `_link_claim_evidence`（+ `database`, `methodology_library`） |
+| **P3.3d** ✅ | 收敛合同 | `_convergence_failure_contract`, `_build_convergence_alternate`, `_convergence_completed_fields`, `_convergence_alternate_type`, `_convergence_method_id` | **243** | `_canonical_json` + 两个**类常量**（**已完成**，见第 14 节） |
+| **P3.3d(2)** | 受阻：方法论动作 | `_run_methodology_action` | **271** | **两个阻塞**：`investigation -> methodology` 无先例的未列层边；模块级 `REFERENCE_ISOLATED_FACT_LIBRARY` 与未搬方法共享（见第 14.2 节） |
 | P3.3e | 观测派生 | `_derive_investigation_observations` | **2,795** | `_emulation_entry_key`, `_function_entry_integers`, `_investigation_value_text`, `_overlay_pe_parser_thread_start`（+ `settings`） |
 | P3.3f | 调查循环本体 | `_run_investigation_loop` | **3,523** | `_audit`, `_canonical_json`, `_investigation_value_text`, `_is_task_cancelled`, `_link_claim_evidence`, `_persist_pma_static_analysis_plan`（+ `content_store`, `database`, `settings`） |
 
@@ -280,4 +281,73 @@ Standards 轴指出：`_grounded_planner_action_candidates` 的搬迁文本与�
 
 因此本记录此后不再使用含糊的「逐字节相同」，而是写：**字符串值逐字符相同 + 函数体代码行相同（模接收者改名与类缩进）**，
 两者都有脚本证据。这是「宣称的强度必须与测过的强度一致」的又一例。
+
+## 14. P3.3d 执行结果（收敛合同切片；方法论半片受阻）
+
+**实测（`--from 044a2ef`）**：5 个成员 / **243 行**，全部是 classmethod；唯一接收者引用是共享 helper
+`_canonical_json`（8 个使用者，其中 7 个在簇外 → 必须留在宿主）与**两个类常量**。端口因此从 3 有意扩到 **6**。
+`service.py` 28,219 → **28,028 行**；5 个搬迁体的**字符串值与函数体代码行**都相同（模接收者改名与类缩进），
+can-fail 已证明（基线通过 + 篡改后 exit 1 且点名 DIFFERS + 逐字节还原）。
+
+### 14.0 一次**真正的行为变更**：簇内调用漏传 host（由 Standards 轴发现，任何门禁都没看见）
+
+`_convergence_failure_contract`（本步搬迁，自身不需要 host）调用同簇的 `_convergence_alternate_type`，而后者**需要
+host**。抽取器的簇内重写把 `cls._convergence_alternate_type(...)` 改成 `_convergence_alternate_type(...)` 时
+**没有补上 host**，于是每个实参整体位移一位：`host` 收到 `ActionType.TRACE_API_ARGUMENT`，`action_type` 收到
+`existing_method_ids`……结果 `_CONVERGENCE_ALTERNATES` 回退分支**静默失效**（不抛异常）。
+
+**没有门禁能看见它**：`compileall` 只编译不检查调用元数；行为探针报 UNCHANGED（这条路径未被探针覆盖）；
+契约测试当时只 pin 委托的形状、不看调用元数。三处修复：
+
+1. **代码**：`_convergence_failure_contract` 现在接收 `host`（因为它要传给同簇函数），调用改为
+   `_convergence_alternate_type(host, action.action_type, existing_method_ids)`；其 classmethod 委托转发 `cls`。
+   实测复核：`_convergence_alternate_type(host, TRACE_API_ARGUMENT, set())` → `ActionType.GET_DECOMPILE`。
+2. **新增门禁（测试）**：`test_no_call_omits_the_host_a_sibling_requires` 遍历整个模块，凡首参为 `host` 的函数，
+   其任何调用都必须把 host 传在第一位；另有 `test_every_host_taking_function_is_delegated_with_its_own_receiver`
+   检查委托侧。can-fail 已证明（把 host 去掉 → 该测试以正确理由失败 → 逐字节还原）。
+3. **工具**：抽取器先**迭代求不动点**算出「谁需要 host」（自身触碰接收者 **或** 调用了需要 host 的兄弟），
+   重写簇内调用时补上 host；并在产出前跑一次**元数硬停**，不合规就拒绝写文件。
+
+这一条同时**反证了上一节的措辞纪律**：§13 末尾刚写下「宣称的强度必须与测过的强度一致」，而 §14 初稿又写了
+「AST 与值层面都相同」——**值层面的探针看不见调用点少一个实参**（它只归一化接收者与字符串）。因此本节的正确表述是：
+*字符串值与函数体代码行相同*，**另加**一条独立的**调用元数**检查；三者合起来才覆盖这个切片。
+
+### 14.1 第五次同类工具缺陷：**只认 `ast.Assign`，看不到带注解的赋值**
+
+一个探针把 `_CONVERGENCE_ALTERNATES` / `_CONVERGENCE_EXPECTED_KINDS` 报成 `class-level=no`，于是它们被当成
+**模块级**状态（按规则应当**随函数搬迁**）。真相是两者都是**带注解的类属性**（`X: dict[ActionType, ...] = {...}`）。
+若照那条读数执行，会有**两个后果**，而且都不会被现有门禁发现：
+
+* 把**类属性搬出类**（改变 `AnalysisService` 的可观察表面）；
+* 反过来，一条真正的**带注解模块级常量**永远找不到，于是搬迁后的函数引用未定义名——**又一个 NameError**，
+  与上一轮「没有 import 守卫」是同一族。
+
+修法：抽出 `assigned_names()`，同时处理 `ast.Assign` 与 `ast.AnnAssign`，并用于**三处**：端口读取、类/模块归属判定、
+随迁常量查找。（`_canonical_json` 是 staticmethod，签名 `(value) -> str`。）
+
+**这一轮把同一族缺陷数到了第 5 个**（只扫 `self.`；只读工作树；缺 import 守卫；委托硬编码 `self`；只认 `Assign`）。
+共同点是**扫描范围写得太窄**，而后果总是「工具给出自信的错误结论」。因此本轮之后，测量类工具的每条读数都要先问
+一句：**它扫的范围是否覆盖了这类节点/接收者的所有形态？**
+
+### 14.2 方法论半片（`_run_methodology_action`，271 行）有**两个独立阻塞**，逐条实测
+
+1. **`threat_report_agent.methodology` 是没有先例的未列层边。** 实测各 root 模块被多少个「层」导入：
+   `models` 5（root/investigation/static/task/tools）、`config` 5、`runtime_contracts` 3、`contracts` 2，
+   而 **`methodology` 只有 1（service.py）**。因此它不是既有的共享原语，把需要 `DIMENSIONS`/`build_profile` 的
+   代码搬进 `investigation/` 会**新建**一条 §3.2 未列出的边——与 P3.3b 的 `report`、P3.3c 的 `model.model_gateway`
+   同一处理方式：**不搬**。
+2. **模块级 `REFERENCE_ISOLATED_FACT_LIBRARY` 不能随迁。** 它（service.py:1150 由 `FactLibrary(...)` 构造）同时被
+   `_freeze_blind_run_snapshot`（**未搬迁**）与 `_run_methodology_action` 读取，所以既不能搬走、也不能被本模块导入。
+
+此外它还会再要 **5 个端口成员**（3 个共享 helper `_canonical_json`/`_is_reference_isolated_blind`/
+`_link_claim_evidence`、类常量 `_METHODOLOGY_EVIDENCE_LIMIT`、实例属性 `methodology_library`——后者被测试钉住）。
+**解除路径**与 P3.3b(2)/P3.3c(2) 同形，但更大：要么把 `methodology.py` 提升为**被多层的共享纯模块**
+（它只 import 标准库与 yaml，具备条件）并按记录声明该层关系，要么把 `FactLibrary` 构造下沉到一个允许的层并把
+`REFERENCE_ISOLATED_FACT_LIBRARY` 一并下移。**两件都在本步白名单之外，故本步只记录，不动手。**
+
+### 14.3 过程失误（记下来以免复发）
+
+本轮在用 PowerShell 改脚本内容时又踩了 `Set-Content -Encoding utf8` 的 **BOM** 坑（Python 报
+`SyntaxError: invalid non-printable character U+FEFF`，且把一行注释挤到了代码行尾）。这是本会话**第三次**同类事件。
+结论写死：**脚本内容改动只用编辑器工具，不用 PowerShell 文本命令**；不得不处理时先用 `.scratch/strip-bom.py` 清 BOM 并验证可解析。
 
