@@ -2,8 +2,8 @@
 
 > 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 55 条，本文件只汇总。
 
-- **被核验的树 = 提交 `17a2311e4c5b9f8e77e6afa5a0e7e071ccc0b84b`**（该提交的 tree 上跑过四道门禁与全量套件）
-- `head_sha` 的语义：该字段是**被核验的提交本身**：四道门禁、focused 套件与全量套件都在它的 tree 上运行过。每一步的回滚点是 `step_records` 中该步 `rollback_point` 记录的**上一个**提交。（round 100 之前这里记的是**提交前**的 HEAD，导致文档声称在一个不含本步改动的提交上完成核验，已修正。）
+- **被核验的树 = 提交 `795d8b26ed8de32f335758d9a3c0065029cb249f`**（该提交的 tree 上跑过四道门禁与全量套件）
+- `head_sha` 的语义：`head_sha` = 当前 HEAD（`795d8b26ed8d`）；**被门禁核验的代码树是 `17a2311e4c5b`**（四道门禁、focused 套件与全量套件都在它的 tree 上跑过）。两者之间只差文档：`git diff --name-only 17a2311e4c5b..HEAD -- src` 为空，因此 `src/` 逐字节相同（此项由脚本实测，不是断言）。每一步的回滚点是该步 `rollback_point` 记录的上一个提交。
 - **structure_status：`IN_PROGRESS`**
 - **capability_status：`UNVERIFIED`**
 
