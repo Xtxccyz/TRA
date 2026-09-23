@@ -357,6 +357,7 @@ from threat_report_agent.product_certification import (
 # `limitations` (the list of limitation strings), which would shadow the module and raise AttributeError.
 # MEASURED: that is exactly what the first version of this extraction did, and 7 investigation tests caught it.
 from threat_report_agent.task import limitations as _limitations
+from threat_report_agent.investigation import derivation_support as _derivation_support
 from threat_report_agent.investigation.coordinator import (
     deferred_keeps_planner_open,
     frontier_status_is_open,
@@ -3924,13 +3925,7 @@ class AnalysisService:
 
     @staticmethod
     def _locator_key(raw: object) -> str:
-        text = str(raw or "").strip()
-        if not text:
-            return ""
-        folded = text.casefold()
-        if re.fullmatch(r"(?:0x)?[0-9a-f]+", folded):
-            return f"0x{int(folded, 16):x}"
-        return folded
+        return _derivation_support._locator_key(raw)
 
     @classmethod
     def _overlay_pe_parser_thread_start(
@@ -3938,41 +3933,7 @@ class AnalysisService:
         trace: Mapping[str, object],
         pe_summary: Mapping[str, object] | None,
     ) -> dict[str, object]:
-        """Fill unresolved Ghidra CreateThread traces from PE32 PUSH recovery."""
-        payload = dict(trace)
-        if recovered_thread_start_address(payload):
-            return payload
-        api = str(payload.get("api") or payload.get("consumer") or "")
-        if "createthread" not in normalize_api_symbol(api):
-            return payload
-        pe = pe_summary if isinstance(pe_summary, Mapping) else {}
-        image_base = int(pe.get("image_base") or 0)
-        site = cls._locator_key(payload.get("callsite"))
-        signals = pe.get("code_signals") if isinstance(pe.get("code_signals"), Mapping) else {}
-        for call in signals.get("api_calls") or ():
-            if not isinstance(call, Mapping):
-                continue
-            arguments = call.get("arguments")
-            if not isinstance(arguments, list) or not arguments:
-                continue
-            if "createthread" not in normalize_api_symbol(call.get("api")):
-                continue
-            try:
-                rva = int(call.get("address") or 0)
-            except (TypeError, ValueError):
-                continue
-            va = image_base + rva if image_base else rva
-            call_keys = {
-                cls._locator_key(hex(va)),
-                cls._locator_key(hex(rva)),
-            }
-            if site and site not in call_keys:
-                continue
-            payload["arguments"] = [dict(item) for item in arguments if isinstance(item, dict)]
-            pe_64 = bool(pe.get("pe_plus")) or str(pe.get("format") or "").upper() == "PE32+"
-            payload["trace_quality"] = "x64_register_window" if pe_64 else "x86_stdcall_push"
-            return payload
-        return payload
+        return _derivation_support._overlay_pe_parser_thread_start(trace, pe_summary)
 
     _DATA_STORE_INSTRUCTION = re.compile(
         r"(?i)\b(?:MOV|MOVZX|MOVSX|XCHG|STOS|AND|OR|XOR|ADD|SUB)\s+"
@@ -16265,41 +16226,15 @@ class AnalysisService:
 
     @classmethod
     def _parse_static_address(cls, value: object) -> int | None:
-        text = str(value or "").strip()
-        if not text:
-            return None
-        try:
-            if text.lower().startswith("0x"):
-                return int(text, 16)
-            if text.isdigit():
-                return int(text)
-            return int(text, 16)
-        except ValueError:
-            return None
+        return _derivation_support._parse_static_address(value)
 
     @classmethod
     def _code_locator_integers(cls, value: object) -> set[int]:
-        text = str(value or "").strip()
-        if not text:
-            return set()
-        parsed = cls._parse_static_address(text)
-        if parsed is not None:
-            return {parsed}
-        stripped = re.sub(r"^(?:offset|near|far)\s+", "", text, flags=re.I)
-        stripped = re.sub(r"^(?:FUN_|sub_|thunk_)", "", stripped, flags=re.I)
-        parsed = cls._parse_static_address(stripped)
-        return {parsed} if parsed is not None else set()
+        return _derivation_support._code_locator_integers(value)
 
     @classmethod
     def _row_own_function_payload(cls, row: object) -> dict[str, object]:
-        payload: dict[str, object] = {}
-        value = getattr(row, "value", None)
-        anchor = getattr(row, "anchor", None)
-        if isinstance(value, dict):
-            payload.update(value)
-        if isinstance(anchor, dict):
-            payload.update(anchor)
-        return payload
+        return _derivation_support._row_own_function_payload(row)
 
     @classmethod
     def _row_own_function_matches(cls, row: object, target: str) -> bool:
@@ -16392,15 +16327,7 @@ class AnalysisService:
 
     @classmethod
     def _function_entry_integers(cls, function: Mapping[str, object] | None) -> set[int]:
-        """Collect RVA and VA locators from a function/context row."""
-        if not isinstance(function, Mapping):
-            return set()
-        values: set[int] = set()
-        for key in ("entry_rva", "entry", "address", "function_entry", "rva"):
-            parsed = cls._parse_static_address(function.get(key))
-            if parsed is not None:
-                values.add(parsed)
-        return values
+        return _derivation_support._function_entry_integers(function)
 
     @classmethod
     def _function_name_matches_vas(
@@ -16703,17 +16630,7 @@ class AnalysisService:
 
     @classmethod
     def _pe_entry_integers(cls, pe_summary: Mapping[str, object] | None) -> set[int]:
-        """Return PE AddressOfEntryPoint as both RVA and optional VA."""
-        if not isinstance(pe_summary, Mapping):
-            return set()
-        rva = cls._parse_static_address(pe_summary.get("entry_rva"))
-        image_base = cls._parse_static_address(pe_summary.get("image_base"))
-        values: set[int] = set()
-        if rva is not None:
-            values.add(rva)
-            if image_base is not None:
-                values.add(image_base + rva)
-        return values
+        return _derivation_support._pe_entry_integers(pe_summary)
 
     @classmethod
     def _select_ghidra_function_rows(
