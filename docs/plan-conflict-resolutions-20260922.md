@@ -130,3 +130,37 @@ P2-V.8 把 `semantic_predicates.py`（199 行、零包内依赖的纯谓词）�
 * *保留 + 显式记录* —— **采用**。
 
 **执行**：模块 docstring 顶部加入 `STATUS` 段（明确「此处声明、无处强制」），并在本文件记录。
+
+---
+
+## 决策 (d)：`model.model_gateway -> contracts` 边——**接受并显式登记**（round 106，P3.3 层工作第 4 条）
+
+**为什么需要一条决策**：方案 §3.2 第 122 行写着「未列出的边默认禁止」，而该矩阵**没有 `model/` 行**；上一个层工作
+（第 1 条）正是用同一条规则**否决**了 `investigation -> simulation_adapters`。因此「门禁通过了」不能当作理由：
+`docs/import-policy.json` 只编码 `forbidden_edges` / `known_cycles` / `known_violations`，**门禁无法检验矩阵本身**
+（这是已记录的盲区）。
+
+**实测事实**：
+
+| 事实 | 值 |
+|---|---|
+| 新边 | `threat_report_agent.model.model_gateway -> threat_report_agent.contracts`（1 条） |
+| 触发它的改动 | `DynamicPlanAction`（107 行、pydantic `BaseModel`）从网关移入 `contracts.py`，网关保留同对象 re-export |
+| 为什么不能让 `ports.py` 直接 re-export 网关 | 网关模块级 `import httpx`；`ports.py` 自述「free of persistence, transport, SDK and ORM imports」，会让**每个** port 导入者拖上 httpx |
+| 为什么不用 `ports.py` 的结构化 `*View` | 会让后续搬迁把 `isinstance(action, DynamicPlanAction)` 改写成**结构化**检查——在「移动同一份实现」的步骤里引入行为变更 |
+| `runtime_contracts.py` 为何落选 | 它今天是**纯标准库**（`hashlib`/`json`/`dataclass`）；放 pydantic 模型会给它新增依赖。方案第 118 行只把它列为候选之一，实测后排除 |
+| 方向 | 实现 → 纯契约，与矩阵中每一行「可以导入 contracts」的方向一致（contracts 位于最底层） |
+| 门禁读数 | 110 模块 / 212 运行时同包边 / **cycles 0** / 允许清单为空；`forbidden_edges` 未命中 |
+
+**候选与判定**：
+
+* *留在网关、让 port 从网关 re-export* —— 把 httpx 带进 port 层；**否决**。
+* *在 port 里声明结构化 `*View`* —— 后续搬迁需改写 `isinstance` 语义；**否决**。
+* *移入 `contracts.py` + 网关与 port 各 re-export 同对象* —— 满足方案第 142 行「重新导出不是第二个实现」，且
+  `investigation/` 本就被允许导入 `contracts`（第 132 行）；**采用**（`ports.py` 的 re-export 正是第 4 条要求的
+  「让 model port 暴露该类型」）。
+
+**执行与限制**：本条边**登记在本文件**而非 `import-policy.json` 的禁止边列表里，因为它是**允许**边而 policy 只有禁止边机制；
+`_forbidden_edges_note` 与 `import-policy.json` 的 `_recorded_allowed_edges_note` 各加一句指引，使后来者知道这是**决定**
+而非疏漏。**诚实限制**：门禁仍无法检验「未列出的边」，所以这类决定依赖本文件的人工登记——若将来要机器化，正确做法是把
+矩阵编码成 allow-list 并让 `check-import-graph.py` 在 `--strict` 下对未登记的边失败。

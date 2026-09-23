@@ -158,17 +158,18 @@ static/emulation/tools 的**接口**，未列出的边默认禁止）重判，�
 | 1 | ~~把**循环路径策略** `LOOP_PATH_*` / `next_investigation_loop_path` / `resolve_persist_how_skip` 从 `task/analysis_task_orchestration.py` 下移到 `investigation/`（或 contracts），task 侧改为导入~~ **已完成**：落到 `investigation/loop_path.py`（16 个模块级名字 / 167 行，task 侧 re-export） | ~~**P3.3f**（消除环）与 **P3.3c(2)** 的 `action_is_model_or_human`~~ 环已消除；P3.3c(2) 仍受第 4 条阻塞 | 名字定义位置实测（第 2.1 节）；方案第 133 行本就允许 `task/ -> investigation`。完成记录见 `docs/p33-layer1-loop-path-module-design-20260922.md` |
 | 2 | 把 7 个模拟策略名从 `simulation_adapters` 暴露成**允许的 emulation 接口**（或把纯策略函数下移） | **P3.3e** | 第 1.5 节的判定 |
 | 3 | 把 `_address_lookup_keys` / `build_unique_execution_threads` 从 `report/reporting.py` 下移到 `facts/` 或 `static/` | **P3.3b(2)**（97 行） | P3.3b 的实测 |
-| 4 | 让 **model port** 暴露 `DynamicPlanAction`（`ports.py` 目前没有；它只 `ModelPlanningPort` 等 Protocol） | **P3.3c(2)** 的 3 个成员（71 行） | P3.3c 的实测 |
+| 4 | ~~让 **model port** 暴露 `DynamicPlanAction`（`ports.py` 目前没有；它只 `ModelPlanningPort` 等 Protocol）~~ **已完成**：类本体（107 行）先移入纯契约层 `contracts.py`，再由 `ports.py` 与 `model/model_gateway.py` 各自 re-export 同一对象 | **P3.3c(2)** 的 3 个成员（71 行）——两个阻塞（本条与第 1 条）均已消除 | P3.3c 的实测；路线与实测见 `docs/p33-layer4-model-action-contract-design-20260922.md`，新边 `model -> contracts` 的登记见 `docs/plan-conflict-resolutions-20260922.md` 决策 (d) |
 | 5 | 把 `methodology` 提升为**被多层共享的纯模块**（它只 import 标准库与 yaml）或下移其 `FactLibrary` 构造 | **P3.3d(2)** 的 `_run_methodology_action`（271 行） | P3.3d 的实测 |
 
 这五条都属于 P1.2（端口与适配器）那条线的工作，各自应是一个独立步骤（自己白名单、自己验证）。
-**第 1 条已于本轮完成**（`investigation/loop_path.py`，见 `docs/p33-layer1-loop-path-module-design-20260922.md`），
-`investigation -> task` 的环因此消除。
+**第 1 条与第 4 条均已完成**（第 1 条：`investigation/loop_path.py`，消除 `investigation -> task` 的环；第 4 条：
+`DynamicPlanAction` 落入 `contracts.py` 并由 model port 暴露）。**P3.3c(2) 的两个层阻塞因此都已消失，它现在可以直接搬。**
 
-**当前可执行的下一个结构步骤是第 4 条**（让 model port 暴露 `DynamicPlanAction`）：它是五条里最小、最纯的改动
-（往 `ports.py` 加一个名字，不动任何行为），却解开 P3.3c(2) 的 3 个成员 / 71 行的最后一个阻塞。
-紧随其后应做**第 2 条**（把 7 个模拟策略名暴露成允许的 emulation 接口），因为它是唯一解开 P3.3e
-（2,795 行的 `_derive_investigation_observations`）的前提——那是本阶段剩余价值最大的一步。
+**当前可执行的下一个结构步骤是 P3.3c(2) 本身**（`_model_action_plan` / `_has_complete_model_action_plan` /
+`_merge_planned_actions`，71 行）：按 §7.1 走常规切片流程，`isinstance` 保持原样即可（canonical 类仍是那个具名类型）。
+之后应做**第 2 条**（把 7 个模拟策略名暴露成允许的 emulation 接口），因为它是唯一解开 P3.3e
+（2,795 行的 `_derive_investigation_observations`）的前提——那是本阶段剩余价值最大的一步。第 3 条与第 5 条
+分别解开 P3.3b(2)（97 行）与 P3.3d(2)（271 行），实测依据均在表中。
 
 ## 4. 本步明确不做
 
