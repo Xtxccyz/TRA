@@ -1686,7 +1686,13 @@ def test_local_controlled_emulate_requests_speakeasy_when_policy_allows(
         captured["allow_speakeasy"] = kwargs.get("allow_speakeasy")
         return []
 
-    monkeypatch.setattr(service_module, "controlled_emulation_windows", fake_windows)
+    # MIGRATED in P3.3e's giant move: the body that calls `controlled_emulation_windows` now lives in
+    # `investigation/derivation.py` and resolves the name from THAT module's namespace, so patching
+    # `service_module`'s copy no longer intercepts anything (MEASURED: the fake was never called and the
+    # assertion below failed with `KeyError: 'allow_speakeasy'`). The patch follows the code.
+    from threat_report_agent.investigation import derivation as derivation_module
+
+    monkeypatch.setattr(derivation_module, "controlled_emulation_windows", fake_windows)
     settings = replace(
         test_settings,
         simulation_profile="static-first-controlled-emulation",

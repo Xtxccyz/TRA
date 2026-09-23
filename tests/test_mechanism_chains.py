@@ -2,7 +2,6 @@ import inspect
 
 from threat_report_agent.agents import StaticAnalysisAgent
 from threat_report_agent.prompts import PromptRegistry
-from threat_report_agent.service import AnalysisService
 from threat_report_agent.static_analysis import (
     analyze_xor_decode_window,
     build_cross_function_chains,
@@ -188,15 +187,27 @@ def test_credible_creation_flags_rejects_timeout_and_infinite_immediates() -> No
 
 
 def test_trace_path_does_not_stamp_timeout_immediate_as_creation_flags() -> None:
-    """G1 §5.4: the TRACE_API_ARGUMENT add-site must consult the credibility gate."""
-    from threat_report_agent.service import plausible_traced_creation_flags
+    """G1 §5.4: the TRACE_API_ARGUMENT add-site must consult the credibility gate.
+
+    MIGRATED in P3.3e's giant move, and the reason is the assertion itself: `inspect.getsource(AnalysisService)` read
+    the CLASS the add-site used to live in, so it broke the moment the giant moved out - exactly the hazard the P3.3e
+    design documents under "no test uses getsource on it" being a weaker mitigation than it reads (this site is listed
+    as NEGATIVE in `docs/p37-getsource-conversion-plan-20260922.md`). The import and the source target now point at the
+    add-site's NEW home. The assertion keeps its original strength: the credibility gate must be consulted AT the
+    add-site, and the old INFINITE/INVALID_HANDLE-only exclusion must stay gone. P3.7 still owns turning this into a
+    behavioural assertion; this step only moves it with the code.
+    """
+    from threat_report_agent.investigation.derivation import (
+        _derive_investigation_observations,
+        plausible_traced_creation_flags,
+    )
 
     assert plausible_traced_creation_flags(0x00080000) == 0x00080000
     assert plausible_traced_creation_flags(0x000F4240) is None
     assert plausible_traced_creation_flags(0xFFFFFFFF) is None
     assert plausible_traced_creation_flags(None) is None
 
-    source = inspect.getsource(AnalysisService)
+    source = inspect.getsource(_derive_investigation_observations)
     assert "plausible_traced_creation_flags(parsed_flags)" in source
     # The old INFINITE/INVALID_HANDLE-only exclusion must be gone.
     assert "parsed_flags not in {0xFFFFFFFF, 0xFFFFFFFE}" not in source

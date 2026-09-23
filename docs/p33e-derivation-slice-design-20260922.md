@@ -24,16 +24,22 @@
 | test files that reference it | **12** (9 CALL it, 2 only mention it, **0 call `getsource` ON IT** - see the correction directly below) |
 | production call sites | 1 (`service.py:9752`) |
 
-**A CLAIM THIS TABLE GOT WRONG, CORRECTED BY THE SPEC-AXIS REVIEW OF THE MOVE ITSELF (round 116).** "0 use
-`getsource`/`getattr`" is literally true and materially misleading. `tests/test_mechanism_chains.py:199` does
+**A CLAIM THIS TABLE GOT WRONG, CORRECTED BY THE SPEC-AXIS REVIEW OF THE MOVE ITSELF (round 116), AND THEN CORRECTED
+AGAIN BY THE MOVE (round 118) BECAUSE THE FIRST CORRECTION UNDERCOUNTED.** "0 use `getsource`/`getattr`" is literally
+true and materially misleading. `tests/test_mechanism_chains.py:199` does
 `source = inspect.getsource(AnalysisService)` and then asserts
 `"plausible_traced_creation_flags(parsed_flags)" in source`. Nothing calls `getsource` on the GIANT, but the assertion
-depends on the giant's BODY: the call site it looks for is inside `_derive_investigation_observations`. It passes today
-only because the giant is still in `AnalysisService`; when the giant moves, the text leaves the class and the assertion
-breaks. The site is already listed as NEGATIVE in `docs/p37-getsource-conversion-plan-20260922.md:49`, so the giant's
-move must migrate it - the same class of work P3.3f needs for
-`tests/test_analysis_task_orchestration.py:404`. The lesson is the phase's recurring one: a scope-limited scan
-("getsource on the giant") answered a question nobody asked ("does any test depend on the giant's text").
+depends on the giant's BODY: the call site it looks for is inside `_derive_investigation_observations`. It passed only
+while the giant was in `AnalysisService`, and when the giant moved the text left the class and the assertion broke. The
+site is already listed as NEGATIVE in `docs/p37-getsource-conversion-plan-20260922.md:49`.
+
+**THE MOVE FOUND TWO MORE SITES, SO THE COUNT WAS THREE, NOT ONE.** A second `getsource` loop over
+`AnalysisService._derive_investigation_observations` (`tests/test_static_simulation_budget.py`) began reading a
+one-statement delegation instead of the body, and - a family this design never considered - a
+`monkeypatch.setattr(service_module, "controlled_emulation_windows", ...)` stopped intercepting anything, because the
+moved body resolves that name from its NEW module. All three were migrated to the implementation's new home with their
+strength preserved. The lesson is the phase's recurring one: a scope-limited scan ("getsource on the giant") answered a
+question nobody asked ("which tests depend on where this code and its names live").
 
 ## 2. Per-helper verdict: TRAVEL, SINK or HOST - and a wrong answer this step caught before publishing
 
@@ -90,8 +96,18 @@ ONE reader each (`_instruction_access_kind`), so they can travel as module const
 `_MAX_GHIDRA_INSTRUCTIONS_PER_FUNCTION` is read by `_record_builtin_code_signal_evidence` and `_record_ghidra_evidence`
 as well, so it must stay a class attribute and `_follow_local_tail_jmp` must stay a host member.
 
-**Port for the giant's move, measured: 6 existing + 4 host members + 2 execution members = 12** - the figure the giants
-decision doc estimated, and the same one the preparation step reached from the other direction.
+**THE "12" IN SECTION 2b IS REFUTED BY THE MOVE, AND THE ERROR WAS OURS.** §2b ends with "Port for the giant's move,
+measured: 6 existing + 4 host members + 2 execution members = 12 - the figure the giants decision doc estimated". After
+the move, the two pins can be counted directly: `coordinator.py`'s `INVESTIGATION_HOST_MEMBERS` has **6** members
+(`database`, `_audit`, `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`, `_CONVERGENCE_ALTERNATES`,
+`_CONVERGENCE_EXPECTED_KINDS`, `_canonical_json`) and this module's has **7** (`settings`,
+`_run_simulation_window`, `_qiling_unavailable_observation`, `_emulation_entry_key`, `_follow_local_tail_jmp`,
+`_investigation_value_text`, `_matching_simulation_results`). The two sets are DISJOINT, so the giant's path carries
+**7** declared members, not 12 - the "6 existing" were the COORDINATOR slice's members, which the giant never reads, and
+adding them to this slice's need produced a total that no single port ever had. The correct decomposition of this
+module's 7 is `settings` + the 2 execution members + the 4 host helpers. Recorded here rather than quietly renumbered:
+this is the third figure for the same quantity to appear in the phase (6→8, then 12, now 7), and each wrong one came
+from counting the wrong set rather than from the code.
 
 ## 3. Module-level names that must travel
 
@@ -129,7 +145,7 @@ The execution members' shapes, which are decided (they are not affected by the f
 ## 5. Import canonicalisation the move must perform
 
 The giant imports **`threat_report_agent.dataflow`** - the LEGACY shim path for `facts.dataflow` (it is the single
-recorded `legacy_path_imports` entry) - for 16 names. A new module in `investigation/` must import the canonical
+recorded `legacy_path_imports` entry) - for SEVENTEEN names, the largest canonicalisation of the phase (the cluster slice needed two of them; the giant closed over the other fifteen). A new module in `investigation/` must import the canonical
 `threat_report_agent.facts.dataflow` instead: plan §7.1 step 4 says a new implementation must not import the old path,
 and `docs/import-policy.json` already records that entry as debt to be repaid rather than copied. Everything else it
 imports is either stdlib, an allowed layer (`facts`/`static`/`emulation` interfaces/`models`), or already moved into the
@@ -183,7 +199,7 @@ with the phase's gates. **This section is the state, not a plan.**
 
 | moved | shape now |
 | --- | --- |
-| `_bind_recovered_xor_verification` (40), `_decode_output_buffer` (18), `plausible_traced_creation_flags` (16) | module functions in `derivation.py`; `service.py` imports all three back by name, so `service.<name>` and every existing caller are unchanged |
+| `_bind_recovered_xor_verification` (40), `_decode_output_buffer` (18), `plausible_traced_creation_flags` (16) | module functions in `derivation.py`; `service.py` RE-EXPORTS all three as `X as X` until P4.3 removes that surface, so `service.<name>` and every existing caller are unchanged |
 | `_DATA_LOAD_INSTRUCTION`, `_DATA_STORE_INSTRUCTION` (4 each) | module constants in `derivation.py`, REMOVED from the class (each had exactly one reader, `_instruction_access_kind`); the old path is asserted absent |
 | `_row_own_function_matches` (13), `_instruction_access_kind` (9), `_reference_access_kind` (11), `_global_accesses_from_rows` (70) | module functions; `service.py` keeps `@classmethod` one-statement delegations, so `_ghidra_data_reference_rows` and the tests that call them are unchanged |
 
@@ -220,11 +236,49 @@ rediscovered:
     calls would fail a gate whose purpose is keeping pins honest. Declaring it beside its consumer is the layer-correct
     alternative, and the deviation is recorded here.
 
-For the same reason the host PIN is still not declared: a pin must name exactly what THIS module's bodies read, and
-after the seam none of them is here yet. It lands with the giant's body, one step later.
+THE PIN WAS NOT DECLARED IN THAT STEP, on purpose: a pin must name exactly what THIS module's bodies read, and after the
+seam none of them was here yet. Declaring seven host members for a module that read none of them would have been the
+aspirational-pin defect this phase has already recorded once. The step that moved the giant declared it in the same
+change, and the measurement is now an assertion in `tests/test_investigation_derivation_contract.py`.
 
-**NOT LANDED, with the reason each waits:** the giant itself, `_DECODE_PRODUCER_KINDS` (its only reader is the giant -
-one bare read - so it travels WITH the giant, not before it), the four HOST members, and the host pin.
+**THE GIANT HAS MOVED** (P3.3e-move-2b, round 118), so this section is now a record of the whole slice rather than of a
+half. Measured outcome: `investigation/derivation.py` is 3,240 lines and holds the giant's 2,787-line body as a
+module-level function whose first parameter is `host: DerivationHost`; `_DECODE_PRODUCER_KINDS` travelled with it;
+`service.py` went from 27,889 lines (the start of P3.3e) to **24,948**, keeping a one-statement delegation so every
+existing caller and test that reaches `service.<name>` still resolves.
+
+THE PORT IS DECLARED, AND ITS ARITHMETIC IS NOW A MEASUREMENT RATHER THAN AN ESTIMATE:
+
+| what | value | how it was fixed |
+| --- | --- | --- |
+| this module's own pin | **7 members** | `settings`, `_run_simulation_window`, `_qiling_unavailable_observation`, `_emulation_entry_key`, `_follow_local_tail_jmp`, `_investigation_value_text`, `_matching_simulation_results` |
+| the coordinator's pin | 6 members | unchanged; the design's "6 + 4 + 2 = 12" total was counting BOTH pins' members and the two execution members together, and the two pins are declared in their own modules because each must equal exactly what its own bodies read |
+| how the 7 were derived | not guessed | `.scratch/p33e-giant-prep.py` printed every receiver reference the giant makes, and `tests/test_investigation_derivation_contract.py` asserts `pin == the references the module's bodies actually make` (can-failed by removing one member) |
+
+FIVE NEW IMPORT STATEMENTS CAME WITH THE MOVE, and the gate's counter moved by four (227 -> 231 runtime same-package
+edges, cycles still 0). MEASURED by diffing this module's `threat_report_agent.*` imports against `HEAD`'s version of
+it: `emulation.emulation_plan`, `emulation.policy`, `investigation.investigation`, `investigation.semantic_predicates`,
+`static.static_simulation`. The two numbers differ because the gate resolves imports against its own module table and
+drops self-edges, and an earlier revision of this paragraph asserted a mechanism for the difference that was not
+measured - so both numbers are recorded and the raw five-name list is the evidence. Each is a direction §3.2 admits for
+`investigation/` (emulation interfaces, sibling investigation modules, a static interface) and the strict gate passes;
+they are recorded because "N new edges" is exactly the kind of number that should not appear silently. A related GAP the
+Standards axis raised and this step does not close: the gate encodes only the directions it has been taught, so §3.2's
+"unlisted edges are forbidden by default" is not mechanically enforced for a future `investigation/` -> implementation
+edge.
+
+THE MOVE ALSO FORCED THREE TEST MIGRATIONS, and the reason is worth stating once because the design's section 1 claim
+about `getsource` understated it: **moving a body moves where its names resolve.** `getsource(AnalysisService)` stopped
+seeing the add-site (`tests/test_mechanism_chains.py`), a loop over `AnalysisService._derive_investigation_observations`
+started reading a delegation instead of a body (`tests/test_static_simulation_budget.py`), and a
+`monkeypatch.setattr(service_module, "controlled_emulation_windows", ...)` stopped intercepting anything because the
+moved body resolves that name from `derivation.py` (`tests/test_controlled_emulation.py`). All three were migrated to
+the implementation's new home with their strength unchanged; a can-fail proof on the port contract shows the new pin
+assertion can go red.
+
+**WHAT REMAINS ON THE HOST BY DESIGN** (not "not landed"): the four HOST members above, each for the measured reason
+recorded in `derivation.py` beside the pin, plus the class attribute `_MAX_GHIDRA_INSTRUCTIONS_PER_FUNCTION` that two
+un-moved methods also read.
 
 **SIX INSTRUMENT DEFECTS THIS HALF COST**, all of the phase's recurring family (narrow scope or hard-coded
 configuration producing a confident wrong answer):
@@ -252,13 +306,18 @@ configuration producing a confident wrong answer):
 **And one document claim this half disproved**, corrected in sections 1 and 7 above: "no test uses `getsource`" is not
 the same question as "no test depends on the giant's text".
 
-## 9. What the successor step must do first
+## 9. What the successor step must do first (rewritten after the move landed)
 
-1. **Treat the giant as one step with its own port growth**, per section 6, now with the corrected `getsource`
-   constraint: migrate `tests/test_mechanism_chains.py:199` (or park the assertion) in the SAME step, because the
-   assertion reads the class the giant is leaving.
-2. **Bring `_DECODE_PRODUCER_KINDS` with the giant** (one bare read) and declare the host pin at that point - this
-   module has no port today, which the extractor enforces by refusing to write any body that still refers to a
-   receiver.
-3. Re-run the identity battery with `--external _derivation_support=...` (without it the tools correctly report
-   DIFFERS, which is a configuration error, not a finding) and keep the wrong-base can-fail proof in the gate list.
+Sections 9.1-9.3 of the previous revision are DONE: the `getsource(AnalysisService)` assertion was migrated in the same
+step (plus two more sites the design had not predicted), `_DECODE_PRODUCER_KINDS` travelled with the giant, and this
+module's 7-member pin is declared and contract-tested. What is left:
+
+1. **P3.3f: `_run_investigation_loop` (3,523 lines)**, which needs ~34 shared helpers sunk to a layer `investigation/`
+   may import plus the `getsource` assertion at `tests/test_analysis_task_orchestration.py:404` migrated. THE GIANT'S
+   MOVE JUST ADDED TWO LESSONS FOR IT, both measured: expect MORE `getsource`/`monkeypatch` sites than any scan
+   predicted (three here, while section 1 said zero), and expect the move to take four new import edges whose
+   admissibility has to be checked against §3.2 rather than assumed.
+2. **P3.3b(2) and P3.3d(2)** remain layer-blocked on `report/` and `methodology` helpers being sunk first.
+3. **P4.3** can now delete the `service.py` re-export surface this slice left behind, but only after every test that
+   reads `service.<moved name>` has been migrated - and the three migrations in this step show that list is discovered
+   by RUNNING the suite, not by grepping for `getsource`.

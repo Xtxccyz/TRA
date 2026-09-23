@@ -137,9 +137,17 @@ def test_pcode_slice_is_not_pinned_at_128_operations(monkeypatch: pytest.MonkeyP
 
 
 def test_live_service_call_sites_use_the_setting() -> None:
-    """Regression guard for the three live call sites named in the defect."""
+    """Regression guard for the three live call sites named in the defect.
+
+    MIGRATED in P3.3e's giant move: `_derive_investigation_observations` no longer holds a body in `service.py` (it is
+    a one-statement delegation), so `inspect.getsource` on the class returned the delegation and the assertion below
+    failed for the wrong reason. The guard's intent is unchanged - the live call site must read the setting instead of
+    a hard-coded step budget - so it now reads the implementation where it lives.
+    """
+    from threat_report_agent.investigation.derivation import _derive_investigation_observations
+
     for method in (
-        AnalysisService._derive_investigation_observations,
+        _derive_investigation_observations,
         AnalysisService._record_ghidra_evidence,
     ):
         source = inspect.getsource(method)

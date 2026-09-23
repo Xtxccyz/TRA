@@ -82,10 +82,16 @@ def _protocol_members() -> set[str]:
 
 
 def _giant() -> ast.AST:
-    tree = ast.parse(SERVICE_MODULE.read_text(encoding="utf-8", errors="replace"))
-    service_class = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AnalysisService")
+    """The giant's IMPLEMENTATION, which moved to `derivation.py` in P3.3e's final step.
+
+    MIGRATED, not deleted: this guard used to read `AnalysisService`'s body because that is where the code lived. The
+    step that moved the body moved this target with it - the same migration the coordinator's contract test records
+    ("the state it pinned changed by design"), and the negative property it guards is exactly the one that must keep
+    holding at the new home.
+    """
+    tree = ast.parse(DERIVATION_MODULE.read_text(encoding="utf-8", errors="replace"))
     return next(
-        n for n in service_class.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == GIANT
+        n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == GIANT
     )
 
 
@@ -163,8 +169,17 @@ def test_the_giant_reaches_the_implementation_module_only_through_the_seam() -> 
         and child.func.attr == "run" and isinstance(child.func.value, ast.Name) and child.func.value.id == "runner"
     ]
     assert not runner_calls, "the giant still runs a runner object it built itself"
-    self_attrs = {
+    # STRICT AGAIN, after a review caught this guard being WIDENED by the move: the first migration accepted `self` as
+    # well as `host` ("the receiver is host now that the body lives in derivation.py"), which is strictly weaker - it
+    # would no longer notice a `self.X` reintroduced into a module function, where `self` is not defined at all. The
+    # moved body must reach its host ONLY as `host`, and must hold no `self`/`cls` reference whatever.
+    host_attrs = {
         child.attr for child in ast.walk(giant)
-        if isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name) and child.value.id == "self"
+        if isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name) and child.value.id == "host"
     }
-    assert set(SEAM_MEMBERS) <= self_attrs, f"the giant does not call {sorted(set(SEAM_MEMBERS) - self_attrs)}"
+    leftover = {
+        (child.value.id, child.attr) for child in ast.walk(giant)
+        if isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name) and child.value.id in {"self", "cls"}
+    }
+    assert not leftover, f"the moved body still uses a receiver that does not exist there: {sorted(leftover)}"
+    assert set(SEAM_MEMBERS) <= host_attrs, f"the giant does not call {sorted(set(SEAM_MEMBERS) - host_attrs)}"
