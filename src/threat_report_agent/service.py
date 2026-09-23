@@ -9,7 +9,6 @@ from typing import Any, Iterable, Mapping
 import base64
 import binascii
 import hashlib
-import copy
 import hmac
 import json
 import os
@@ -216,12 +215,10 @@ from threat_report_agent.report.reporting import (
     build_mechanism_projections,
     build_static_link_mechanism_projections,
     build_unique_execution_threads,
-    instruction_window_carries_process_creation_flags,
     normalize_modules,
     report_bloat_violations,
     report_analytical_violations,
     report_v3_quality_violations,
-    string_fact_class,
 )
 from threat_report_agent.secret_store import SecretCipher
 from threat_report_agent.simulation_adapters import (
@@ -386,6 +383,7 @@ from threat_report_agent.task import task_runner as _task_runner
 
 
 from threat_report_agent.task.task_runner import SubmissionResult
+from threat_report_agent.report import revision_writer as _revision_writer
 
 
 @dataclass(frozen=True)
@@ -652,7 +650,6 @@ class AnalysisService:
     # hundreds of thousands of parser rows.
     _MECHANISM_PROJECTION_EVIDENCE_LIMIT = 4096
     _MECHANISM_PROJECTION_LINK_LIMIT = 256
-    _REPORT_PROJECTION_EVIDENCE_LIMIT = 4096
     # PMA plan snapshot needs PE/import/string/call facts, not the Ghidra dump.
     _PMA_PLAN_FACT_KINDS = (
         "file_identity",
@@ -14489,121 +14486,7 @@ class AnalysisService:
         #   * ``tests/test_report_synthesis_performance.py`` locks that down by
         #     re-verifying the sealed digest after a full report build and asserting
         #     the ORM attribute is never marked dirty.
-        sealed = snapshot.object_versions
-        if not isinstance(sealed, Mapping):
-            raise ValueError(f"Analysis Snapshot {snapshot.id} has a non-object payload")
-        expected_digest = sealed.get("content_sha256")
-        actual_digest = self._canonical_sha256(sealed, exclude_keys=("content_sha256",))
-        if expected_digest != actual_digest:
-            raise ValueError(f"Analysis Snapshot {snapshot.id} failed integrity validation")
-        payload: dict[str, object] = dict(sealed)
-        payload.pop("content_sha256", None)
-        payload = self._migrate_snapshot_payload(snapshot.id, payload)
-        payload.setdefault("model_calls", [])
-        payload.setdefault("analysis_turns", [])
-        payload.setdefault("analysis_turn_results", [])
-        payload.setdefault("investigation_threads", [])
-        payload.setdefault("investigation_hypotheses", [])
-        payload.setdefault("investigation_actions", [])
-        strategy = (
-            payload.get("task", {}).get("strategy_snapshot", {})
-            if isinstance(payload.get("task"), dict)
-            else {}
-        )
-        investigation = strategy.get("investigation", {}) if isinstance(strategy, dict) else {}
-        payload.setdefault(
-            "mechanisms",
-            investigation.get("mechanisms", []) if isinstance(investigation, dict) else [],
-        )
-        thread_protocols = investigation.get("thread_protocols", {}) if isinstance(investigation, dict) else {}
-        snapshot_threads = {
-            str(item.get("id")): item
-            for item in (investigation.get("threads") or [])
-            if isinstance(item, dict) and item.get("id")
-        }
-        thread_rows: list[object] = []
-        for row in payload.get("investigation_threads") or []:
-            if not isinstance(row, dict):
-                thread_rows.append(row)
-                continue
-            thread_id = str(row.get("id") or "")
-            meta = snapshot_threads.get(thread_id) or (
-                thread_protocols.get(thread_id) if isinstance(thread_protocols, dict) else None
-            )
-            if not isinstance(meta, dict):
-                thread_rows.append(row)
-                continue
-            # Copy-on-write: enriching protocol metadata must not touch the sealed
-            # snapshot row, and only the few rows that are enriched pay for a copy.
-            enriched = copy.copy(row)
-            if isinstance(meta.get("protocol"), dict):
-                enriched["protocol"] = meta["protocol"]
-            if isinstance(meta.get("s_ladder"), dict):
-                enriched["s_ladder"] = meta["s_ladder"]
-            thread_rows.append(enriched)
-        if "investigation_threads" in payload:
-            payload["investigation_threads"] = thread_rows
-        # Snapshot storage is intentionally lossless, but rendering a report
-        # from tens of thousands of low-signal parser rows is not.  Build a
-        # bounded analyst projection while retaining every Evidence row in
-        # ``AnalysisSnapshot.object_versions`` for audit/replay.
-        evidence_rows = payload.get("evidence", [])
-        if (
-            isinstance(evidence_rows, list)
-            and len(evidence_rows) > self._REPORT_PROJECTION_EVIDENCE_LIMIT
-        ):
-            referenced_ids: set[str] = set()
-            for link in payload.get("claim_evidence", []):
-                if isinstance(link, Mapping) and link.get("evidence_id"):
-                    referenced_ids.add(str(link["evidence_id"]))
-            for relation in payload.get("relations", []):
-                if isinstance(relation, Mapping) and relation.get("evidence_id"):
-                    referenced_ids.add(str(relation["evidence_id"]))
-            for mechanism in payload.get("mechanisms", []):
-                if isinstance(mechanism, Mapping):
-                    referenced_ids.update(
-                        str(item)
-                        for item in (mechanism.get("evidence_ids") or ())
-                        if str(item).strip()
-                    )
-            selected = self._select_report_evidence_rows(
-                evidence_rows,
-                referenced_ids=referenced_ids,
-                limit=self._REPORT_PROJECTION_EVIDENCE_LIMIT,
-            )
-            task_payload = dict(payload.get("task") or {})
-            task_snapshot = dict(task_payload.get("strategy_snapshot") or {})
-            task_snapshot["report_projection"] = {
-                "evidence_total_count": len(evidence_rows),
-                "evidence_included_count": len(selected),
-                "evidence_omitted_count": max(0, len(evidence_rows) - len(selected)),
-                "bounded": True,
-            }
-            task_payload["strategy_snapshot"] = task_snapshot
-            payload["task"] = task_payload
-            payload["evidence"] = selected
-        return {
-            "case": SimpleNamespace(**payload["case"]),
-            "task": SimpleNamespace(**payload["task"]),
-            **{
-                name: [SimpleNamespace(**item) for item in payload[name]]
-                for name in (
-                    "artifacts",
-                    "tool_runs",
-                    "evidence",
-                    "claims",
-                    "claim_evidence",
-                    "relations",
-                    "gates",
-                    "model_calls",
-                    "investigation_threads",
-                    "investigation_hypotheses",
-                    "investigation_actions",
-                    "analysis_turn_results",
-                    "mechanisms",
-                )
-            },
-        }
+        return _revision_writer._snapshot_report_context(self, snapshot)
 
     @classmethod
     def _select_report_evidence_rows(
@@ -14613,219 +14496,13 @@ class AnalysisService:
         referenced_ids: set[str],
         limit: int,
     ) -> list[object]:
-        """Select a bounded report view without deleting ledger evidence."""
-        if limit <= 0:
-            return []
-
-        def row_id(row: object) -> str:
-            if isinstance(row, Mapping):
-                return str(row.get("id") or "")
-            return str(getattr(row, "id", "") or "")
-
-        def row_kind(row: object) -> str:
-            if isinstance(row, Mapping):
-                return str(row.get("kind") or "")
-            return str(getattr(row, "kind", "") or "")
-
-        priority = {
-            "mechanism_dynamic_api_link": 120,
-            "mechanism_http_transport_link": 120,
-            "mechanism_shell_output_link": 120,
-            "mechanism_etw_patch_link": 120,
-            "resolved_api": 118,
-            "function_semantic_summary": 117,
-            "mechanism_chain": 116,
-            "decode_result": 115,
-            "mechanism_decode_window": 114,
-            "investigation_seed_map": 113,
-            "decode_candidate": 112,
-            "function_context": 110,
-            "function_call": 108,
-            "function_instruction_window": 106,
-            "function_data_correlation": 104,
-            "api_argument_trace": 102,
-            "pe_structure": 100,
-            "simulation_result": 200,
-            "decoded_artifact": 198,
-            "import_symbol": 90,
-            "export_symbol": 90,
-            "string": 10,
-        }
-        must_keep_kinds = {
-            "simulation_result",
-            "decode_result",
-            "decode_candidate",
-            "pe_structure",
-            "decoded_artifact",
-        }
-        semantic_kind = "function_semantic_summary"
-        semantic_cap = min(256, max(32, limit // 8))
-        selected: list[object] = []
-        selected_ids: set[str] = set()
-        # Isolated emu / decode / PE must survive even when Claim citations
-        # already fill the bounded report view. Semantic HOW is capped so a
-        # large decompiler dump cannot starve those rows.
-        for row in rows:
-            identifier = row_id(row)
-            kind = row_kind(row).casefold()
-            if not identifier or identifier in selected_ids:
-                continue
-            if kind not in must_keep_kinds:
-                continue
-            if len(selected) >= limit:
-                break
-            selected.append(row)
-            selected_ids.add(identifier)
-
-        def _semantic_blob(row: object) -> str:
-            if isinstance(row, Mapping):
-                return str(row.get("value") or "").casefold()
-            return str(getattr(row, "value", "") or "").casefold()
-
-        def _semantic_rank(row: object) -> tuple[int, str]:
-            blob = _semantic_blob(row)
-            score = 0
-            for token, weight in (
-                ("crypt", 12),
-                ("calg", 12),
-                ("0x6801", 12),
-                ("rc4", 8),
-                ("createthread", 6),
-                ("virtualprotect", 4),
-            ):
-                if token in blob:
-                    score += weight
-            return (-score, row_id(row))
-
-        semantic_rows = [
-            row
-            for row in rows
-            if row_kind(row).casefold() == semantic_kind and row_id(row) not in selected_ids
-        ]
-        semantic_rows.sort(key=_semantic_rank)
-        for row in semantic_rows[:semantic_cap]:
-            identifier = row_id(row)
-            if not identifier or identifier in selected_ids:
-                continue
-            if len(selected) >= limit:
-                break
-            selected.append(row)
-            selected_ids.add(identifier)
-        for row in rows:
-            identifier = row_id(row)
-            kind = row_kind(row).casefold()
-            if kind != "function_instruction_window" or identifier in selected_ids:
-                continue
-            value = row.get("value") if isinstance(row, Mapping) else getattr(row, "value", None)
-            blob = str(value or "").casefold()
-            # Two reasons a disassembly window is worth 341 KB of the bounded report view:
-            # it decides a recovered crypto algorithm, or it decides the process-creation
-            # argument slot.  The crypto test was the only one, so no window carrying a
-            # `MOV dword ptr [RSP + 0x28],0x9080008` / `CALL <thunk>` pair was ever kept
-            # and the published body said `UNKNOWN(creation_flags)` while evidence held the
-            # value.  The predicate lives next to the disassembly rules it applies.
-            if "0x6801" not in blob and "calg" not in blob:
-                if not instruction_window_carries_process_creation_flags(value):
-                    continue
-            if len(selected) >= limit:
-                break
-            selected.append(row)
-            selected_ids.add(identifier)
-        reserved = min(512, max(64, limit // 8)) if limit >= 64 else 0
-        referenced_budget = max(0, limit - len(selected) - reserved)
-        for row in rows:
-            identifier = row_id(row)
-            if identifier and identifier in referenced_ids and identifier not in selected_ids:
-                if referenced_budget <= 0:
-                    break
-                selected.append(row)
-                selected_ids.add(identifier)
-                referenced_budget -= 1
-
-        # Raw strings all share one `kind`, so ranking them by kind cannot tell a
-        # `:Zone.Identifier` MOTW marker from a disassembly byte fragment, and the
-        # tiebreak was `row_id` - a UUID.  Selection among the ~3,000 string rows
-        # was therefore arbitrary, and on task 1359f2a6 the bounded window dropped
-        # every string-only benchmark fact: the composed body fell from 24/24 on
-        # the full ledger to 13/24, with `:Zone.Identifier`, the `schtasks` blob,
-        # `.tmp` and the three Defender registry keys all missing while every one
-        # of their Evidence IDs was present in the unbounded trace.
-        #
-        # This must be the FIRST sort key and it must be a rank over all rows, not
-        # a boolean about strings: `0` was already the default for every non-string
-        # row, so a two-valued key still let the `-kind_priority` tiebreak put
-        # 2,545 `function_call` rows ahead of all 13 significant strings.
-        def _string_priority(row: object) -> int:
-            kind = row_kind(row).casefold()
-            if kind != "string":
-                return 2
-            value = row.get("value") if isinstance(row, Mapping) else getattr(row, "value", None)
-            text = ""
-            if isinstance(value, Mapping):
-                text = str(value.get("text") or "")
-            elif isinstance(value, str):
-                text = value
-            return 0 if string_fact_class(text) else 1
-
-        candidates = [row for row in rows if row_id(row) not in selected_ids]
-        candidates.sort(
-            key=lambda row: (
-                _string_priority(row),
-                -priority.get(row_kind(row).casefold(), 0),
-                row_id(row),
-            )
-        )
-        selected.extend(candidates[: max(0, limit - len(selected))])
-        return selected
+        return _revision_writer._select_report_evidence_rows(rows, referenced_ids=referenced_ids, limit=limit)
 
     @classmethod
     def _migrate_snapshot_payload(
         cls, snapshot_id: str, payload: dict[str, object]
     ) -> dict[str, object]:
-        """Read-only migration registry for immutable Analysis Snapshot payloads."""
-        version = payload.get("schema_version")
-        if version == cls.SNAPSHOT_SCHEMA_VERSION:
-            return payload
-        if version == "1.0":
-            migrated = dict(payload)
-            migrated["schema_version"] = cls.SNAPSHOT_SCHEMA_VERSION
-            for name in (
-                "relations",
-                "gates",
-                "model_calls",
-                "analysis_turns",
-                "investigation_threads",
-                "investigation_hypotheses",
-                "investigation_actions",
-                "mechanism_effectiveness_traces",
-            ):
-                migrated.setdefault(name, [])
-            migrated["investigation_actions"] = [
-                {
-                    **dict(item),
-                    "target_selector": dict(item.get("target_selector", {}))
-                    if isinstance(item, Mapping)
-                    and isinstance(item.get("target_selector", {}), Mapping)
-                    else {},
-                    "expected_evidence_kinds": list(item.get("expected_evidence_kinds", []))
-                    if isinstance(item, Mapping)
-                    and isinstance(item.get("expected_evidence_kinds", []), list)
-                    else [],
-                    "success_condition": str(item.get("success_condition", "new_targeted_evidence"))
-                    if isinstance(item, Mapping)
-                    else "new_targeted_evidence",
-                    "failure_interpretation": str(item.get("failure_interpretation", "UNKNOWN"))
-                    if isinstance(item, Mapping)
-                    else "UNKNOWN",
-                    "cost_units": int(item.get("cost_units", 1))
-                    if isinstance(item, Mapping)
-                    else 1,
-                }
-                for item in migrated.get("investigation_actions", [])
-                if isinstance(item, Mapping)
-            ]
-            return migrated
-        raise ValueError(f"Analysis Snapshot {snapshot_id} uses an unsupported schema")
+        return _revision_writer._migrate_snapshot_payload(cls, snapshot_id, payload)
 
     def _report_inputs(self, session: Session, task_id: str) -> dict[str, list[Any]]:
         return {
@@ -15613,11 +15290,7 @@ class AnalysisService:
 
     @classmethod
     def _canonical_sha256(cls, value: object, *, exclude_keys: Iterable[str] = ()) -> str:
-        """sha256 of the canonical JSON bytes, computed without materialising them."""
-        digest = hashlib.sha256()
-        for chunk in cls._canonical_json_chunks(value, exclude_keys=exclude_keys):
-            digest.update(chunk)
-        return digest.hexdigest()
+        return _revision_writer._canonical_sha256(cls, value, exclude_keys=exclude_keys)
 
     @staticmethod
     def _audit_timestamp(value: object) -> str:

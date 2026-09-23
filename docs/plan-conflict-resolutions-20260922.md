@@ -164,3 +164,19 @@ P2-V.8 把 `semantic_predicates.py`（199 行、零包内依赖的纯谓词）�
 `_forbidden_edges_note` 与 `import-policy.json` 的 `_recorded_allowed_edges_note` 各加一句指引，使后来者知道这是**决定**
 而非疏漏。**诚实限制**：门禁仍无法检验「未列出的边」，所以这类决定依赖本文件的人工登记——若将来要机器化，正确做法是把
 矩阵编码成 allow-list 并让 `check-import-graph.py` 在 `--strict` 下对未登记的边失败。
+
+---
+
+## 决策 (e)：`report.revision_writer -> models` 边——**接受并显式登记**（round 123，P3.4-1）
+
+| 项 | 内容 |
+|---|---|
+| 新边 | `threat_report_agent.report.revision_writer -> threat_report_agent.models`（导入 `AnalysisSnapshot`，`ReportRevision` 将在 P3.4-2 由同一模块**构造**） |
+| 触发它的改动 | P3.4-1 把 revision-writer 的组装层（`_snapshot_report_context`、`_select_report_evidence_rows`、`_migrate_snapshot_payload`、`_canonical_sha256`、常量 `_REPORT_PROJECTION_EVIDENCE_LIMIT`）从 `service.py` 移入 `report/revision_writer.py` |
+| 为什么不能靠"不在 deny-list 里" | 方案 §3.2 第 122 行「未列出的边默认禁止」；`report/` 那一行（第 133 行）只列 contracts、facts、investigation 只读投影。`docs/import-policy.json` 的 `_recorded_allowed_edges_note` 自己写明**未列出的边无法被机器检查**，所以沉默不等于许可 |
+| 为什么这是真新边（实测） | `report/revision_writer.py` 是 `report/` 包里**第一个**导入 `models` 的模块；`report/reporting.py` 今天不导入 `models`（它出现的 `Artifact` 只在文案字符串里） |
+| 传递后果（Standards 轴实测） | `models.py` 自身导入 `static.evidence_index`，因此本决定同时传递性地允许 `report -> static.evidence_index`——只登记一半后果正是本 phase 反复要修的记录缺陷 |
+| 被否的候选 | *传 dict 而不用模型*——会把模型知识复制到新模块并改变类型契约；*把组装留在 `service.py`*——等于废掉 P3.4 的目的 |
+| 方向 | `service -> report.revision_writer`（向下）；新模块**永不** import `service`，由 contract test 断言 |
+| 门禁读数 | 116 模块 / 252 运行时同包边 / **cycles 0** / 允许清单为空；`forbidden_edges` 未命中 |
+| 记录位置 | 本文件 + `docs/import-policy.json` 的 `recorded_allowed_edges`；**诚实限制**：`check-import-graph.py` 今天仍不读该键，所以本条同样依赖本文件的人工登记（与决策 (d) 相同的限制） |
