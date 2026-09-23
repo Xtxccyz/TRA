@@ -24574,7 +24574,7 @@ class AnalysisService:
     def bind_historical_analysis(
         self, dsh_session_id: str, task_id: str, *, actor: str = "dsh"
     ) -> dict[str, object]:
-        return self.workbench_bind_existing_analysis(dsh_session_id, task_id, actor=actor)
+        return _task_runner.bind_historical_analysis(self, dsh_session_id, task_id, actor=actor)
 
     def unbind_analysis(self, dsh_session_id: str, *, actor: str = "dsh") -> dict[str, object]:
         return self.workbench_unbind_analysis(dsh_session_id, actor=actor)
@@ -25632,93 +25632,7 @@ class AnalysisService:
     def workbench_bind_existing_analysis(
         self, dsh_session_id: str, task_id: str, *, actor: str = "dsh"
     ) -> dict[str, object]:
-        session_id = self._require_session_id(dsh_session_id)
-        with self.database.session_factory.begin() as session:
-            task = session.get(AnalysisTask, task_id)
-            if task is None:
-                raise LookupError(task_id)
-            row = session.scalar(
-                select(ThreatAnalysisContextRecord).where(
-                    ThreatAnalysisContextRecord.dsh_session_id == session_id
-                )
-            )
-            if row is None:
-                row = ThreatAnalysisContextRecord(dsh_session_id=session_id)
-                session.add(row)
-                session.flush()
-            artifacts = list(session.scalars(select(Artifact).where(Artifact.task_id == task.id)))
-            if not artifacts:
-                # A freshly submitted legacy task can be explicitly rebound
-                # before its worker has registered root artifacts. Materialize
-                # one auditable root from the immutable request snapshot so
-                # unbind/reanalysis still has an Artifact-ready context.
-                sample = (
-                    task.request_snapshot.get("sample_package", {})
-                    if isinstance(task.request_snapshot, dict)
-                    else {}
-                )
-                sha256 = sample.get("content_sha256") if isinstance(sample, dict) else None
-                storage_key = sample.get("storage_key") if isinstance(sample, dict) else None
-                if sha256 and storage_key:
-                    blob = session.get(ContentBlob, str(sha256))
-                    if blob is None:
-                        blob = ContentBlob(
-                            sha256=str(sha256),
-                            size=int(sample.get("submitted_size") or 0),
-                            media_type="application/octet-stream",
-                            storage_key=str(storage_key),
-                        )
-                        session.add(blob)
-                        session.flush()
-                    root = Artifact(
-                        task_id=task.id,
-                        content_sha256=str(sha256),
-                        logical_path=str(sample.get("display_name") or "sample.bin"),
-                        role="UNKNOWN",
-                        obligation="REQUIRED",
-                        detected_type="unknown",
-                        discovery="historical_bind",
-                        metadata_json={"source_kind": sample.get("source_kind", "file")},
-                    )
-                    session.add(root)
-                    session.flush()
-                    artifacts = [root]
-            row.case_id = task.case_id
-            row.active_task_id = task.id
-            row.attached_artifact_ids = [item.id for item in artifacts]
-            row.selected_artifact_id = artifacts[0].id if artifacts else None
-            row.task_lifecycle = task.lifecycle
-            row.analysis_class = task.analysis_class
-            row.task_outcome = task.outcome
-            row.state = (
-                "HISTORICAL_ANALYSIS_BOUND"
-                if task.lifecycle
-                in {
-                    TaskLifecycle.SUCCEEDED.value,
-                    TaskLifecycle.FAILED.value,
-                    TaskLifecycle.CANCELLED.value,
-                }
-                else self._context_state_for_task_v3(task.lifecycle)
-            )
-            row.binding_version += 1
-            row.context_revision += 1
-            row.bound_at = utcnow()
-            row.updated_at = utcnow()
-            event = self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="workbench.analysis_bound",
-                actor=actor,
-                object_type="AnalysisTask",
-                object_id=task.id,
-                payload={
-                    "dsh_session_id": session_id,
-                    "historical": row.state == "HISTORICAL_ANALYSIS_BOUND",
-                },
-            )
-            row.binding_event_id = event.id
-            return self._context_payload_v3(session, session_id, row)
+        return _task_runner.workbench_bind_existing_analysis(self, dsh_session_id, task_id, actor=actor)
 
     def workbench_unbind_analysis(
         self,

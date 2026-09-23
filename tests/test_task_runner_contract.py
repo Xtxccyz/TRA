@@ -227,24 +227,32 @@ def test_analysis_service_satisfies_the_port(facade: AnalysisService) -> None:
 
 
 def test_a_host_missing_a_member_is_reported_rather_than_accepted() -> None:
-    """The can-fail proof for `missing_task_host_members`: it must report, not silently approve."""
+    """Both directions for `missing_task_host_members`, and it must NOT hard-code the port's size.
 
-    class Partial:
-        settings = object()
-        database = object()
-        content_store = object()
+    The first version of this test listed the six members a stub happened to be missing, so the deliberate P3.2g
+    widening (six -> nine) broke it in a way that said nothing about the function under test. It is now built FROM
+    `TASK_HOST_MEMBERS`: a stub missing two named members must report exactly those two, and a stub providing all of
+    them must report nothing. The first half is the can-fail proof (a function that always returned `()` fails it);
+    the second half catches a function that over-reports.
+    """
+    missing_two = ("task_view", "_require_session_id")  # in TASK_HOST_MEMBERS declaration order
+    complete = type(
+        "Complete", (), {name: (lambda self: None) for name in TASK_HOST_MEMBERS}
+    )
+    partial = type(
+        "Partial", (), {name: (lambda self: None) for name in TASK_HOST_MEMBERS if name not in missing_two}
+    )
+    assert missing_task_host_members(complete()) == ()
+    assert missing_task_host_members(partial()) == missing_two
 
-        def _audit(self) -> None: ...
 
-    reported = missing_task_host_members(Partial())
-    assert reported == ("_seal_task_audit_chain", "task_view"), reported
-
-
-def test_the_runner_module_is_the_port_plus_the_creation_cluster_and_nothing_else() -> None:
+def test_the_runner_module_is_the_port_plus_the_moved_clusters_and_nothing_else() -> None:
     """The module's defined surface is PINNED, so a second implementation cannot hide here unnoticed.
 
-    P3.2-design: port only. P3.2c added exactly the `creation` cluster - its two functions and the dataclass that is
-    their return type - so this list growing is a deliberate act.
+    P3.2-design: port only. Then one cluster per step, in the measured order: `creation` (P3.2c, with the
+    `SubmissionResult` dataclass that is its return type), `lifecycle` (P3.2d), `budget` (P3.2e, including the
+    `@staticmethod`), `cancellation` (P3.2f) and workbench binding (P3.2g). Every addition is a deliberate act, and
+    this list growing without a matching step record is the thing it exists to catch.
     """
     source = RUNNER_MODULE.read_text(encoding="utf-8", errors="replace")
     tree = ast.parse(source)
@@ -259,11 +267,13 @@ def test_the_runner_module_is_the_port_plus_the_creation_cluster_and_nothing_els
         "_actual_depth",
         "_deferred_budget_thread_ids",
         "archive_case",
+        "bind_historical_analysis",
         "cancel_task",
         "cancel_tool_run",
         "create_submission_task",
         "missing_task_host_members",
         "prepare_blind_run",
+        "workbench_bind_existing_analysis",
     ], f"task_runner.py defines {sorted(defined)}; update this pin with the step that changed it"
     imported = {
         (node.module or "").split(".")[-1]
@@ -327,7 +337,8 @@ def test_the_service_methods_are_one_statement_delegations() -> None:
         node.name: node for node in service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     for name in ("create_submission_task", "prepare_blind_run", "archive_case", "_deferred_budget_thread_ids",
-                 "_actual_depth", "cancel_task", "cancel_tool_run"):
+                 "_actual_depth", "cancel_task", "cancel_tool_run", "bind_historical_analysis",
+                 "workbench_bind_existing_analysis"):
         node = methods[name]
         assert len(node.body) == 1, f"{name} has {len(node.body)} statements; it is supposed to delegate only"
         statement = ast.unparse(node.body[0])
@@ -341,21 +352,28 @@ def test_the_service_methods_are_one_statement_delegations() -> None:
             assert "self" in statement, f"{name} must forward the host, not call the module function bare"
 
 
-def test_the_workbench_binding_pair_is_still_on_the_host_and_that_is_recorded() -> None:
-    """A MEASURED DEFERRAL, pinned so it cannot be moved by accident and cannot be forgotten either.
+def test_the_p3_2g_port_widening_is_still_visible_and_still_justified() -> None:
+    """The ONE deliberate widening, pinned. It replaced a deferral pin, and the deferral's reason is what it records.
 
-    Measured by `.scratch/p32c-creation-analysis.py`: `bind_historical_analysis` is a 2-line forwarder to
-    `workbench_bind_existing_analysis`, whose 90 lines need THREE host helpers that are not on the port
-    (`_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id`). Moving them therefore widens the
-    port, which is a deliberate step of its own - not something to smuggle into the creation move.
+    MEASURED BEFORE P3.2g (`.scratch/p32-creation-analysis.py` and `p32-measure-cluster.py`): the workbench-binding
+    pair was deferred out of P3.2c because `bind_historical_analysis` is a 2-line forwarder and
+    `workbench_bind_existing_analysis` needs THREE host helpers that were not on the port
+    (`_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id`). P3.2g then widened the port from six
+    to nine ON PURPOSE. This pin keeps that widening honest in the direction that matters: the three helpers must STILL
+    be host operations (they were not moved - they are the port's new surface), and they must still be declared on
+    `TaskHost`, so the port cannot quietly lose the members that forced the widening.
     """
     tree = ast.parse(SERVICE_MODULE.read_text(encoding="utf-8", errors="replace"))
     service = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AnalysisService")
     methods = {
         node.name: node for node in service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    for name in ("bind_historical_analysis", "workbench_bind_existing_analysis"):
-        assert name in methods, f"{name} left service.py without this pin being updated - see the docstring"
     for helper in ("_context_payload_v3", "_context_state_for_task_v3", "_require_session_id"):
-        assert helper in methods, f"{helper} is gone, so the deferral's reason no longer holds; re-measure"
-    assert len(methods["bind_historical_analysis"].body) == 1, "the forwarder gained a body; re-measure before moving"
+        assert helper in methods, (
+            f"{helper} is gone from AnalysisService; the P3.2g widening assumed it stays a HOST operation - if it "
+            "moved, the port declaration and this pin change together"
+        )
+        assert helper in TASK_HOST_MEMBERS, f"{helper} is no longer declared on the port"
+    declared = _protocol_members()
+    for helper in ("_context_payload_v3", "_context_state_for_task_v3", "_require_session_id"):
+        assert helper in declared, f"{helper} is in the pin but not declared on TaskHost"

@@ -1,47 +1,40 @@
-"""P3.2 task runner: the port the task path needs from its host, plus the first cluster that moved behind it.
+"""P3.2 task runner: the port the task path needs from its host, plus every cluster that has moved behind it.
 
-STATUS: LOAD-BEARING since P3.2c. Plan 7.1 orders every migration in nine steps: step 2 is "在新包先建立最小公开接口
-和 contract test" - the port and its pin below, added while nothing depended on them - and step 3 is "移动同一份实现",
-which is the `creation` cluster now living in this file. `AnalysisService.create_submission_task` and
-`.prepare_blind_run` are one-line delegations to the functions here, and `SubmissionResult` travelled with the cluster
-because its return type was DEFINED in service.py; service.py re-exports it, so
-`threat_report_agent.service.SubmissionResult` still resolves to the same object.
+STATUS: COMPLETE for P3.2 (P3.2c-P3.2g), LOAD-BEARING since P3.2c. Plan 7.1 orders every migration in nine steps:
+step 2 is "在新包先建立最小公开接口和 contract test" - the port and its pin below, added while nothing depended on
+them - and step 3 is "移动同一份实现". Behind this port now live the whole `creation` cluster
+(`create_submission_task`, `prepare_blind_run` and the `SubmissionResult` dataclass that is their return type, which
+was DEFINED in service.py and is re-exported so `threat_report_agent.service.SubmissionResult` still resolves to the
+same object), `archive_case` (lifecycle), the `budget` pair (`_deferred_budget_thread_ids`, `_actual_depth`) and the
+`cancellation` pair (`cancel_task`, `cancel_tool_run`), and the workbench-binding pair (`bind_historical_analysis`,
+`workbench_bind_existing_analysis`). Every one of them is a one-statement delegation in service.py.
 
-STILL ON THE HOST, DELIBERATELY (MEASURED by `.scratch/p32c-creation-analysis.py`): the workbench-binding pair
-`bind_historical_analysis` (a 2-line forwarder) and `workbench_bind_existing_analysis` (its 90-line implementation).
-Moving them needs THREE host helpers that are not on the port - `_context_payload_v3`, `_context_state_for_task_v3`,
-`_require_session_id` - so they are their own cluster with their own deliberate port widening instead of riding along
-with the creation move.
-
-DONE IN P3.2c: the cluster's ONLY host needs are `_audit`, `content_store` and `database`, a subset of the port, so
-this move required NO widening; `tests/test_task_runner_contract.py` re-derives that from the source each run.
+WHAT IS *NOT* HERE: the projection functions P3.2a/P3.2b moved live in `task/limitations.py`, and the limitation and
+outcome helpers the candidates reach only TRANSITIVELY stay on the host - they are reached through this port.
 
 WHY A PORT AT ALL (MEASURED, `.scratch/p32design-candidates.py` and `.scratch/p32design-scale.py`):
 
   * The P3.2 wish list is 19 methods / 585 lines of `AnalysisService` covering task creation, lifecycle, budget,
     cancellation and the limitation/outcome projections.
   * Their full helper closure is 18 more members / 1,040 lines, but all of it is reached TRANSITIVELY through the
-    entry points below, so it stays on the host. Only ONE closure member would travel with the cluster
+    entry points below, so it stays on the host. Only ONE closure member travelled with a cluster
     (`workbench_bind_existing_analysis`, 90 lines, used by no outside method).
-  * The port-relevant spine - members the candidates touch DIRECTLY that also have at least one user OUTSIDE the
-    candidate set - is exactly the six members pinned in `TASK_HOST_MEMBERS`. An earlier "31 shared members of a
-    163-member closure" figure counted the whole transitive closure and made the cluster look unbounded; the
-    measured direct spine is what a port actually has to provide, and it is small.
-  * So the whole of P3.2 is at most 675 lines / 20 members behind a 6-member port, and it can be moved one cluster
-    at a time: `creation` (DONE in P3.2c: 2 methods + the dataclass that is their return type, spine 3) ->
-    `lifecycle` (1, spine 2) -> `budget` (spine 1: `task_view`) -> `cancellation` (2, spine 6 - the only cluster
-    that needs `_seal_task_audit_chain`) -> workbench binding (spine 3 plus 3 further helpers, so it is the ONE
-    cluster that widens the port).
+  * An earlier "31 shared members of a 163-member closure" figure counted the whole transitive closure and made the
+    cluster look unbounded; the measured DIRECT spine is what a port actually has to provide, and it is much smaller.
+  * Measured totals: 675 lines / 20 members moved or movable behind the port, which is why the whole of P3.2 was done
+    one cluster at a time, smallest first - `creation` -> `lifecycle` -> `budget` -> `cancellation` -> workbench
+    binding. The last one is the ONLY cluster that widened the port (six members -> nine; see P3.2g below).
 
-WHY TWO PRIVATE NAMES APPEAR ON A PORT (a deliberate, reviewable choice):
+WHY PRIVATE NAMES APPEAR ON A PORT (a deliberate, reviewable choice):
 
-  `_audit` and `_seal_task_audit_chain` are host-private, and naming them here is not an oversight. The host is
+  Five of the nine members are host-private (`_audit`, `_seal_task_audit_chain`, `_context_payload_v3`,
+  `_context_state_for_task_v3`, `_require_session_id`), and naming them here is not an oversight. The host is
   `AnalysisService`, whose PUBLIC surface is a contract in its own right: P3.1 fixed it to four stable operation
   groups and `tests/test_service_facade_contract.py` plus `tests/test_task_runner_contract.py` pin it, and plan 7.10
-  keeps the HTTP boundary on public members only. Publishing `audit` / `seal_task_audit_chain` as new public methods
-  just to make the port look tidy would widen that published surface for a purely internal collaboration, so the port
-  states the host's real name instead. A future P3/P4 step that genuinely needs a public audit entry point should
-  rename the member AND update this port and its pin together, in one deliberate change.
+  keeps the HTTP boundary on public members only. Publishing public aliases just to make the port look tidy would
+  widen that published surface for a purely internal collaboration, so the port states the host's real names instead.
+  A future P3/P4 step that genuinely needs public entry points should rename the members AND update this port and its
+  pin together, in one deliberate change.
 
 `missing_task_host_members` is the executable form of the port, so "does this object satisfy the host contract?" is
 answerable at runtime rather than only by a type checker.
@@ -79,7 +72,9 @@ from threat_report_agent.models import (
     Artifact,
     AuditEvent,
     CaseRecord,
+    ContentBlob,
     Evidence,
+    ThreatAnalysisContextRecord,
     ToolRun,
     new_id,
     utcnow,
@@ -94,8 +89,14 @@ from threat_report_agent.tools.tool_execution import TemporalToolExecutor
 from threat_report_agent.task.status import TaskLifecycle, ToolRunStatus, transition_task
 
 #: The measured direct spine of the P3.2 candidate set - the ONLY things a task cluster may require of its host.
-#: Pinned by `tests/test_task_runner_contract.py`, which re-derives it from `service.py` and fails if it grew, so
-#: adding a seventh member is a deliberate act rather than a silent widening of the port.
+#: Pinned by `tests/test_task_runner_contract.py`, which re-derives it from `source` and fails if it grew, so adding a
+#: member is a deliberate act rather than a silent widening of the port.
+#:
+#: WIDENED ONCE, ON PURPOSE, IN P3.2g (from six to nine). The workbench-binding cluster
+#: (`bind_historical_analysis` + `workbench_bind_existing_analysis`) reaches three host helpers the six could not
+#: cover, and the measurement that forced it is recorded in `docs/p32-task-runner-design-20260922.md` section 10.
+#: This is why the pin below is a re-derived comparison and not a comment: the widening had to be made where the test
+#: could see it.
 TASK_HOST_MEMBERS: tuple[str, ...] = (
     "_audit",
     "_seal_task_audit_chain",
@@ -103,24 +104,47 @@ TASK_HOST_MEMBERS: tuple[str, ...] = (
     "database",
     "settings",
     "task_view",
+    # --- added by P3.2g (the workbench-binding cluster) ---
+    "_context_payload_v3",
+    "_context_state_for_task_v3",
+    "_require_session_id",
 )
 
 
 class TaskHost(Protocol):
     """What the task path may use on the object that owns it.
 
-    Deliberately three pieces of HOST STATE plus three HOST OPERATIONS and nothing else: state the task path reads
-    (`settings`, `database`, `content_store`), the audit writer it must call (`_audit`), the terminal audit-chain
-    seal that only cancellation needs (`_seal_task_audit_chain`), and the public read of a task (`task_view`).
+    Three pieces of HOST STATE plus HOST OPERATIONS, and nothing else: state the task path reads (`settings`,
+    `database`, `content_store`), the audit writer it must call (`_audit`), the terminal audit-chain seal that only
+    cancellation needs (`_seal_task_audit_chain`), the public read of a task (`task_view`), and - added in P3.2g for
+    the workbench-binding cluster - the three DSH context helpers it needs to project a session's context
+    (`_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id`).
 
     `task_view` being here is the one member that is a PUBLISHED facade operation (P3.1's "read status" group):
     the budget cluster asks the host for the task view rather than reading task rows itself, which keeps that read
     single-sourced.
+
+    The three DSH context helpers are declared with the SHAPES the host actually has them in: `_context_payload_v3`
+    is an instance method, `_context_state_for_task_v3` a classmethod and `_require_session_id` a staticmethod. All
+    three are reached as `host.<name>(...)`, which works for every shape.
     """
 
     settings: Settings
     database: Database
     content_store: ContentStore
+
+    def _context_payload_v3(
+        self,
+        session: Session,
+        dsh_session_id: str,
+        row: ThreatAnalysisContextRecord | None,
+    ) -> dict[str, object]: ...
+
+    @classmethod
+    def _context_state_for_task_v3(cls, lifecycle: str | None) -> str: ...
+
+    @staticmethod
+    def _require_session_id(dsh_session_id: str) -> str: ...
 
     def _audit(
         self,
@@ -659,3 +683,107 @@ def cancel_tool_run(
     view = host.task_view(task_id)
     view["cancelled_tool_run_id"] = tool_run_id
     return view
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.2): identical to its old home except that the receiver it used to reach through
+# `self` is now the explicit `host: TaskHost` parameter.
+# ---------------------------------------------------------------------------
+
+
+def bind_historical_analysis(
+    host: TaskHost, dsh_session_id: str, task_id: str, *, actor: str = "dsh"
+) -> dict[str, object]:
+    return workbench_bind_existing_analysis(host, dsh_session_id, task_id, actor=actor)
+
+
+def workbench_bind_existing_analysis(
+    host: TaskHost, dsh_session_id: str, task_id: str, *, actor: str = "dsh"
+) -> dict[str, object]:
+    session_id = host._require_session_id(dsh_session_id)
+    with host.database.session_factory.begin() as session:
+        task = session.get(AnalysisTask, task_id)
+        if task is None:
+            raise LookupError(task_id)
+        row = session.scalar(
+            select(ThreatAnalysisContextRecord).where(
+                ThreatAnalysisContextRecord.dsh_session_id == session_id
+            )
+        )
+        if row is None:
+            row = ThreatAnalysisContextRecord(dsh_session_id=session_id)
+            session.add(row)
+            session.flush()
+        artifacts = list(session.scalars(select(Artifact).where(Artifact.task_id == task.id)))
+        if not artifacts:
+            # A freshly submitted legacy task can be explicitly rebound
+            # before its worker has registered root artifacts. Materialize
+            # one auditable root from the immutable request snapshot so
+            # unbind/reanalysis still has an Artifact-ready context.
+            sample = (
+                task.request_snapshot.get("sample_package", {})
+                if isinstance(task.request_snapshot, dict)
+                else {}
+            )
+            sha256 = sample.get("content_sha256") if isinstance(sample, dict) else None
+            storage_key = sample.get("storage_key") if isinstance(sample, dict) else None
+            if sha256 and storage_key:
+                blob = session.get(ContentBlob, str(sha256))
+                if blob is None:
+                    blob = ContentBlob(
+                        sha256=str(sha256),
+                        size=int(sample.get("submitted_size") or 0),
+                        media_type="application/octet-stream",
+                        storage_key=str(storage_key),
+                    )
+                    session.add(blob)
+                    session.flush()
+                root = Artifact(
+                    task_id=task.id,
+                    content_sha256=str(sha256),
+                    logical_path=str(sample.get("display_name") or "sample.bin"),
+                    role="UNKNOWN",
+                    obligation="REQUIRED",
+                    detected_type="unknown",
+                    discovery="historical_bind",
+                    metadata_json={"source_kind": sample.get("source_kind", "file")},
+                )
+                session.add(root)
+                session.flush()
+                artifacts = [root]
+        row.case_id = task.case_id
+        row.active_task_id = task.id
+        row.attached_artifact_ids = [item.id for item in artifacts]
+        row.selected_artifact_id = artifacts[0].id if artifacts else None
+        row.task_lifecycle = task.lifecycle
+        row.analysis_class = task.analysis_class
+        row.task_outcome = task.outcome
+        row.state = (
+            "HISTORICAL_ANALYSIS_BOUND"
+            if task.lifecycle
+            in {
+                TaskLifecycle.SUCCEEDED.value,
+                TaskLifecycle.FAILED.value,
+                TaskLifecycle.CANCELLED.value,
+            }
+            else host._context_state_for_task_v3(task.lifecycle)
+        )
+        row.binding_version += 1
+        row.context_revision += 1
+        row.bound_at = utcnow()
+        row.updated_at = utcnow()
+        event = host._audit(
+            session,
+            case_id=task.case_id,
+            task_id=task.id,
+            event_type="workbench.analysis_bound",
+            actor=actor,
+            object_type="AnalysisTask",
+            object_id=task.id,
+            payload={
+                "dsh_session_id": session_id,
+                "historical": row.state == "HISTORICAL_ANALYSIS_BOUND",
+            },
+        )
+        row.binding_event_id = event.id
+        return host._context_payload_v3(session, session_id, row)

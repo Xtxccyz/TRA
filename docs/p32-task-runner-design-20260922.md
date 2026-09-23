@@ -60,7 +60,7 @@
 | P3.2d | `lifecycle` | `archive_case` | 31 | `_audit`, `database` | **已完成**：实测无端口外依赖、无 service 内定义类型，纯机械搬迁（见第 7 节） |
 | P3.2e | `budget` | `_deferred_budget_thread_ids`, `_actual_depth` | 68 | `task_view` | **已完成**：`_actual_depth` 是 `@staticmethod`（无接收者），搬迁不引入 `host`；另需**有意识地**加 3 个 models 导入（见第 8 节） |
 | P3.2f | `cancellation` | `cancel_task`, `cancel_tool_run` | 206 | 全部 6 个 | **已完成**：首个用满**全部 6 个**端口成员的簇；需要一次有意识的导入放宽（含 `task -> tools.tool_execution`，实测无环）（见第 9 节） |
-| P3.2g | workbench binding | `bind_historical_analysis`, `workbench_bind_existing_analysis` | 94 | 6 个 + `_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id` | 唯一需要**扩大端口**的簇；P3.2c 实测后从 creation 拆出 |
+| P3.2g | workbench binding | `bind_historical_analysis`, `workbench_bind_existing_analysis` | 94 | 6 个 + `_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id` | **已完成**：唯一一次**有意扩大端口**（6 → 9），全部有记录（见第 10 节） |
 
 P3.2a / P3.2b 已完成的投影面（`task/limitations.py`）不在上表内：它们的 service.py 主体已是单行委托。
 
@@ -191,4 +191,40 @@ P3.2c 之后把「测量 → 抽取 → 证同 → can-fail → 门禁」这套�
 （`remaining ⊆ port` 且 `remaining ∪ used_by_moved_code == port`）：候选搬走后变成单行委托、其直接 spine 收缩，
 原等式会因**正当原因**变假，而把它放宽成子集则是弱化；现在两个方向各自都有真实主体——
 「没有端口外需求」与「没有无人使用的成员」。
+
+## 10. P3.2g 实测结果（workbench binding 已搬迁；唯一一次端口扩大）
+
+实测：`bind_historical_analysis`（4 行，2 行转发）+ `workbench_bind_existing_analysis`（90 行）= 94 行；
+宿主引用为 `_audit`、`database` 加**端口外的 3 个 DSH 上下文 helper**。service.py 28,984 → 28,898 行；
+两个搬迁体比对 IDENTICAL（`e8a0267b451af66a` / `059c12c99c3ef012`）。**P3.2 至此全部完成**：
+`creation` / `lifecycle` / `budget` / `cancellation` / workbench binding 五簇全部在端口之后，
+service.py 从 Phase-3 起点的 29,640 行降到 28,898 行。
+
+**端口扩大（6 → 9）是有意为之，并且是被测试看见的**：三个新成员按宿主的真实形态声明
+（`_context_payload_v3` 是实例方法，`_context_state_for_task_v3` 是 classmethod，`_require_session_id` 是
+staticmethod；三者都以 `host.<name>(...)` 访问，对三种形态都成立）。它们作为**宿主操作留在 service.py**，
+不随簇搬迁——契约测试新增一条 pin 就是钉这一点：三个 helper 必须仍在 `AnalysisService` 上、且仍在端口里。
+
+本步又抓到四个**工具自身**的问题，前三个都会让结论失真：
+
+1. **簇内调用被误写成走宿主**：`bind_historical_analysis` 调用同簇的 `workbench_bind_existing_analysis`，
+   而抽取器把 `self.` 一律改写成 `host.`，于是变成 `host.workbench_bind_existing_analysis(...)`——
+   **绕回宿主的委托**，并依赖一个**不在端口里**的成员（契约测试的 `host_refs ⊆ port` 会失败）。
+   现在抽取器先处理**簇内调用**：同簇目标直接调模块函数（有 `host` 形参就传 `host`，静态则不传）。
+2. **验证器的归一化必须对称地覆盖「接收者变成实参」**：原始代码写 `self.f(...)`，搬迁后写 `f(host, ...)`，
+   若只做文本层的 `self.`/`host.` 剥离，就会把**这个有意的变化**报成函数体差异。现在两侧都先按 AST 去掉
+   调用里的第一个 `self`/`host` 位置实参再比对。**这条改动必须自证没有削弱验证**，所以用
+   `--from <rev>` 对**全部 11 个已搬迁体**逐个回到它们各自的搬迁前提交重新比对，结果全部 IDENTICAL；
+   并对 7 种形态重新做 can-fail。
+   > 记录一处**口径变化**：归一化改变后，部分体的**摘要值**与第 6–9 节记录的不同（例如
+   > `prepare_blind_run` 由 `cafe49e74bba6d04` 变为 `286e7dc287c444a8`）。函数体没有变，变的是规范化形式；
+   > 摘要只是同一比对下的副产物，跨口径不可直接比较，这一条写在这里以免后人误读为「体被改过」。
+3. **测量工具里留了端口的第二份副本**：`p32-measure-cluster.py` 自己硬编码了 6 个成员，端口扩大后它仍把三个
+   新 helper 报成「不在端口上」——一个与被测代码意见相左的测量工具比没有工具更糟。现在它从
+   `task.task_runner.TASK_HOST_MEMBERS` **导入**唯一事实来源。
+4. **can-fail 证明一度是空洞的**：篡改搜索从函数起点一直找到**文件末尾**，于是改到了**后面另一个函数**里的
+   `host.`，而验证器只被问了被点名的那个方法，正确地报告「无差异」——证明脚本据此报出
+   「CAN-FAIL PROOF FAILED」，但那是**证明的问题**，不是验证器的问题。现在篡改被**限定在该函数自身的区间**内，
+   且对「没有 `host.` 属性、也没有字符串字面量」的单行转发器改为篡改 `return` 后**被调用的名字**
+   （字符串回退会落到**签名**上，而签名正是验证器有意忽略的部分）。修好后 7 种形态的 can-fail 全部通过。
 
