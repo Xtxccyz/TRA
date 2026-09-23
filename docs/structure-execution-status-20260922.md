@@ -1,8 +1,8 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 79 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 80 条，本文件只汇总。
 
-- **被核验的树 = 提交 `8f5d2d01feb73b42a0423b58974c99e90c6c73e9`**（该提交的 tree 上跑过四道门禁与全量套件）
+- **被核验的树 = 提交 `9ae5f609f7d92aa4ccfb424d1495c12755957ba6`**（该提交的 tree 上跑过四道门禁与全量套件）
 - `head_sha` 的语义：`head_sha` 是**被门禁核验的代码提交**，不是「当前 HEAD」：当前为 `30c2adcf258c`（P3.3f-2 的循环迁移）。每一步的回滚点是该步 `rollback_point` 记录的上一个提交。**本 phase 实测过的两次漂移**都出在这个字段上：它曾记「提交前的 HEAD」，于是文档声称在一个不含本步改动的提交上完成核验；改成「当前 HEAD」后，写下该值的提交本身又会移动 HEAD——任何文件都无法正确写出「包含自己的那个提交」。因此这里固定记代码提交，并在每次复验时核对 `src/` 与 `tests/` 是否仍与它一致。**P3.4 设计步（records commit a83126b6680f）实测为**`git diff --name-only 30c2adcf258c..a83126b6680f -- src tests` 为空，即本步只动 `docs/`。ROUND 121 AMEND NOTE: P3.3f-2 的代码提交先写成 `d1cda62d8488`，两轴审查的修复（模块 docstring 的成员数、`_investigation_scheduled_keys` 的再导出、注释与两个加强后的测试）落盘后被 `git commit --amend` 折进同一提交，并在改写后的树上**重跑**了全量套件与部署门禁——被 amend 的提交不可达，写它等于让读者无法检出。
 - **structure_status：`IN_PROGRESS`**
 - **capability_status：`UNVERIFIED`**
@@ -18,7 +18,7 @@
 
 ## 一、为什么不是 READY / ACCEPTED
 
-Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phases 0, 1 and 2 are COMPLETE; P3.1-P3.4 and P3.6-1 are COMPLETE; **P3.5 IS BLOCKED** (plan conflict 3) and **P3.7 is MEASURED but not executed** (17 private-reach `getsource` sites across the listed files, with the plan's appendix A reconciling the count). REMAINING WORK, in order: (1) the shared preparation step P3.5/P3.6-0 (sink the `investigation/` contracts + `ActionCatalog` into `contracts.py`, route tool execution through `ports.ToolExecutionPort` with the executor injected, record the `models` and `emulation.policy` decisions) - it needs a SCOPE NOTE because it touches files outside P3.5's and P3.6's allowed lists; (2) P3.6-2 (`workbench_capabilities`) and P3.5-2 (17 methods + 2 constants, 6-member pin); (3) P3.7's 17 sites; (4) Phase 4 (caller/shim migration per checkpoint) and Phase 5 (re-verification: image hashes == HEAD, the DSH suite run separately, the capability matrix reported separately). P3.3b(2)/P3.3d(2) remain layer-blocked.
+Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phases 0, 1 and 2 are COMPLETE; P3.1-P3.4 and P3.6-1 are COMPLETE (with two review debts now closed); **P3.5 IS BLOCKED** (plan conflict 3); **P3.7 is MEASURED but not executed** (17 private-reach `getsource` sites). REMAINING, in order: (1) the shared preparation step P3.5/P3.6-0 - it needs a SCOPE NOTE because it touches `contracts.py`, `ports.py` and `investigation/**`, outside P3.5's and P3.6's allowed lists; (2) P3.6-2 (`workbench_capabilities` plus the design's section 5.4 dict-key assertion and the `_UNIQUE_THREAD_VIEW_KINDS` pin deviation); (3) P3.5-2 (17 methods + 2 constants, 6-member pin); (4) P3.7's 17 sites; (5) Phase 4 (callers/shim removal per checkpoint) and Phase 5 (image hashes == HEAD, the DSH suite run separately, the capability matrix reported separately). P3.3b(2)/P3.3d(2) remain layer-blocked.
 
 UNCHANGED and untouched by this plan: capability acceptance is measured on the analyst-facing behaviours, not on structure. The Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) are still open, and `structure_status=READY` must never be read as implying `capability_status=ACCEPTED`.
 
@@ -35,7 +35,7 @@ UNCHANGED and untouched by this plan: capability acceptance is measured on the a
 
 ## 三、机械条件（P5.1）
 
-PASS - 130 files per service across 8 services, missing=0 differing=0 container-only=0, 11 containers running (carried from the previous step; no `src/` byte differs).
+PASS - 130 files per service across 8 services, missing=0 differing=0 container-only=0, import smoke 57 modules per service
 
 四道门禁在 HEAD 上全部通过：结构 diff、导入图 `--strict`、行为探针（含 item 8「移动模块同一性」）、部署 `--strict --import-smoke`。全量 pytest 的失败**节点集合**与 P0.2 基线一致。
 
@@ -123,11 +123,11 @@ eview skill against 72fa4c8: 4 hard violations + 4 judgement calls (Standards) a
 
 ## 六、后继者必须先做的事
 
-1. **THE ROUNDS ARE RUNNING OUT AND THE OBJECTIVE IS NOT COMPLETE.** With the remaining budget, prefer WORK THAT CAN BE FULLY VERIFIED over starting the large preparation step: the shared prep step (P3.5/P3.6-0) sinks 14+ contracts and changes how tool execution is reached, which needs a measurement step, a contract test, the moves, the full suite, a rebuild and the records - more than one round. If it cannot be finished, DO NOT start it; leave the tree green and hand off precisely (this file is the handoff).
-2. **P3.7's measured state (round 128)**: 17 private-reach `getsource` sites; the P1.4 surface's `total` is 39 and counts ALL calls, so do not confuse them (appendix A of `docs/p37-getsource-conversion-plan-20260922.md`). Per-site list and per-file distribution: `py .scratch/p37-recount.py`. Each conversion must re-record the surface with its justification; no negative guard may be deleted to hit a number.
-3. **THE PREPARATION STEP'S SCOPE**: it touches `contracts.py`, `ports.py` and `investigation/**`, which are NOT in P3.5's or P3.6's allowed files - write the scope note in the step record (the plan's discipline: stop and write `notes` rather than widen silently).
-4. **HARD GATES FOR EVERY SLICE**: 1. `py scripts/check-slice-tooling.py`; 2. `py .scratch/canfail.py --plan <slice>.json` (never concurrently with the suite); 3. `python -m compileall`; 4. the scope gate; 5. `py scripts/check-import-graph.py --strict --policy docs/import-policy.json`; 6. `docker compose config`/`ps`, `--strict --services`, BLOCKED classification, never skipping `ghidra-worker`; 7. focused tests -> full suite -> `scripts/structure_behavior_probe.py --check`; 8. failure-set comparison by NODE SET; 9. the deployment gate after rebuilding BOTH image routes, then `HEAD == origin/main`; 10. the tracked contract test asserts the pin in both directions; 11. the delegation-shape gate (parameters AND `__doc__` equality); 12. for read-only slices, the read-only AST assertion. **AND: never amend an already-pushed commit** - round 127 did, and the push correctly refused; the fix was a backup branch plus a re-applied commit, and the incident is recorded in `git_sync.reason`.
-5. **A READER ANALYSIS MUST INCLUDE EVERY HOST PIN IN THE REPOSITORY** (`grep '_HOST_MEMBERS'`) before moving any class attribute: the P3.6-1 defect that broke 37 tests came from a constant read through another module's host pin, invisible to a `self.`/`cls.` scan of `service.py`.
+1. **THE OBJECTIVE IS NOT COMPLETE AND THE ROUNDS ARE EXHAUSTED.** Five workstreams remain (listed in `why_not_READY`); the two largest - the shared preparation step and P3.7's 17 sites - each need multiple rounds with the full gate battery. Do NOT start either unless it can be finished and verified in the round; a half-moved slice leaves the tree in a state the next author cannot tell apart from a regression.
+2. **IF EXACTLY ONE MORE ROUND IS AVAILABLE, THE BEST-VALUE VERIFIABLE STEP IS P3.6-2's TEST DEBT**: add the design's section 5.4 dict-key-set assertion to a query test that already has a session fixture (it is the one remaining review finding with no measurement attached). It is test-only, so it needs no image rebuild - only the focused battery, the full suite and the node-set comparison.
+3. **THE PREPARATION STEP'S SHAPE IS PRESCRIBED IN THE P3.5 DESIGN'S SECTION 5** and its scope note must name `contracts.py`, `ports.py` and `investigation/**` as out-of-whitelist files it touches deliberately.
+4. **HARD GATES FOR EVERY SLICE**: slice-tooling; the data-driven can-fail proof (never concurrent with the suite); compileall; the scope gate; the strict import graph; `docker compose config`/`ps` with BLOCKED classification and no skipped `ghidra-worker`; focused -> full suite -> behaviour probe; failure sets by NODE SET; the deployment gate after rebuilding BOTH image routes, then `HEAD == origin/main`; the tracked contract test's bidirectional pin assertion; the delegation-shape gate (parameters AND `__doc__`); the read-only AST assertion for read-only slices. **AND: never amend an already-pushed commit** (round 127 did; the push refused and the fix was a backup branch plus a re-applied commit - recorded in `git_sync.reason`).
+5. **BEFORE MOVING ANY CLASS ATTRIBUTE, GREP EVERY `*_HOST_MEMBERS` TUPLE**: a constant read through another module's host pin is invisible to a `self.`/`cls.` scan of `service.py` and cost 37 broken tests in P3.6-1.
 
 ## 七、已记录、但**不得**在结构步骤里修的行为缺陷
 
