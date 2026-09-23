@@ -85,14 +85,15 @@ P3.3 **不能**照做：20 个直接端口面里包含上面那些**属于 P3.4/
 | **P3.3a** ✅ | 账本（ledger） | `_persist_evidence_delivery_ledger`, `_finalize_tail_ledger`, `_park_open_ledger`, `_work_ledger`, `_ledger_ids` | **156** | `database` + `_audit`（**已完成**，见第 12 节） |
 | **P3.3b** ✅ | 前端辅助 | `_build_investigation_frontier`, `_convergence_frontier_fingerprint`, `_frontier_value_present`, `_unattempted_seed_thread_ids`, `_mechanism_missing_fields`（+ 两个模块级谓词与其 frozenset） | **312 + 15** | `database`（**1 个**，实测；见第 11 节） |
 | ~~P3.3b 原范围~~ → **P3.3b(2)** | 唯一线程族（**受阻**） | `_is_unique_thread_seed_row`, `_unique_thread_start_keys`, `_unique_execution_threads_for_view`, `_select_unique_thread_seed_rows` | **97** | 需要 `report.reporting` → **违反方案 §3.2 允许依赖矩阵**，须先把 `_address_lookup_keys` / `build_unique_execution_threads` 下移到 facts/ 或 static/ 才能搬（第 11 节） |
-| P3.3c | Action Proposal 验证与选择 | `_grounded_planner_action_candidates`, `_action_payload`, `_model_action_plan`, `_has_complete_model_action_plan`, `_merge_planned_actions`, `_deterministic_action_plan`, `_action_is_model_or_human`, `_planner_user_action`, `_bound_completed_actions` | **327** | **无**（只需 `database`；**须先按 P3.3b(2) 的教训复核其自由名是否触及 `report/`**） |
+| **P3.3c** ✅ | Action Proposal 验证与选择 | `_grounded_planner_action_candidates`, `_action_payload`, `_deterministic_action_plan`, `_planner_user_action`, `_bound_completed_actions` | **253** | `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`（**已完成**，见第 13 节） |
+| **P3.3c(2)** | 受阻：模型动作计划 | `_model_action_plan`, `_has_complete_model_action_plan`, `_merge_planned_actions`, `_action_is_model_or_human` | **74** | 需要 `DynamicPlanAction`（`model/model_gateway.py`）与 `action_is_model_or_human`（`task/`）——**均为 §3.2 未允许的层**，且后者会成环（见第 13.1 节） |
 | P3.3d | 方法论动作与收敛合同 | `_run_methodology_action`, `_convergence_failure_contract`, `_build_convergence_alternate`, `_convergence_completed_fields`, `_convergence_alternate_type`, `_convergence_method_id` | **514** | `_audit`, `_is_reference_isolated_blind`, `_link_claim_evidence`（+ `database`, `methodology_library`） |
 | P3.3e | 观测派生 | `_derive_investigation_observations` | **2,795** | `_emulation_entry_key`, `_function_entry_integers`, `_investigation_value_text`, `_overlay_pe_parser_thread_start`（+ `settings`） |
 | P3.3f | 调查循环本体 | `_run_investigation_loop` | **3,523** | `_audit`, `_canonical_json`, `_investigation_value_text`, `_is_task_cancelled`, `_link_claim_evidence`, `_persist_pma_static_analysis_plan`（+ `content_store`, `database`, `settings`） |
 
-P3.3b 与 P3.3c 的端口需求实测为**空**，这是本设计里最有用的两个数字：它们是完全自洽的切片，
-可以独立搬迁而不扩大端口，因此应当先做——这也是 P3.2 的顺序原则（先搬不需要扩端口的簇）。
-**P3.3b 已按此执行并完成**（见第 11 节：实测端口是 1 个成员 `database`，与这里的「只需 database」一致）。
+P3.3b 与 P3.3c 的端口需求：**P3.3b 实测为「只需 `database`」**（已按此执行）；**P3.3c 起初被同一个工具报成「无」，
+但那是工具缺陷**——`_bound_completed_actions` 是通过 `cls.` 读类常量 `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`，
+而当时的测量只扫 `self.`。**抓住它的是契约测试**，端口因此有意扩到第 3 个成员（第 13 节）。
 
 **为什么两个巨方法必须最后**：它们不是「大一点的簇」，而是**单个 3,523 / 2,795 行的方法**。
 一次搬迁的失败面是整段调查循环；而 P3.2 的成功恰恰来自「每步只搬几十到几百行、每步都能逐字节证明」。
@@ -213,4 +214,70 @@ P3.2/P3.3b 的抽取器、验证器与 can-fail 都是**按切片硬编码**的�
    给每个被取代的 `final_state_*` 加 `superseded_by` 与 `_historical`；给 `ghidra_worker_blocker` 加 `_resolved`；
    并在文件顶部加**读取指引**（权威＝`step_records` + 最新 `final_state_*`）。历史**不删除**——那会丢掉 Phase 0/1
    的证据链。
+
+## 13. P3.3c 执行结果（Action Proposal 验证切片；**四种工具缺陷，各被不同的安全网抓住**）
+
+**实测（搬迁前，`--from 6027665`）**：5 个成员 / 253 行；唯一的接收者引用是**类常量**
+`_MAX_COMPLETED_ACTION_EVIDENCE_IDS`（由 `tests/test_ghidra_performance.py:116,118` 钉在 `AnalysisService` 上，
+因此必须留在宿主 → 端口有意扩到第 3 个成员）。`service.py` 28,435 → 28,219 行；5 个搬迁体逐一 **IDENTICAL**；
+can-fail 已证明。
+
+### 13.1 同一切片里有 4 个成员**不能**搬（逐成员实测）
+
+| 成员 | 行数 | 实测阻塞原因 | 性质 |
+|---|---|---|---|
+| `_model_action_plan` | 42 | 需要 `DynamicPlanAction`（`model/model_gateway.py`）的**运行时**使用（`isinstance`） | §3.2 未允许 `investigation -> model` |
+| `_action_is_model_or_human` | 3 | 需要 `task/analysis_task_orchestration.action_is_model_or_human` 的**运行时**调用 | 且该模块**自己 import investigation** → 会成**环** |
+| `_has_complete_model_action_plan` | 9 | `DynamicPlanAction` **仅出现在注解** | 类型边；未取用 |
+| `_merge_planned_actions` | 20 | 同上 | 类型边；未取用 |
+
+后两者本可用 `TYPE_CHECKING` 导入搬走（类型边不是运行时依赖），**故意不做**：干净的修法是让 **model port**
+暴露 `DynamicPlanAction`（P1.2 的 `ports.py` 今天没有），而「向未列出的层引入类型边」这个决定应当与那个修法
+一起做，而不是夹带在一次搬家里面。它们成为 **P3.3c(2)**，与 P3.3b(2) 同形：**先把东西挪到允许的层，再声明边**。
+
+### 13.2 四种工具缺陷——注意它们各自是被**不同的**安全网抓住的
+
+1. **测量工具只扫 `self.`**（`p32-measure-cluster.py`）：`_bound_completed_actions` 是通过 `cls.` 读类常量的
+   classmethod，于是该切片被报成「宿主需求：无」。**抓住它的是契约测试**（`host_refs == port` 断言），不是工具。
+   工具现已同时扫 `self.` 与 `cls.`。
+2. **测量工具只会读工作树**：搬家之后再量，量到的是**单行委托**（`_bound_completed_actions` 报 5 行而非 26 行）。
+   Spec 轴在 P3.2 的评审里就点过这个 caveat（「被引用的工具无法重读某个 revision」），而它到本轮才真正咬人。
+   工具现支持 `--from <rev>` 并会打印它在量哪个 revision。
+3. **抽取器根本没有 import 守卫**——**最严重的一条**。P3.2 的抽取器有守卫，我为 P3.3 重写时把它漏掉了，
+   而 P3.3b 的记录里还**声称**存在（「抽取器拒绝自行放宽导入」）。后果：`_grounded_planner_action_candidates`
+   用到 `DeepMiningPlanner`，搬家照常应用、`compileall` 通过（未解析的全局名不是语法错误），直到测试套件报出
+   **7 个错误**才暴露。守卫已移植过来（并跳过已搬成员，否则会对委托报出 `self` 这种无意义的缺失），
+   can-fail 用真实的未来切片 `_run_methodology_action` 验证（它缺 4 个名字，守卫如实停下）。
+   **教训：一个「以为存在」的安全网比没有更糟，因为周围的文字在宣称它提供保护。**
+4. **委托把接收者硬编码成 `self`**：`@classmethod` 的委托因此生成
+   `return _coordinator._bound_completed_actions(self, actions)`，而 classmethod 里没有 `self` →
+   `NameError: name 'self' is not defined`（又一批 6 个测试错误）。现在转发的是**成员自己的**接收者名；
+   契约测试也从「断言出现 `self`」改为「按模块函数的签名判断是否需要 host，并核对转发的是该成员自己的接收者」。
+5. 附带修正：孤儿导入检查改为**只报本次搬家造成的增量**（此前会把既存的 F401 与 `from __future__` 一起报出来）。
+
+### 13.3 surface 变更的证明（`threshold_comparisons`）
+
+搬迁后 P1.4 门报 `threshold_comparisons CHANGED`：该读数记录比较表达式的**源文本**，而接收者改名
+（`cls.` → `host.`）会改变文本。**先证明再重录**：probe 显示记录 140 条、当前 140 条，差值恰好一条
+（`len(evidence_ids) > cls._MAX_COMPLETED_ACTION_EVIDENCE_IDS` → 同式 `host.` 版），运算符与两个操作数均未变——
+即纯接收者改名；随后有意识重录，diff 也只有这一行，`--all --strict` 通过。
+（probe 自身也有过一个缺陷：它只把 `host.` 归一化回 `self.`，而该条目原本用的是 `cls.`，于是误报「需要调查」——
+已修成两种接收者都试，并且改为与 **git 中的基线**比较，否则重录之后 probe 就永远说「无差异」。）
+
+### 13.4 「逐字节相同」这句话曾经**不准确**，现在有了正确的证明
+
+Standards 轴指出：`_grounded_planner_action_candidates` 的搬迁文本与旧家**并非逐字节相同**——文档字符串与 6 处多行
+字符串的续行缩进不同；而 `p33-verify.py` 比对的是 `ast.unparse` 之后的语句，**看不到这类差异**。
+
+按正确的判据重新测量（`.scratch/p33c-textdiff.py`），结论是**两者都对**：
+
+* **字符串常量的值逐字符相同**（5 个成员全部 `string values identical: True`）。搬迁体**故意**保留多行字符串续行的
+  原始缩进——因为那些空格是**字符串内容**的一部分；把整段代码从类里减掉 4 个空格时，若连字符串内部一起减，
+  改变的就是 `__doc__` 与可能的输出文本，那才是真正禁止的行为变更。所以「按行比较（整体减 4 空格）」这个判据本身
+  对多行字符串是错的——reviewer 的发现因此是**安全的误报**（其自己也写明「Semantics unchanged」）。
+* **函数体的代码行**在归一化接收者（`self.`/`cls.`/`host.` → 同一占位符）后逐行相同；签名行被**有意排除**，
+  因为「接收者变成 `host` 形参」正是这一步的设计本身。
+
+因此本记录此后不再使用含糊的「逐字节相同」，而是写：**字符串值逐字符相同 + 函数体代码行相同（模接收者改名与类缩进）**，
+两者都有脚本证据。这是「宣称的强度必须与测过的强度一致」的又一例。
 
