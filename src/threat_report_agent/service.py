@@ -240,13 +240,15 @@ from threat_report_agent.report.reporting import (
 from threat_report_agent.secret_store import SecretCipher
 from threat_report_agent.simulation_adapters import (
     default_simulation_runner,
+    qiling_unavailable_observation,
+    static_phase_simulation_evidence,
+)
+from threat_report_agent.emulation.policy import (
     may_execute_in_process,
     worker_defers_simulation,
     evidence_nature_for_simulation_status,
-    qiling_unavailable_observation,
     request_for_granted_window,
     simulation_policy_from_settings,
-    static_phase_simulation_evidence,
 )
 from threat_report_agent.emulation.emulation_plan import (
     _as_int_address,

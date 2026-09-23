@@ -26,7 +26,8 @@ from threat_report_agent.investigation import (
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
 from threat_report_agent.service import AnalysisService
-from threat_report_agent.simulation_adapters import IsolatedSimulationRunner, SimulationRequest
+from threat_report_agent.simulation_adapters import IsolatedSimulationRunner
+from threat_report_agent.emulation.policy import SimulationRequest
 from threat_report_agent.orchestration import QuestionCentricContextBuilder
 
 

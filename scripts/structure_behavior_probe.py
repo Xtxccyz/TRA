@@ -199,7 +199,7 @@ def probe() -> dict[str, object]:
     # is the second, DIFFERENT status set in `simulation_adapters`, because the audit flagged that the two may
     # disagree and a divergence would let a never-executed window read as a real simulation.
     from threat_report_agent.controlled_emulation import PLACEHOLDER_STATUSES, is_real_simulation_row
-    from threat_report_agent.simulation_adapters import _POLICY_OR_PLACEHOLDER_STATUSES
+    from threat_report_agent.emulation.policy import _POLICY_OR_PLACEHOLDER_STATUSES
 
     def row(status: str) -> dict[str, object]:
         return {"kind": "simulation_result", "value": {"status": status}}

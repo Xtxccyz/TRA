@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pytest
 
-from threat_report_agent.simulation_adapters import may_execute_in_process
+from threat_report_agent.emulation.policy import may_execute_in_process
 
 SERVICE = Path(__file__).resolve().parents[1] / "src" / "threat_report_agent" / "service.py"
 
 
 def _policy(**kwargs):
-    from threat_report_agent.simulation_adapters import SimulationExecutionPolicy
+    from threat_report_agent.emulation.policy import SimulationExecutionPolicy
 
     fields = {"isolation_kind": "process", "allow_local_process": False}
     fields.update(kwargs)

@@ -4,8 +4,8 @@ from threat_report_agent.static_analysis import (
     unique_thread_function_starts,
     unique_thread_start_routine_vas,
 )
-from threat_report_agent.simulation_adapters import (
-    IsolatedSimulationRunner,
+from threat_report_agent.simulation_adapters import IsolatedSimulationRunner
+from threat_report_agent.emulation.policy import (
     SimulationExecutionPolicy,
     SimulationRequest,
 )

@@ -1,7 +1,5 @@
 from threat_report_agent.simulation_adapters import (
     IsolatedSimulationRunner,
-    SimulationExecutionPolicy,
-    SimulationRequest,
     SimulationResult,
     default_simulation_runner,
     detect_simulation_capabilities,
@@ -9,6 +7,101 @@ from threat_report_agent.simulation_adapters import (
     qiling_unavailable_observation,
     speakeasy_capability_matrix,
 )
+from threat_report_agent.emulation.policy import (
+    SimulationExecutionPolicy,
+    SimulationRequest,
+)
+
+
+def test_the_policy_seam_is_pure_and_has_one_implementation() -> None:
+    """P3.3 layer item 2, pinned: `emulation/policy.py` is the pure seam `investigation/` may import.
+
+    WHY THIS EXISTS: plan section 3.2 lets `investigation/` import "static/emulation/tools 的接口", and
+    `simulation_adapters` is an IMPLEMENTATION module (it owns the qiling adapter, the isolated runner and the builtin
+    adapter table), so `investigation -> simulation_adapters` is an unlisted edge. MEASURED: five of the seven
+    simulation-policy names P3.3e needs reach no implementation at all, so they and their closure moved here. This pin
+    asserts the property that makes the seam legitimate - importing it must NOT drag the implementation in - plus the
+    one-implementation rule the plan states at line 142.
+    """
+    import ast
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    policy_path = Path(__file__).resolve().parents[1] / "src" / "threat_report_agent" / "emulation" / "policy.py"
+    tree = ast.parse(policy_path.read_text(encoding="utf-8"))
+    # MODULE-LEVEL imports only: this is the property that decides whether importing the seam drags anything in.
+    # MEASURED, and it corrected this pin's first version: a moved BODY imports `emulation.emulation_plan` lazily
+    # (inside `request_for_granted_window`), which is allowed - it is a sibling emulation module made of facts/static,
+    # both of which `investigation/` may import - but it is NOT a module-level import, so it does not make the seam
+    # impure. What matters is that nothing at module level reaches the implementation, and that the lazy import does
+    # not name it either.
+    module_level: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            module_level |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            module_level.add(node.module.split(".")[0])
+    assert module_level <= {"hashlib", "dataclasses", "pathlib", "typing", "__future__"}, (
+        f"the policy seam must stay pure at module level; it imports {sorted(module_level)}"
+    )
+    lazy_targets = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module and node not in tree.body
+    }
+    assert "threat_report_agent.simulation_adapters" not in lazy_targets, (
+        f"a moved body imports the implementation lazily: {sorted(lazy_targets)}; the seam may not depend on it"
+    )
+
+    # importing the seam must not pull the implementation (a fresh interpreter, so nothing else can have cached it)
+    code = (
+        "import sys\n"
+        "import threat_report_agent.emulation.policy as policy\n"
+        "leaked = sorted(name for name in sys.modules if 'simulation_adapters' in name)\n"
+        "assert not leaked, f'the policy seam imported the implementation: {leaked}'\n"
+        "print(policy.__name__)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(policy_path.parents[3]),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert result.returncode == 0, result.stderr[-600:]
+
+    # ONE implementation: the moved names are defined in the seam and merely re-exported by the implementation module
+    from threat_report_agent import simulation_adapters as adapters
+    from threat_report_agent.emulation import policy
+
+    for name in (
+        "evidence_nature_for_simulation_status",
+        "may_execute_in_process",
+        "request_for_granted_window",
+        "simulation_policy_from_settings",
+        "worker_defers_simulation",
+        "SimulationExecutionPolicy",
+        "SimulationRequest",
+        "resolve_qiling_rootfs",
+        "CERTIFIED_PROFILES",
+        "PINNED_QILING_ROOTFS",
+        # the two PRIVATE constants the cluster closes over: this pin's first version omitted them, which a review
+        # caught - they are re-exported like the rest, so the old path must keep working for them too.
+        "_POLICY_OR_PLACEHOLDER_STATUSES",
+        "_NON_WORKER_STOP_REASONS",
+    ):
+        assert getattr(adapters, name) is getattr(policy, name), f"{name} is not one object behind both paths"
+    definitions = [
+        node.name
+        for node in ast.walk(ast.parse(
+            (Path(__file__).resolve().parents[1] / "src" / "threat_report_agent" / "simulation_adapters.py")
+            .read_text(encoding="utf-8")
+        ))
+        if isinstance(node, ast.ClassDef) and node.name in {"SimulationExecutionPolicy", "SimulationRequest"}
+    ]
+    assert not definitions, f"the implementation module defines {definitions} again; the seam owns them now"
 
 
 def test_request_flags_cannot_self_authorize_execution() -> None:

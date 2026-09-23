@@ -15,10 +15,12 @@ from threat_report_agent.emulation_plan import (
 from threat_report_agent.investigation import ActionSpec, ActionType, DeepMiningPlanner
 from threat_report_agent.simulation_adapters import (
     IsolatedSimulationRunner,
-    SimulationExecutionPolicy,
-    SimulationRequest,
     SimulationResult,
     linux_x86_64_exit_elf,
+)
+from threat_report_agent.emulation.policy import (
+    SimulationExecutionPolicy,
+    SimulationRequest,
     request_for_granted_window,
     simulation_policy_from_settings,
 )

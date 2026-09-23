@@ -45,6 +45,8 @@ with workflow.unsafe.imports_passed_through():
         IsolatedSimulationRunner,
         default_simulation_runner,
         qiling_unavailable_observation,
+    )
+    from threat_report_agent.emulation.policy import (
         request_for_granted_window,
         simulation_policy_from_settings,
     )

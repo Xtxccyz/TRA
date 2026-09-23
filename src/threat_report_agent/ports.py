@@ -399,7 +399,8 @@ class EmulationPort(Protocol):
     re-derive it from a status constant. MEASURED, that rule is currently spelled two different ways and they
     DISAGREE: the dispatch gate uses `PLACEHOLDER_STATUSES` membership (`controlled_emulation.py:94` via
     `post_static_emulation_needed`; `service.py:8591-8592` via `_real_simulation_result_count`), while
-    `simulation_adapters._POLICY_OR_PLACEHOLDER_STATUSES` (`:494-505`) additionally treats `DISABLED_BY_POLICY`,
+    `emulation.policy._POLICY_OR_PLACEHOLDER_STATUSES` (moved there by P3.3 layer item 2 - it used to live in
+    `simulation_adapters`, which re-exports it; `policy.py:137`) additionally treats `DISABLED_BY_POLICY`,
     `NO_GRANTED_WINDOW`, `UNSUPPORTED`, `UNAVAILABLE` and `INPUT_REQUIRED` as non-observed. The consequence is
     measured: `is_real_simulation_row({"status": "UNSUPPORTED"})` is True while
     `evidence_nature_for_simulation_status("UNSUPPORTED")` is `STATIC_INFERRED`. `is_real_result` names which rule

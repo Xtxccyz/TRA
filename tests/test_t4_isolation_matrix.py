@@ -18,11 +18,13 @@ import pytest
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.simulation_adapters import (
     IsolatedSimulationRunner,
-    SimulationExecutionPolicy,
-    SimulationRequest,
     benign_pe32_ret,
     default_simulation_runner,
     linux_x86_64_exit_elf,
+)
+from threat_report_agent.emulation.policy import (
+    SimulationExecutionPolicy,
+    SimulationRequest,
 )
 from threat_report_agent.static_analysis import recovered_payload_from_verification
 from threat_report_agent.tools.tool_execution import StaticToolActivities, ToolRunRequest
