@@ -40,7 +40,8 @@ MOVED_MEMBERS = (
     "_config_route_view",
     "_unique_execution_threads_for_view",
 )
-WRITES = ("add", "delete", "flush", "commit", "merge")
+#: `execute` and `text` are included because the Standards review of P3.6-1 measured that banning only the ORM #: session verbs would let `session.execute(update(...))` through - and the same measurement showed NO moved body #: calls `execute` at all, so the wider list cannot produce a false positive here. KNOWN LIMIT, recorded rather than #: hidden: the receiver match accepts `session`, `host` and `*.database`, so a derived handle (`handle = #: session.connection(); handle.add(...)`) still escapes; widening further needs a receiver analysis of its own.
+WRITES = ("add", "delete", "flush", "commit", "merge", "execute", "text")
 
 
 def _module_functions() -> dict[str, ast.AST]:

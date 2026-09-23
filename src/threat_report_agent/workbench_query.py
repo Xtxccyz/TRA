@@ -77,12 +77,14 @@ from .report.reporting import build_unique_execution_threads
 #:   `_CATALOG_HOW_SEED_SCAN_LIMIT`    - read by `investigation/derivation.py` THROUGH ITS OWN HOST PIN (the defect that
 #:                                       broke 37 tests when it travelled: a host-pin read is invisible to a `self.`/`cls.`
 #:                                       scan of `service.py`)
-#:   `_UNIQUE_THREAD_VIEW_KINDS`       - PINNED CONSERVATIVELY, and the review is why this is written down: its
-#:                                       only reader is inside this slice, so the design's rule would let it travel
-#:                                       (pin 10). It is pinned because the FIRST attempt at this pin judged two
-#:                                       class constants to be travelling and broke 37 tests - a class attribute
-#:                                       read through ANOTHER module's host pin is invisible to a `self.`/`cls.`
-#:                                       scan. Recorded as a measured deviation, not as an external reader.
+#:   `_UNIQUE_THREAD_VIEW_KINDS`       - PINNED CONSERVATIVELY, and the measurement is now exact: a scan of EVERY
+#:                                       `*_HOST_MEMBERS` tuple in the repository finds this name read by NO pin but
+#:                                       this module's own, so the design's rule would let it travel (pin 10). It
+#:                                       stays pinned because the first attempt at this pin judged two class
+#:                                       constants to be travelling and broke 37 tests (a class attribute read
+#:                                       through another module's host pin is invisible to a `self.`/`cls.` scan of
+#:                                       `service.py`), and re-running the move to change one pin member is a
+#:                                       separate, gate-heavy step - recorded as a deviation for P3.6-2, not hidden.
 #:
 #: THREE NAMES THAT LOOKED LIKE PIN MEMBERS ARE NOT, and the contract test's bidirectional assertion is what caught it:
 #: `THREAT_CONTEXT_PROTOCOL`, `THREAT_TOOL_CONTRACT_VERSION` and `_analysis_planner_payload` are referenced only by
