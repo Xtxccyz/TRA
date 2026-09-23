@@ -58,7 +58,7 @@
 |---|---|---|---|---|---|
 | **P3.2c** ✅ | `creation` | `create_submission_task`, `prepare_blind_run` + `SubmissionResult`（两者返回类型） | 152 + 8 | `_audit`, `content_store`, `database` | **已完成**：实测端口无需扩大（见第 6 节） |
 | P3.2d | `lifecycle` | `archive_case` | 31 | `_audit`, `database` | **已完成**：实测无端口外依赖、无 service 内定义类型，纯机械搬迁（见第 7 节） |
-| P3.2e | `budget` | `_deferred_budget_thread_ids`, `_actual_depth` | 68 | `task_view` | 唯一**不需要**审计写入的簇 |
+| P3.2e | `budget` | `_deferred_budget_thread_ids`, `_actual_depth` | 68 | `task_view` | **已完成**：`_actual_depth` 是 `@staticmethod`（无接收者），搬迁不引入 `host`；另需**有意识地**加 3 个 models 导入（见第 8 节） |
 | P3.2f | `cancellation` | `cancel_task`, `cancel_tool_run` | 206 | 全部 6 个 | 唯一需要 `_seal_task_audit_chain` |
 | P3.2g | workbench binding | `bind_historical_analysis`, `workbench_bind_existing_analysis` | 94 | 6 个 + `_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id` | 唯一需要**扩大端口**的簇；P3.2c 实测后从 creation 拆出 |
 
@@ -141,4 +141,27 @@ P3.2c 之后把「测量 → 抽取 → 证同 → can-fail → 门禁」这套�
 抽取器还加了一条**防止搬家顺手改导入**的硬约束：搬迁代码需要的每个自由名，必须**已经**在
 `task/task_runner.py` 里导入；否则脚本**直接停止**并列出缺的导入。理由写在脚本 docstring 里：
 对活模块做导入手术，正是把「搬家」变成「重写」的那类副作用。
+
+## 8. P3.2e 实测结果（`budget` 簇已搬迁）
+
+实测（`.scratch/p32-measure-cluster.py _deferred_budget_thread_ids _actual_depth`）：两个成员共 68 行；
+宿主引用只有 `task_view`（在端口内）；**没有** service 内定义的类型；自由名 `select` / `Session` /
+`Artifact` / `Evidence` / `ToolRun`。service.py 29,239 → 29,175 行；两个搬迁体比对 IDENTICAL
+（`fe62ef3d4b1a43be` / `8b21adb882b7ec63`）。
+
+本步新增的两条处理，都是**实测逼出来**的，不是预先设计的：
+
+1. **`@staticmethod` 形态**：`_actual_depth` 是静态方法，**没有 `self` 参数**，也就没有「接收者」可重写。
+   对一个静态方法硬塞一个 `host: TaskHost` 参数等于**发明一个不存在的协作者**，正是方案 P3.2 要求接口设计
+   避免的做法。因此它作为普通模块函数搬走（签名原样），service.py 的委托保留 `@staticmethod` 且不传 `self`。
+   抽取器据此分成两条路径：有 `self` → `host`；静态 → 完全不动接收者。契约测试也据此分别断言
+   （静态委托**不得**出现 `self`，实例委托**必须**转发宿主）。
+2. **抽取器第一次跑出的双重装饰器 bug**（`@staticmethod` 出现两次）。根因：`FunctionDef.lineno` 指向 **`def`
+   行**，所以替换区间从 `def` 行开始时，**原来的装饰器被留在原地**，而生成器又输出了一行。
+   **这个 bug 不会被测试抓到**，因为我的验证器只比对**函数体**，装饰器不在其中——它是靠**肉眼检查生成结果**
+   发现的。修法：替换区间从第一个装饰器行开始，委托恰好带一行装饰器。（注意这与 P3.2c 的 `ClassDef` 情形
+   方向相反：那边 `lineno` 指向 `class` 行、装饰器在区间外——两次都得实测，不能类推。）
+3. **一次有意识的导入放宽**：budget 簇需要 `Artifact` / `Evidence` / `ToolRun`。抽取器的硬约束因此**先报错并
+   停止**，由我在 `task/task_runner.py` 里显式加上这三个名字并写明理由（注释就在 import 旁），再重新运行
+   抽取器。这正是那条约束想要的效果：导入面的扩大是被记录的动作，而不是搬家的副作用。
 

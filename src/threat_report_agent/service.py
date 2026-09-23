@@ -8134,20 +8134,7 @@ class AnalysisService:
         return merged
 
     def _deferred_budget_thread_ids(self, task_id: str) -> tuple[str, ...]:
-        """Return high-value seeds deferred only because the action budget ended."""
-        view = self.task_view(task_id)
-        snapshot = dict((view.get("strategy_snapshot") or {}).get("investigation") or {})
-        deferred = snapshot.get("deferred_frontier") or []
-        thread_ids: list[str] = []
-        for item in deferred:
-            if not isinstance(item, dict):
-                continue
-            if str(item.get("reason") or "") != "INVESTIGATION_BUDGET_EXHAUSTED":
-                continue
-            thread_id = str(item.get("thread_id") or "").strip()
-            if thread_id:
-                thread_ids.append(thread_id)
-        return tuple(dict.fromkeys(thread_ids))
+        return _task_runner._deferred_budget_thread_ids(self, task_id)
 
     def _unattempted_seed_thread_ids(self, task_id: str) -> tuple[str, ...]:
         """Return durable seed threads that still have no attempted investigation."""
@@ -20667,58 +20654,7 @@ class AnalysisService:
 
     @staticmethod
     def _actual_depth(session: Session, task_id: str, artifacts: list[Artifact]) -> str:
-        if not artifacts:
-            return "D2"
-        parser_ok = session.scalar(
-            select(ToolRun.id).where(
-                ToolRun.task_id == task_id,
-                ToolRun.status == "SUCCEEDED",
-                ToolRun.tool_name.in_(
-                    [
-                        "pe-parser",
-                        "script-parser",
-                        "document-carrier-parser",
-                        "builtin-static-analyzer",
-                    ]
-                ),
-            )
-        )
-        if not parser_ok:
-            return "D2"
-        if any(item.detected_type in {"script", "pdf", "ooxml", "ole"} for item in artifacts):
-            return "D3"
-        pe_ids = [item.id for item in artifacts if item.detected_type == "pe"]
-        if not pe_ids:
-            return "D2"
-        ghidra_ok = session.scalar(
-            select(ToolRun.id).where(
-                ToolRun.task_id == task_id,
-                ToolRun.artifact_id.in_(pe_ids),
-                ToolRun.tool_name == "ghidra-headless",
-                ToolRun.status == "SUCCEEDED",
-            )
-        )
-        function_id = session.scalar(
-            select(Evidence.id)
-            .where(
-                Evidence.task_id == task_id,
-                Evidence.artifact_id.in_(pe_ids),
-                Evidence.kind == "function",
-            )
-            .limit(1)
-        )
-        fallback_code_id = session.scalar(
-            select(Evidence.id)
-            .where(
-                Evidence.task_id == task_id,
-                Evidence.artifact_id.in_(pe_ids),
-                Evidence.kind.in_(
-                    {"code_api_call", "mechanism_decode", "mechanism_decompression_format"}
-                ),
-            )
-            .limit(1)
-        )
-        return "D3" if (ghidra_ok and function_id) or fallback_code_id else "D2"
+        return _task_runner._actual_depth(session, task_id, artifacts)
 
     @staticmethod
     @staticmethod

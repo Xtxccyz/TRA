@@ -70,7 +70,10 @@ from threat_report_agent.contracts import (
     TaskRequestInput,
 )
 from threat_report_agent.database import Database
-from threat_report_agent.models import AnalysisTask, AuditEvent, CaseRecord, new_id
+# `Artifact`, `Evidence` and `ToolRun` were added deliberately for P3.2e (the budget cluster reads tool runs,
+# evidence rows and artifacts): the extractor REFUSES to widen a live module's imports on its own, so the widening
+# is recorded here rather than appearing as a side effect of a move.
+from threat_report_agent.models import AnalysisTask, Artifact, AuditEvent, CaseRecord, Evidence, ToolRun, new_id
 from threat_report_agent.report.reporting import normalize_modules
 from threat_report_agent.task.status import TaskLifecycle
 
@@ -346,3 +349,81 @@ def archive_case(host: TaskHost, case_id: str, *, actor: str = "case-reviewer") 
             payload={"status": case.status},
         )
         return {"id": case.id, "title": case.title, "status": case.status}
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.2): identical to its old home except that the receiver it used to reach through
+# `self` is now the explicit `host: TaskHost` parameter.
+# ---------------------------------------------------------------------------
+
+
+def _deferred_budget_thread_ids(host: TaskHost, task_id: str) -> tuple[str, ...]:
+    """Return high-value seeds deferred only because the action budget ended."""
+    view = host.task_view(task_id)
+    snapshot = dict((view.get("strategy_snapshot") or {}).get("investigation") or {})
+    deferred = snapshot.get("deferred_frontier") or []
+    thread_ids: list[str] = []
+    for item in deferred:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("reason") or "") != "INVESTIGATION_BUDGET_EXHAUSTED":
+            continue
+        thread_id = str(item.get("thread_id") or "").strip()
+        if thread_id:
+            thread_ids.append(thread_id)
+    return tuple(dict.fromkeys(thread_ids))
+
+
+def _actual_depth(session: Session, task_id: str, artifacts: list[Artifact]) -> str:
+    if not artifacts:
+        return "D2"
+    parser_ok = session.scalar(
+        select(ToolRun.id).where(
+            ToolRun.task_id == task_id,
+            ToolRun.status == "SUCCEEDED",
+            ToolRun.tool_name.in_(
+                [
+                    "pe-parser",
+                    "script-parser",
+                    "document-carrier-parser",
+                    "builtin-static-analyzer",
+                ]
+            ),
+        )
+    )
+    if not parser_ok:
+        return "D2"
+    if any(item.detected_type in {"script", "pdf", "ooxml", "ole"} for item in artifacts):
+        return "D3"
+    pe_ids = [item.id for item in artifacts if item.detected_type == "pe"]
+    if not pe_ids:
+        return "D2"
+    ghidra_ok = session.scalar(
+        select(ToolRun.id).where(
+            ToolRun.task_id == task_id,
+            ToolRun.artifact_id.in_(pe_ids),
+            ToolRun.tool_name == "ghidra-headless",
+            ToolRun.status == "SUCCEEDED",
+        )
+    )
+    function_id = session.scalar(
+        select(Evidence.id)
+        .where(
+            Evidence.task_id == task_id,
+            Evidence.artifact_id.in_(pe_ids),
+            Evidence.kind == "function",
+        )
+        .limit(1)
+    )
+    fallback_code_id = session.scalar(
+        select(Evidence.id)
+        .where(
+            Evidence.task_id == task_id,
+            Evidence.artifact_id.in_(pe_ids),
+            Evidence.kind.in_(
+                {"code_api_call", "mechanism_decode", "mechanism_decompression_format"}
+            ),
+        )
+        .limit(1)
+    )
+    return "D3" if (ghidra_ok and function_id) or fallback_code_id else "D2"

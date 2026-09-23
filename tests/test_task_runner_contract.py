@@ -232,6 +232,8 @@ def test_the_runner_module_is_the_port_plus_the_creation_cluster_and_nothing_els
     assert sorted(defined) == [
         "SubmissionResult",
         "TaskHost",
+        "_actual_depth",
+        "_deferred_budget_thread_ids",
         "archive_case",
         "create_submission_task",
         "missing_task_host_members",
@@ -267,8 +269,9 @@ def test_the_moved_cluster_reaches_the_host_only_through_the_port() -> None:
         f"the moved cluster reaches {sorted(host_refs - set(TASK_HOST_MEMBERS))}, which is not on the port; add it to "
         "TASK_HOST_MEMBERS AND to the TaskHost declaration deliberately, and record why"
     )
-    assert host_refs == {"_audit", "content_store", "database"}, (
-        f"the measured creation-cluster needs were _audit/content_store/database, now {sorted(host_refs)}"
+    assert host_refs == {"_audit", "content_store", "database", "task_view"}, (
+        "the measured needs of the clusters moved so far were _audit/content_store/database (creation) plus "
+        f"task_view (budget), now {sorted(host_refs)}"
     )
 
 
@@ -297,12 +300,19 @@ def test_the_service_methods_are_one_statement_delegations() -> None:
     methods = {
         node.name: node for node in service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    for name in ("create_submission_task", "prepare_blind_run", "archive_case"):
+    for name in ("create_submission_task", "prepare_blind_run", "archive_case", "_deferred_budget_thread_ids",
+                 "_actual_depth"):
         node = methods[name]
         assert len(node.body) == 1, f"{name} has {len(node.body)} statements; it is supposed to delegate only"
         statement = ast.unparse(node.body[0])
         assert statement.startswith(f"return _task_runner.{name}("), f"{name} does not delegate to the new module: {statement}"
-        assert "self" in statement, f"{name} must forward the host, not call the module function bare"
+        decorated = [ast.unparse(d) for d in node.decorator_list]
+        if decorated == ["staticmethod"]:
+            # `_actual_depth` has NO receiver at all (measured in P3.2e), so the delegation must not invent one.
+            assert "self" not in statement, f"{name} is static but forwards `self`: {statement}"
+        else:
+            assert not decorated, f"{name} gained decorators {decorated}; re-measure before trusting this pin"
+            assert "self" in statement, f"{name} must forward the host, not call the module function bare"
 
 
 def test_the_workbench_binding_pair_is_still_on_the_host_and_that_is_recorded() -> None:
