@@ -52,6 +52,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+import asyncio
 import hashlib
 import io
 import zipfile
@@ -73,9 +74,24 @@ from threat_report_agent.database import Database
 # `Artifact`, `Evidence` and `ToolRun` were added deliberately for P3.2e (the budget cluster reads tool runs,
 # evidence rows and artifacts): the extractor REFUSES to widen a live module's imports on its own, so the widening
 # is recorded here rather than appearing as a side effect of a move.
-from threat_report_agent.models import AnalysisTask, Artifact, AuditEvent, CaseRecord, Evidence, ToolRun, new_id
+from threat_report_agent.models import (
+    AnalysisTask,
+    Artifact,
+    AuditEvent,
+    CaseRecord,
+    Evidence,
+    ToolRun,
+    new_id,
+    utcnow,
+)
 from threat_report_agent.report.reporting import normalize_modules
-from threat_report_agent.task.status import TaskLifecycle
+
+# `task -> tools.tool_execution` is a DELIBERATE edge added for P3.2f: `cancel_tool_run` awaits the Temporal tool
+# executor. Plan 3.2 places task/ above every layer, the import policy forbids no such edge, and it was measured
+# cycle-free before the move (no module under tools/ imports task; the only such imports are root shims and
+# service.py).
+from threat_report_agent.tools.tool_execution import TemporalToolExecutor
+from threat_report_agent.task.status import TaskLifecycle, ToolRunStatus, transition_task
 
 #: The measured direct spine of the P3.2 candidate set - the ONLY things a task cluster may require of its host.
 #: Pinned by `tests/test_task_runner_contract.py`, which re-derives it from `service.py` and fails if it grew, so
@@ -427,3 +443,219 @@ def _actual_depth(session: Session, task_id: str, artifacts: list[Artifact]) -> 
         .limit(1)
     )
     return "D3" if (ghidra_ok and function_id) or fallback_code_id else "D2"
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.2): identical to its old home except that the receiver it used to reach through
+# `self` is now the explicit `host: TaskHost` parameter.
+# ---------------------------------------------------------------------------
+
+
+def cancel_task(
+    host: TaskHost,
+    task_id: str,
+    *,
+    actor: str = "demo-analyst",
+) -> dict[str, object]:
+    with host.database.session_factory.begin() as session:
+        task = session.get(AnalysisTask, task_id, with_for_update=True)
+        if task is None:
+            raise LookupError(task_id)
+        if task.lifecycle == TaskLifecycle.CANCELLED.value:
+            return host.task_view(task_id)
+        if task.lifecycle in {
+            TaskLifecycle.SUCCEEDED.value,
+            TaskLifecycle.FAILED.value,
+        }:
+            raise ValueError(f"Task {task_id} is already terminal: {task.lifecycle}")
+        active_runs = list(
+            session.scalars(
+                select(ToolRun).where(
+                    ToolRun.task_id == task_id,
+                    ToolRun.status.in_(
+                        [ToolRunStatus.QUEUED.value, ToolRunStatus.RUNNING.value]
+                    ),
+                )
+            )
+        )
+        active_run_ids = [run.id for run in active_runs]
+        workflow_ids = sorted(
+            {
+                str(run.environment["workflow_id"])
+                for run in active_runs
+                if run.environment.get("workflow_id")
+            }
+        )
+        task.lifecycle = transition_task(task.lifecycle, TaskLifecycle.CANCELLED).value
+        task.outcome = None
+        task.finished_at = utcnow()
+        host._audit(
+            session,
+            case_id=task.case_id,
+            task_id=task.id,
+            event_type="analysis_task.cancel_requested",
+            actor=actor,
+            object_type="AnalysisTask",
+            object_id=task.id,
+            payload={"workflow_ids": workflow_ids},
+        )
+
+    cancellation_errors: list[dict[str, str]] = []
+    executor = TemporalToolExecutor(host.settings.temporal_address)
+    for workflow_id in workflow_ids:
+        try:
+            asyncio.run(executor.cancel_workflow(workflow_id))
+        except Exception as exc:
+            cancellation_errors.append(
+                {"workflow_id": workflow_id, "error_type": type(exc).__name__}
+            )
+
+    delete_staged_output = getattr(
+        host.content_store,
+        "delete_tool_run_output",
+        None,
+    )
+    if callable(delete_staged_output):
+        for tool_run_id in active_run_ids:
+            try:
+                delete_staged_output(
+                    tool_run_id,
+                    f"tool-runs/{tool_run_id}/output.json",
+                )
+            except Exception as exc:
+                cancellation_errors.append(
+                    {
+                        "workflow_id": f"staging:{tool_run_id}",
+                        "error_type": type(exc).__name__,
+                    }
+                )
+
+    with host.database.session_factory.begin() as session:
+        task = session.get(AnalysisTask, task_id, with_for_update=True)
+        if task is None:
+            raise LookupError(task_id)
+        unfinished = list(
+            session.scalars(
+                select(ToolRun).where(
+                    ToolRun.task_id == task_id,
+                    ToolRun.status.in_(
+                        [ToolRunStatus.QUEUED.value, ToolRunStatus.RUNNING.value]
+                    ),
+                )
+            )
+        )
+        for tool_run in unfinished:
+            tool_run.status = ToolRunStatus.CANCELLED.value
+            tool_run.error = tool_run.error or "TASK_CANCELLED"
+            tool_run.finished_at = utcnow()
+            tool_run.output_sha256 = None
+            tool_run.output_storage_key = None
+            tool_run.output = {}
+        host._audit(
+            session,
+            case_id=task.case_id,
+            task_id=task.id,
+            event_type="analysis_task.cancelled",
+            actor=actor,
+            object_type="AnalysisTask",
+            object_id=task.id,
+            payload={
+                "workflow_ids": workflow_ids,
+                "cancellation_errors": cancellation_errors,
+            },
+        )
+        host._seal_task_audit_chain(session, task, "analysis_task.cancelled")
+    return host.task_view(task_id)
+
+
+def cancel_tool_run(
+    host: TaskHost,
+    task_id: str,
+    tool_run_id: str,
+    *,
+    actor: str = "demo-analyst",
+) -> dict[str, object]:
+    """Cancel one RUNNING/QUEUED ToolRun without cancelling the whole task.
+
+        This is the activity-tree cancel: a Ghidra or emu worker can be
+        stopped while the analysis task itself stays RUNNING.
+        """
+    with host.database.session_factory.begin() as session:
+        task = session.get(AnalysisTask, task_id, with_for_update=True)
+        if task is None:
+            raise LookupError(task_id)
+        if task.lifecycle in {
+            TaskLifecycle.SUCCEEDED.value,
+            TaskLifecycle.FAILED.value,
+            TaskLifecycle.CANCELLED.value,
+        }:
+            raise ValueError(f"Task {task_id} is already terminal: {task.lifecycle}")
+        tool_run = session.get(ToolRun, tool_run_id)
+        if tool_run is None or tool_run.task_id != task_id:
+            raise LookupError(tool_run_id)
+        if tool_run.status not in {
+            ToolRunStatus.QUEUED.value,
+            ToolRunStatus.RUNNING.value,
+        }:
+            raise ValueError(f"ToolRun {tool_run_id} is already terminal: {tool_run.status}")
+        workflow_id = str((tool_run.environment or {}).get("workflow_id") or "")
+        host._audit(
+            session,
+            case_id=task.case_id,
+            task_id=task.id,
+            event_type="analysis_task.tool_run_cancel_requested",
+            actor=actor,
+            object_type="ToolRun",
+            object_id=tool_run.id,
+            payload={"workflow_id": workflow_id, "tool_name": tool_run.tool_name},
+        )
+
+    cancellation_errors: list[dict[str, str]] = []
+    if workflow_id:
+        try:
+            asyncio.run(TemporalToolExecutor(host.settings.temporal_address).cancel_workflow(workflow_id))
+        except Exception as exc:
+            cancellation_errors.append(
+                {"workflow_id": workflow_id, "error_type": type(exc).__name__}
+            )
+
+    delete_staged_output = getattr(host.content_store, "delete_tool_run_output", None)
+    if callable(delete_staged_output):
+        try:
+            delete_staged_output(tool_run_id, f"tool-runs/{tool_run_id}/output.json")
+        except Exception as exc:
+            cancellation_errors.append(
+                {"workflow_id": f"staging:{tool_run_id}", "error_type": type(exc).__name__}
+            )
+
+    with host.database.session_factory.begin() as session:
+        task = session.get(AnalysisTask, task_id, with_for_update=True)
+        if task is None:
+            raise LookupError(task_id)
+        tool_run = session.get(ToolRun, tool_run_id)
+        if tool_run is not None and tool_run.status in {
+            ToolRunStatus.QUEUED.value,
+            ToolRunStatus.RUNNING.value,
+        }:
+            tool_run.status = ToolRunStatus.CANCELLED.value
+            tool_run.error = tool_run.error or "TOOL_RUN_CANCELLED"
+            tool_run.finished_at = utcnow()
+            tool_run.output_sha256 = None
+            tool_run.output_storage_key = None
+            tool_run.output = {}
+        host._audit(
+            session,
+            case_id=task.case_id,
+            task_id=task.id,
+            event_type="analysis_task.tool_run_cancelled",
+            actor=actor,
+            object_type="ToolRun",
+            object_id=tool_run_id,
+            payload={
+                "workflow_id": workflow_id,
+                "cancellation_errors": cancellation_errors,
+            },
+        )
+    view = host.task_view(task_id)
+    view["cancelled_tool_run_id"] = tool_run_id
+    return view

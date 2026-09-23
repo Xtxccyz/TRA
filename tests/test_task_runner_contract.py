@@ -158,13 +158,37 @@ def test_every_frozen_candidate_still_exists() -> None:
     )
 
 
-def test_the_port_is_exactly_the_measured_direct_spine() -> None:
-    derived = _direct_spine(SERVICE_MODULE.read_text(encoding="utf-8", errors="replace"))
-    assert derived == set(TASK_HOST_MEMBERS), (
-        "the task port and the measured spine disagree: "
-        f"derived={sorted(derived)} port={sorted(TASK_HOST_MEMBERS)}. A new member means a task cluster started "
-        "reaching outside the port - widen the port deliberately (and record why) instead of loosening this test"
+def test_the_port_is_exactly_what_the_task_path_needs() -> None:
+    """Two-sided: nothing OFF the port is needed, and nothing ON it is unused.
+
+    THIS TEST CHANGED SHAPE IN P3.2f, and the reason matters. Its original form asserted that the port equalled the
+    direct spine of the FROZEN CANDIDATE SET. That was right while the candidates were the cluster under
+    consideration; once P3.2c-P3.2f moved them, most candidates became one-line delegations, so the candidate spine
+    shrank (a delegation that calls `_task_runner.<fn>` touches no port member) and the equality became false for a
+    legitimate reason. Loosening it to a subset would have been the weak fix; instead the property the pin was always
+    trying to state is now stated directly and in both directions:
+
+      * `remaining <= port` - no still-unmoved candidate reaches anything off the port (drift still fails here);
+      * `remaining | used_by_moved_code == port` - and the port has no member nothing uses.
+    """
+    runner = RUNNER_MODULE.read_text(encoding="utf-8", errors="replace")
+    remaining = _direct_spine(SERVICE_MODULE.read_text(encoding="utf-8", errors="replace"))
+    used_by_moved_code = {
+        node.attr
+        for node in ast.walk(ast.parse(runner))
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "host"
+    }
+    off_port = remaining - set(TASK_HOST_MEMBERS)
+    assert not off_port, (
+        f"a task candidate that has NOT moved yet reaches {sorted(off_port)}, which is not on the port; add it to "
+        "TASK_HOST_MEMBERS and to the TaskHost declaration deliberately, and record why"
     )
+    unused = set(TASK_HOST_MEMBERS) - (remaining | used_by_moved_code)
+    assert not unused, (
+        f"{sorted(unused)} are on the port but nothing uses them (neither the moved code nor a remaining candidate); "
+        "a port member nobody needs is speculative surface"
+    )
+    assert (remaining | used_by_moved_code) == set(TASK_HOST_MEMBERS)
 
 
 def test_the_declared_protocol_matches_the_pin() -> None:
@@ -235,6 +259,8 @@ def test_the_runner_module_is_the_port_plus_the_creation_cluster_and_nothing_els
         "_actual_depth",
         "_deferred_budget_thread_ids",
         "archive_case",
+        "cancel_task",
+        "cancel_tool_run",
         "create_submission_task",
         "missing_task_host_members",
         "prepare_blind_run",
@@ -269,9 +295,9 @@ def test_the_moved_cluster_reaches_the_host_only_through_the_port() -> None:
         f"the moved cluster reaches {sorted(host_refs - set(TASK_HOST_MEMBERS))}, which is not on the port; add it to "
         "TASK_HOST_MEMBERS AND to the TaskHost declaration deliberately, and record why"
     )
-    assert host_refs == {"_audit", "content_store", "database", "task_view"}, (
-        "the measured needs of the clusters moved so far were _audit/content_store/database (creation) plus "
-        f"task_view (budget), now {sorted(host_refs)}"
+    assert host_refs == set(TASK_HOST_MEMBERS), (
+        "the clusters moved so far should now cover the WHOLE port - cancellation reaches every member, including "
+        f"`_seal_task_audit_chain`, which only it needs - but the measured set is {sorted(host_refs)}"
     )
 
 
@@ -301,7 +327,7 @@ def test_the_service_methods_are_one_statement_delegations() -> None:
         node.name: node for node in service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     for name in ("create_submission_task", "prepare_blind_run", "archive_case", "_deferred_budget_thread_ids",
-                 "_actual_depth"):
+                 "_actual_depth", "cancel_task", "cancel_tool_run"):
         node = methods[name]
         assert len(node.body) == 1, f"{name} has {len(node.body)} statements; it is supposed to delegate only"
         statement = ast.unparse(node.body[0])

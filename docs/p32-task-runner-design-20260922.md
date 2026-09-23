@@ -59,7 +59,7 @@
 | **P3.2c** ✅ | `creation` | `create_submission_task`, `prepare_blind_run` + `SubmissionResult`（两者返回类型） | 152 + 8 | `_audit`, `content_store`, `database` | **已完成**：实测端口无需扩大（见第 6 节） |
 | P3.2d | `lifecycle` | `archive_case` | 31 | `_audit`, `database` | **已完成**：实测无端口外依赖、无 service 内定义类型，纯机械搬迁（见第 7 节） |
 | P3.2e | `budget` | `_deferred_budget_thread_ids`, `_actual_depth` | 68 | `task_view` | **已完成**：`_actual_depth` 是 `@staticmethod`（无接收者），搬迁不引入 `host`；另需**有意识地**加 3 个 models 导入（见第 8 节） |
-| P3.2f | `cancellation` | `cancel_task`, `cancel_tool_run` | 206 | 全部 6 个 | 唯一需要 `_seal_task_audit_chain` |
+| P3.2f | `cancellation` | `cancel_task`, `cancel_tool_run` | 206 | 全部 6 个 | **已完成**：首个用满**全部 6 个**端口成员的簇；需要一次有意识的导入放宽（含 `task -> tools.tool_execution`，实测无环）（见第 9 节） |
 | P3.2g | workbench binding | `bind_historical_analysis`, `workbench_bind_existing_analysis` | 94 | 6 个 + `_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id` | 唯一需要**扩大端口**的簇；P3.2c 实测后从 creation 拆出 |
 
 P3.2a / P3.2b 已完成的投影面（`task/limitations.py`）不在上表内：它们的 service.py 主体已是单行委托。
@@ -164,4 +164,31 @@ P3.2c 之后把「测量 → 抽取 → 证同 → can-fail → 门禁」这套�
 3. **一次有意识的导入放宽**：budget 簇需要 `Artifact` / `Evidence` / `ToolRun`。抽取器的硬约束因此**先报错并
    停止**，由我在 `task/task_runner.py` 里显式加上这三个名字并写明理由（注释就在 import 旁），再重新运行
    抽取器。这正是那条约束想要的效果：导入面的扩大是被记录的动作，而不是搬家的副作用。
+
+## 9. P3.2f 实测结果（`cancellation` 簇已搬迁）
+
+实测：`cancel_task`（115 行）+ `cancel_tool_run`（91 行），**用满全部 6 个端口成员**——其中
+`_seal_task_audit_chain` 至今只有这一个簇需要它。service.py 29,175 → 28,984 行；两个搬迁体比对 IDENTICAL
+（`cb268d755757cb4d` / `235a5cb1c5e87ad1`），can-fail 对两者分别证明。
+
+搬迁前实测又抓到两条**工具自身的缺陷**，都影响正确性，不只是效率：
+
+1. **假阳性**：`except ... as exc` 里 `exc` 的绑定是 `ExceptHandler.name`（**字符串**），不是 `ast.Name` 的
+   Store 节点。只收集 Name-Store 的遍历器会把 `exc` 当成自由名，进而报出「service 内定义的类型」这种不存在
+   的结论，**直接挡住搬迁**。修法：把 `ExceptHandler` / `Global` / `Nonlocal` / `MatchAs` / `MatchStar` /
+   `MatchMapping` 这些「引入名字」的节点形态全部计入局部名。测量工具的错误结论会伪装成方案结论，这条记在此。
+2. **`self.` 文本重写会改到散文**（潜在的行为变更，且验证器看不见）：重写是
+   `moved.replace("self.", "host.")`，如果某方法的文档字符串里出现 `itself.`，就会被改成 `ithost.`——
+   而验证器把两侧的 `self.`/`host.` 都归一化掉，两侧都化成 `ithost` 前的前缀，**因此不会报差异**。
+   现在加了两道断言：文本 `self.` 出现次数必须等于 AST 里 `self` 属性访问次数；且任何字符串常量都不得包含
+   `self.`，否则脚本停止、要求人工处理。
+   同时「残余 `self`」检查从**子串扫描**改为 **AST 名称检查**——原来的子串扫描把某文档字符串里的英文单词
+   `itself` 当成了残余 `self` 并中止了一次合法搬迁。
+
+**端口覆盖率里程碑**：P3.2f 之后，「已搬迁代码实际用到的 `host.X`」恰好等于**全部 6 个**端口成员，
+即端口不再有任何「留给将来用」的成员；而**尚未搬迁**的候选（`bind_historical_analysis` 等）直接端口面是
+全集的子集。契约测试据此把原来「端口 == 候选集直接 spine」的单向等式改成**双向断言**
+（`remaining ⊆ port` 且 `remaining ∪ used_by_moved_code == port`）：候选搬走后变成单行委托、其直接 spine 收缩，
+原等式会因**正当原因**变假，而把它放宽成子集则是弱化；现在两个方向各自都有真实主体——
+「没有端口外需求」与「没有无人使用的成员」。
 
