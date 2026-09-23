@@ -68,6 +68,13 @@ MOVED_MEMBERS = (
     "_convergence_completed_fields",
     "_convergence_alternate_type",
     "_convergence_method_id",
+    # P3.3c(2) (the action-proposal members that could NOT move until the two layer items landed; the whole group moved
+    # in one step and NO host member was needed - the extractor reports `host need: NONE` for all four, which is why
+    # the port stayed at six).
+    "_model_action_plan",
+    "_has_complete_model_action_plan",
+    "_merge_planned_actions",
+    "_action_is_model_or_human",
 )
 MOVED_MODULE_FUNCS = ("frontier_status_is_open", "deferred_keeps_planner_open")
 #: Stayed on the host: moving them would need `report.reporting`, which plan 3.2 does not allow `investigation/` to
@@ -99,6 +106,10 @@ ORIGINAL_DECORATORS = {
     "_convergence_completed_fields": ["classmethod"],
     "_convergence_alternate_type": ["classmethod"],
     "_convergence_method_id": ["classmethod"],
+    "_model_action_plan": ["staticmethod"],
+    "_has_complete_model_action_plan": ["classmethod"],
+    "_merge_planned_actions": [],
+    "_action_is_model_or_human": ["classmethod"],
 }
 #: Stayed on the host from the methodology half of the P3.3d slice. TWO measured blockers, either of which is enough:
 #:   * `_run_methodology_action` needs `threat_report_agent.methodology` (`DIMENSIONS`, `build_profile`), and that
@@ -110,22 +121,17 @@ ORIGINAL_DECORATORS = {
 #: It would also need five more port members (three shared helpers plus `_METHODOLOGY_EVIDENCE_LIMIT` and the
 #: `methodology_library` attribute), which is recorded rather than acted on.
 STAYED_FROM_P3_3D = ("_run_methodology_action",)
-#: Stayed on the host from the action-proposal slice. This tuple is a HISTORICAL list of what stayed in P3.3c, NOT a
-#: claim about the current blockers - BOTH recorded blockers have since been removed, so P3.3c(2) is now movable:
-#:   * `_action_is_model_or_human` needed `action_is_model_or_human` at run time, and that name lived in
-#:     `task.analysis_task_orchestration`, which imports `investigation` - the edge would have been a CYCLE.
-#:     REMOVED by P3.3 layer item 1: the name now lives in this package (`investigation/loop_path.py`).
-#:   * `_model_action_plan` needs `DynamicPlanAction` at run time; `_has_complete_model_action_plan` and
-#:     `_merge_planned_actions` name it in annotations (and read `target_artifact_id` / `priority` at run time).
-#:     REMOVED by P3.3 layer item 4: the canonical class now lives in `threat_report_agent.contracts`, a pure pydantic
-#:     contract module the plan's matrix (line 132) already allows `investigation/` to import, with
-#:     `model/model_gateway.py` re-exporting the same object.
-STAYED_FROM_P3_3C = (
-    "_model_action_plan",
-    "_has_complete_model_action_plan",
-    "_merge_planned_actions",
-    "_action_is_model_or_human",
-)
+#: RETIRED, and kept as history rather than deleted: P3.3c(2) was the action-proposal group that could not move until
+#: two LAYER items landed - `_action_is_model_or_human` needed `action_is_model_or_human`, which used to live in
+#: `task.analysis_task_orchestration` (importing it would have been a CYCLE; removed by layer item 1, which put the
+#: predicate in this package's `loop_path.py`), and the other three needed `DynamicPlanAction` at run time, which used
+#: to live behind the model IMPLEMENTATION (`model/model_gateway.py` imports httpx; removed by layer item 4, which moved
+#: the canonical class into the pure contract module `contracts.py` and had the model port expose it).
+#:
+#: The tuple is now EMPTY on purpose: all four members moved, so nothing about this slice "stayed". The test that used
+#: to assert they were still whole was replaced by one asserting they are delegations, because the state it pinned
+#: changed by design.
+STAYED_FROM_P3_3C: tuple[str, ...] = ()
 
 
 @pytest.fixture
@@ -267,6 +273,31 @@ def test_the_moved_members_are_one_statement_delegations_with_their_original_sha
                 f"{name} lost its `{receiver}` parameter, which changes how every existing caller must call it"
             )
 
+        # ARGUMENT IDENTITY, added after a review found the hole: every check above constrains the RECEIVER, so for a
+        # hostless member (`takes_host` False - the four P3.3c(2) members and `_planner_user_action`) a delegation that
+        # dropped an argument or swapped two of them passed this test untouched. That is precisely the silently-shifted
+        # call the arity pin exists to catch, and the arity pin cannot see it either because it only inspects calls
+        # whose target takes a host. The forwarded arguments must therefore equal the module function's parameters,
+        # in order, with keyword-only parameters forwarded by name (the extractor's rule).
+        call = node.body[0].value
+        assert isinstance(call, ast.Call), f"{name} does not end in a call: {statement}"
+        forwarded = [ast.unparse(argument) for argument in call.args]
+        forwarded += [f"{keyword.arg}={ast.unparse(keyword.value)}" for keyword in call.keywords]
+        keyword_only = {argument.arg for argument in node.args.kwonlyargs}
+        # When the module function takes a host, the FIRST forwarded argument IS that host - the member's own receiver,
+        # which is `cls` for a classmethod and `self` for an instance method. It is compared against the module's first
+        # parameter rather than dropped, which is the mistake this check made in its first version (it reported
+        # `_unattempted_seed_thread_ids` as forwarding a stray `self` when the module function's first parameter is
+        # literally `host`, and `self` is exactly what it wants there).
+        expected = ([own_receiver] if takes_host and own_receiver else []) + [
+            f"{parameter}={parameter}" if parameter in keyword_only else parameter
+            for parameter in (parameters[1:] if takes_host else parameters)
+        ]
+        assert forwarded == expected, (
+            f"{name} forwards {forwarded} but its module function takes {expected}; a dropped or reordered argument "
+            "shifts every parameter silently and no other pin checks hostless members"
+        )
+
 
 def test_the_methodology_member_that_could_not_move_stayed_whole_with_measured_reasons() -> None:
     """P3.3d(2), pinned: `_run_methodology_action` stays because of LAYER and shared-STATE rules, not by oversight."""
@@ -344,26 +375,128 @@ def test_every_host_taking_function_is_delegated_with_its_own_receiver() -> None
         )
 
 
-def test_the_action_proposal_members_that_could_not_move_stayed_whole_with_measured_reasons() -> None:
-    """P3.3c(2), pinned: these four stay because of a LAYER rule, not because they were forgotten."""
+def test_the_action_proposal_slice_moved_once_both_layer_items_landed() -> None:
+    """P3.3c(2), pinned at its NEW state: the four members are delegations and their bodies are module functions.
+
+    This test REPLACES `test_the_action_proposal_members_that_could_not_move_stayed_whole_with_measured_reasons`, which
+    asserted the opposite. That is not a weakened assertion: the state it pinned changed BY DESIGN once the two layer
+    items landed (layer item 1 put `action_is_model_or_human` in this package; layer item 4 put `DynamicPlanAction` in
+    the pure contract layer), so its successor asserts the new truth - and, just as importantly, it pins the TWO
+    decoupling properties that made the move possible, so a future edit cannot quietly re-introduce the old coupling.
+    """
+    assert STAYED_FROM_P3_3C == (), (
+        "this slice has moved; if a member was put back on the host, record why and restore the tuple with the reason"
+    )
     methods = {
         node.name: node for node in _service_class().body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    for name in STAYED_FROM_P3_3C:
-        node = methods[name]
-        assert "_coordinator." not in ast.unparse(node), f"{name} was moved after all; re-measure the layer rule"
-        assert len(node.body) > 1, f"{name} looks like a delegation now, but this slice left it whole"
-    runtime_blocked = {
-        "_model_action_plan": "DynamicPlanAction",
-        "_action_is_model_or_human": "action_is_model_or_human",
-    }
-    for name, symbol in runtime_blocked.items():
+    moved = (
+        "_model_action_plan",
+        "_has_complete_model_action_plan",
+        "_merge_planned_actions",
+        "_action_is_model_or_human",
+    )
+    for name in moved:
         source = ast.unparse(methods[name])
-        assert symbol in source, f"{name} no longer uses {symbol}; the reason it stayed changed, so re-measure"
-        assert "isinstance" in source or f"{symbol}(" in source, (
-            f"{name} no longer uses {symbol} at RUNTIME; if it is annotations-only now, it belongs in the movable set"
+        assert f"_coordinator.{name}" in source, (
+            f"{name} is not delegated to the coordinator any more"
         )
+
+    coordinator_source = COORDINATOR_MODULE.read_text(encoding="utf-8")
+    coordinator_tree = ast.parse(coordinator_source)
+    defined = {
+        node.name
+        for node in coordinator_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert set(moved) <= defined, (
+        f"the moved bodies are not module-level functions in coordinator.py: {sorted(moved - defined)}"
+    )
+
+    # PROPERTY 1: the slice reaches `DynamicPlanAction` through the CONTRACT layer, never the model implementation.
+    # ALL sources are collected, not the last one: a dict keyed by name is last-write-wins, so a second (shadowing)
+    # import could hide an earlier forbidden one - a review found that in the first version of this check.
+    sources: dict[str, list[str]] = {}
+    for node in ast.walk(coordinator_tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                sources.setdefault(alias.asname or alias.name, []).append(node.module)
+    for symbol, allowed in (
+        ("DynamicPlanAction", "threat_report_agent.contracts"),
+        ("action_is_model_or_human", "threat_report_agent.investigation.loop_path"),
+    ):
+        found = sources.get(symbol, [])
+        assert found == [allowed], (
+            f"`{symbol}` must be imported from {allowed} and from nowhere else. `DynamicPlanAction` comes from the "
+            "contract layer (the model implementation imports httpx - that is what layer item 4 removed) and the "
+            f"predicate comes from this package (its old `task` home was the cycle - layer item 1). Found: {found}"
+        )
+    task_imports = [
+        node.module
+        for node in ast.walk(coordinator_tree)
+        if isinstance(node, ast.ImportFrom) and node.module and "task" in node.module.split(".")
+    ]
+    assert not task_imports, (
+        f"this module must not import the task package at all; found {task_imports}"
+    )
+
+    # PROPERTY 3: the moved code still DOES what it did. A provenance pin cannot see a body that kept its imports but
+    # lost a branch, and the test this one replaced did assert runtime use - so those assertions come back, against the
+    # live functions rather than their source text.
+    from threat_report_agent.contracts import DynamicPlanAction
+    from threat_report_agent.investigation import loop_path
+    from threat_report_agent.investigation import coordinator as coordinator_module
+
+    model_action = DynamicPlanAction(
+        target_artifact_id="artifact-1", reason="r", question="Q", hypothesis="H", origin="model"
+    )
+    # BOTH branches of `_model_action_plan`: a Mapping goes through `dict(action)`, a model action through
+    # `model_dump(mode="json")`. A single-branch version fails one of these two.
+    from_mapping = coordinator_module._model_action_plan({"question": "Qm", "hypothesis": "Hm"})
+    assert from_mapping["question"] == "Qm" and from_mapping["hypothesis"] == "Hm", from_mapping
+    from_model = coordinator_module._model_action_plan(model_action)
+    assert from_model["question"] == "Q" and from_model["hypothesis"] == "H", from_model
+    # both verdicts of the completeness predicate: it requires FIVE fields, so a model action with two of them is
+    # incomplete and one with all five is complete. Asserting only one side would pass for a constant-returning body.
+    assert coordinator_module._has_complete_model_action_plan(model_action) is False
+    complete = DynamicPlanAction(
+        target_artifact_id="artifact-1",
+        reason="r",
+        question="Q",
+        hypothesis="H",
+        alternatives=["a"],
+        missing_evidence=["m"],
+        failure_meaning="F",
+    )
+    assert coordinator_module._has_complete_model_action_plan(complete) is True
+
+    # the wrapper must RETURN the predicate's verdict rather than a constant. MEASURED first: the predicate keys on
+    # `planner_turn_id` / a `provenance` or `parameters` origin, so a bare model action and a bare deterministic
+    # fallback BOTH come back False - an "inputs must differ" assertion is only meaningful once one of them carries the
+    # marker the predicate actually looks at.
+    fallback = DynamicPlanAction(
+        target_artifact_id="artifact-1", reason="r", origin="deterministic_fallback"
+    )
+    marked = DynamicPlanAction(
+        target_artifact_id="artifact-1",
+        reason="r",
+        origin="deterministic_fallback",
+        planner_turn_id="turn-7",
+    )
+    for item in (model_action, fallback, marked):
+        direct = loop_path.action_is_model_or_human(item)
+        wrapped = coordinator_module._action_is_model_or_human(item)
+        assert wrapped is direct, (
+            f"the wrapper disagrees with the predicate it delegates to for {item!r}"
+        )
+    marked_verdict = coordinator_module._action_is_model_or_human(marked)
+    fallback_verdict = coordinator_module._action_is_model_or_human(fallback)
+    assert marked_verdict is True
+    assert fallback_verdict is False
+    assert marked_verdict != fallback_verdict, (
+        "the wrapper returns the same verdict for a marked and an unmarked action; it is not delegating"
+    )
 
 
 def test_the_four_members_that_needed_report_reporting_stayed_whole() -> None:

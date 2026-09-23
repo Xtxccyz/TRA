@@ -79,6 +79,7 @@ from typing import Mapping, Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from threat_report_agent.contracts import DynamicPlanAction
 from threat_report_agent.investigation.investigation import (
     ActionCatalog,
     ActionSpec,
@@ -96,6 +97,13 @@ from threat_report_agent.investigation.investigation_ledger import (
     open_item_ids,
     terminate_item,
 )
+# P3.3c(2): the two imports the slice's bodies need, declared HERE on purpose because the extractor's guard refuses to
+# add them silently. Both are products of the two layer items this slice was waiting for:
+#   * `DynamicPlanAction` - layer item 4 moved the canonical class into the pure contract layer, which plan section
+#     3.2's matrix already allows `investigation/` to import (the model IMPLEMENTATION does not);
+#   * `action_is_model_or_human` - layer item 1 moved this predicate into `investigation/loop_path.py`, inside this
+#     package, so the wrapper `_action_is_model_or_human` can reach it without the `investigation -> task` cycle.
+from threat_report_agent.investigation.loop_path import action_is_model_or_human
 from threat_report_agent.models import (
     AnalysisTask,
     Artifact,
@@ -1268,3 +1276,92 @@ def _convergence_method_id(
 ) -> str:
     """Return a stable semantic strategy identity for one target probe."""
     return investigation_method_id(action_type, selector, plan)
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.3 slices): identical to its old home in service.py. The receiver it used to reach
+# through `self`/`cls` is now an explicit `host: InvestigationHost` parameter, and ONLY where the body still
+# needs one. This banner is deliberately SLICE-AGNOSTIC: it used to name the first slice, so the second slice's
+# code was appended under a label that lied about which step moved it.
+# ---------------------------------------------------------------------------
+
+
+def _model_action_plan(action: DynamicPlanAction | Mapping[str, object]) -> dict[str, object]:
+    """Project a model proposal into non-authoritative, durable plan metadata.
+
+        The Action Catalog, cited Evidence and selector validation remain the
+        only execution authority.  Keeping this plan separately makes the
+        analyst-visible trail explain *why* the system spent a bounded action
+        on a target without exposing private model reasoning.
+        """
+    payload = (
+        action.model_dump(mode="json")
+        if isinstance(action, DynamicPlanAction)
+        else dict(action)
+    )
+
+    def text(name: str, limit: int = 1_200) -> str:
+        value = payload.get(name, "")
+        return str(value).strip()[:limit] if isinstance(value, (str, int)) else ""
+
+    def text_list(name: str, limit: int) -> list[str]:
+        values = payload.get(name, [])
+        if not isinstance(values, (list, tuple, set)):
+            return []
+        return [
+            str(value).strip()[:320]
+            for value in values
+            if isinstance(value, (str, int)) and str(value).strip()
+        ][:limit]
+
+    return {
+        "question": text("question"),
+        "hypothesis": text("hypothesis"),
+        "alternatives": text_list("alternatives", 8),
+        "missing_evidence": text_list("missing_evidence", 16),
+        "analysis_focus": text_list("analysis_focus", 8),
+        "expected_result": text_list("expected_evidence_kinds", 16)
+        or text_list("expected_evidence", 16),
+        "success_condition": text("success_condition", 240),
+        "failure_interpretation": text("failure_interpretation", 80),
+        "failure_meaning": text("failure_meaning"),
+        "reason": text("reason"),
+        "planner_protocol": "plan-first-static-v1",
+    }
+
+
+def _has_complete_model_action_plan(action: DynamicPlanAction) -> bool:
+    plan = _model_action_plan(action)
+    return bool(
+        plan["question"]
+        and plan["hypothesis"]
+        and plan["alternatives"]
+        and plan["missing_evidence"]
+        and plan["failure_meaning"]
+    )
+
+
+def _merge_planned_actions(
+    deterministic_actions: list[str],
+    model_actions: list[DynamicPlanAction],
+    artifacts: list[Artifact],
+) -> list[str]:
+    """Apply model priority to ordering while retaining mandatory coverage."""
+    valid_ids = {item.id for item in artifacts}
+    ranked: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for index, action in enumerate(model_actions):
+        if action.target_artifact_id in valid_ids and action.target_artifact_id not in seen:
+            ranked.append((action.priority, index, action.target_artifact_id))
+            seen.add(action.target_artifact_id)
+    ranked.sort()
+    ordered = [artifact_id for _, _, artifact_id in ranked]
+    ordered.extend(
+        artifact_id for artifact_id in deterministic_actions if artifact_id not in seen
+    )
+    return ordered
+
+
+def _action_is_model_or_human(item: object) -> bool:
+    """First-round analyze catalog actions must survive persist HOW skip."""
+    return action_is_model_or_human(item)
