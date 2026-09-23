@@ -161,20 +161,24 @@ from threat_report_agent.investigation.investigation_protocol import (
 from threat_report_agent.investigation.persist_how import PersistHow
 from threat_report_agent.task.analysis_task_orchestration import (
     HOW_SEED_CATEGORIES,
-    LOOP_PATH_BUDGET_DEFER,
-    LOOP_PATH_PERSIST_BOUNDARY,
-    LOOP_PATH_PERSIST_READY,
     PERSIST_KEEP_ACTION_TYPES,
     PERSIST_SKIP_TRACE_ERROR,
-    action_is_model_or_human,
     continue_investigation_after_action,
     keep_recovery_after_persist_skip,
-    next_investigation_loop_path,
-    resolve_persist_how_skip,
     run_analysis_task_investigation,
     run_emulation_informed_investigation,
     run_saturated_investigation,
     supersede_queued_trace_after_persist_skip,
+)
+# P3.3 layer item 1: the loop-path / persist-HOW SKIP policy now lives in the investigation package. This production
+# caller imports it from its NEW home rather than from the task module's re-export (plan 7.1 step 5).
+from threat_report_agent.investigation.loop_path import (
+    LOOP_PATH_BUDGET_DEFER,
+    LOOP_PATH_PERSIST_BOUNDARY,
+    LOOP_PATH_PERSIST_READY,
+    action_is_model_or_human,
+    next_investigation_loop_path,
+    resolve_persist_how_skip,
 )
 from threat_report_agent.investigation.investigation_ledger import (
     LEDGER_OPEN,

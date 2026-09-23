@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from threat_report_agent.task.analysis_task_orchestration import (
     PERSIST_SKIP_TRACE_ERROR,
-    action_is_model_or_human,
     continue_investigation_after_action,
     keep_recovery_after_persist_skip,
     run_analysis_task_investigation,
@@ -12,8 +15,31 @@ from threat_report_agent.task.analysis_task_orchestration import (
     run_saturated_investigation,
     supersede_queued_trace_after_persist_skip,
 )
+from threat_report_agent.investigation.loop_path import action_is_model_or_human
 from threat_report_agent.investigation import ActionSpec, ActionType
 from threat_report_agent.investigation.investigation_ledger import LEDGER_CLOSED, LEDGER_DEFERRED, LEDGER_OPEN
+
+#: The P3.3 layer-item-1 cluster. It is DEFINED in `investigation/loop_path.py` and re-exported by
+#: `task/analysis_task_orchestration.py`; the tests below pin both ends of that, because the extractor's first draft
+#: moved the bodies without their decorator and no structural gate noticed.
+LOOP_PATH_CLUSTER = (
+    "LOOP_PATH_PERSIST_READY",
+    "LOOP_PATH_PERSIST_BOUNDARY",
+    "LOOP_PATH_BUDGET_DEFER",
+    "LOOP_PATH_PLANNER",
+    "PERSIST_HOW_READY",
+    "PERSIST_HOW_BOUNDARY",
+    "PERSIST_HOW_MINE",
+    "PersistHowDecision",
+    "PersistHowBoundaryFn",
+    "PersistHowSeedFn",
+    "SLOT_DEAD_LETTER_ATTEMPTS",
+    "SUPPORTING_SKIP_CATEGORIES",
+    "action_is_model_or_human",
+    "unique_os_thread_playbook",
+    "next_investigation_loop_path",
+    "resolve_persist_how_skip",
+)
 
 
 class _PhaseRuntime:
@@ -267,7 +293,7 @@ class _PersistMint:
         proposed_actions: tuple[object, ...] = (),
         historical_attempts: int = 0,
     ):
-        from threat_report_agent.task.analysis_task_orchestration import resolve_persist_how_skip
+        from threat_report_agent.investigation.loop_path import resolve_persist_how_skip
 
         return resolve_persist_how_skip(
             playbook=playbook,
@@ -286,7 +312,7 @@ class _PersistMint:
 
 
 def test_persist_how_ready_skips_mining_when_playbook_is_present() -> None:
-    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_READY
+    from threat_report_agent.investigation.loop_path import PERSIST_HOW_READY
 
     mint = _PersistMint()
     mint.ready = SimpleNamespace(gate=SimpleNamespace(missing=()))
@@ -298,7 +324,7 @@ def test_persist_how_ready_skips_mining_when_playbook_is_present() -> None:
 
 
 def test_persist_how_does_not_call_seed_without_playbook() -> None:
-    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_MINE
+    from threat_report_agent.investigation.loop_path import PERSIST_HOW_MINE
 
     mint = _PersistMint()
     mint.ready = SimpleNamespace(gate=SimpleNamespace(missing=()))
@@ -309,7 +335,7 @@ def test_persist_how_does_not_call_seed_without_playbook() -> None:
 
 
 def test_unique_thread_persist_runs_before_supporting_skip() -> None:
-    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_READY
+    from threat_report_agent.investigation.loop_path import PERSIST_HOW_READY
 
     mint = _PersistMint()
     mint.unique = SimpleNamespace(gate=SimpleNamespace(missing=()))
@@ -321,7 +347,7 @@ def test_unique_thread_persist_runs_before_supporting_skip() -> None:
 
 
 def test_supporting_keyword_seed_skips_trace_when_unique_thread_absent() -> None:
-    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_BOUNDARY
+    from threat_report_agent.investigation.loop_path import PERSIST_HOW_BOUNDARY
 
     mint = _PersistMint()
     decision = mint.resolve(playbook=None, cluster_category="entrypoint")
@@ -330,7 +356,7 @@ def test_supporting_keyword_seed_skips_trace_when_unique_thread_absent() -> None
 
 
 def test_model_origin_and_recovery_gaps_cancel_persist_ready() -> None:
-    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_MINE
+    from threat_report_agent.investigation.loop_path import PERSIST_HOW_MINE
     from threat_report_agent.investigation import ActionSpec, ActionType
 
     mint = _PersistMint()
@@ -355,7 +381,7 @@ def test_model_origin_and_recovery_gaps_cancel_persist_ready() -> None:
 
 
 def test_dead_letter_attempts_force_static_boundary() -> None:
-    from threat_report_agent.task.analysis_task_orchestration import (
+    from threat_report_agent.investigation.loop_path import (
         PERSIST_HOW_BOUNDARY,
         PERSIST_HOW_MINE,
         SLOT_DEAD_LETTER_ATTEMPTS,
@@ -377,7 +403,7 @@ def test_dead_letter_attempts_force_static_boundary() -> None:
 def test_investigation_loop_resolves_persist_how_before_budget_or_planner() -> None:
     import inspect
 
-    from threat_report_agent.task.analysis_task_orchestration import (
+    from threat_report_agent.investigation.loop_path import (
         LOOP_PATH_BUDGET_DEFER,
         LOOP_PATH_PERSIST_BOUNDARY,
         LOOP_PATH_PERSIST_READY,
@@ -411,7 +437,10 @@ def test_persist_how_is_not_ready_while_recoverable_gaps_remain() -> None:
 
     只有 missing 为空（真正没有待恢复槽）才允许 READY。
     """
-    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_MINE, PERSIST_HOW_READY
+    from threat_report_agent.investigation.loop_path import (
+        PERSIST_HOW_MINE,
+        PERSIST_HOW_READY,
+    )
 
     for gap in (
         "consumer",
@@ -432,10 +461,89 @@ def test_persist_how_is_not_ready_while_recoverable_gaps_remain() -> None:
 
 def test_persist_how_ready_still_allowed_when_no_recoverable_gap() -> None:
     """G0 §4.3：无缺口的 TRACE 仍可取消，避免聊天要求「再深入」时刷无关动作。"""
-    from threat_report_agent.task.analysis_task_orchestration import PERSIST_HOW_READY
+    from threat_report_agent.investigation.loop_path import PERSIST_HOW_READY
 
     mint = _PersistMint()
     mint.ready = SimpleNamespace(gate=SimpleNamespace(missing=()))
     playbook = SimpleNamespace(id="process-execution", mechanism_type="PROCESS_EXECUTION")
     decision = mint.resolve(playbook=playbook)
     assert decision.disposition == PERSIST_HOW_READY
+
+
+def test_the_loop_path_cluster_lives_in_its_new_module_and_keeps_its_behaviour() -> None:
+    """P3.3 layer item 1: the cluster is DEFINED in `investigation/loop_path.py` and re-exported, not re-declared.
+
+    MEASURED, and this pins a defect that actually shipped into a draft of the move: the extractor's span started at
+    `node.lineno` - the `class` keyword - so `@dataclass(frozen=True)` was left behind in the source module (where it
+    re-bound onto the next statement, see the sibling test) and `PersistHowDecision` became a plain class whose
+    construction raised `TypeError: PersistHowDecision() takes no arguments`. Nine tests in this file failed and NO
+    structural gate saw it: `compileall` is happy, the import graph is happy, the behaviour probe says UNCHANGED, and the
+    text comparison of the move is byte-identical apart from exactly the line that comparison could not look at.
+
+    The pins here are deliberately PUBLIC behaviour (`is_dataclass`, construction, frozen assignment) rather than
+    private CPython internals such as `__dataclass_params__`: plan 3.3 line 154 keeps private members out of the test
+    interface, and the frozen assertion below fails just as loudly without them.
+    """
+    import dataclasses
+
+    from threat_report_agent.investigation import loop_path
+    from threat_report_agent.task import analysis_task_orchestration as task
+
+    # 1. the implementation lives in the new module, at module level, and the old path RE-EXPORTS the same object
+    assert loop_path.__file__.replace("\\", "/").endswith("investigation/loop_path.py")
+    home = ast.parse(Path(loop_path.__file__).read_text(encoding="utf-8"))
+    defined = {
+        node.name
+        for node in home.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    } | {
+        target.id
+        for node in home.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    missing = sorted(set(LOOP_PATH_CLUSTER) - defined)
+    assert not missing, f"these names are no longer defined in investigation/loop_path.py: {missing}"
+    for name in LOOP_PATH_CLUSTER:
+        assert getattr(task, name) is getattr(loop_path, name), f"{name} is not one object behind both paths"
+
+    # 2. and the decoration travelled WITH the body
+    assert dataclasses.is_dataclass(loop_path.PersistHowDecision)
+    decision = loop_path.PersistHowDecision(loop_path.PERSIST_HOW_MINE, None, None)
+    assert (decision.disposition, decision.result, decision.playbook) == (loop_path.PERSIST_HOW_MINE, None, None)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        decision.disposition = loop_path.PERSIST_HOW_READY
+
+
+def test_the_task_module_has_no_top_level_decorator_left_behind() -> None:
+    """The other half of the same defect, and the GENERAL form of it: a decorator left behind does not vanish, it
+    decorates the NEXT statement.
+
+    MEASURED on the defective draft: `@dataclass(frozen=True)` landed on `class AnalysisTaskRuntime(Protocol)` - a
+    Protocol silently became a frozen dataclass, in a statement the move was not allowed to touch.
+
+    MEASURED after the move: this module has ZERO decorated top-level statements, so ANY decorator appearing at module
+    level is either a deliberate new decision (update this pin and say why) or a move that left one behind. That is the
+    point of asserting the set rather than one landing site: the first version of this test only checked
+    `AnalysisTaskRuntime`, so a decorator dragged anywhere else would have passed it.
+    """
+    import ast
+    import dataclasses
+    from pathlib import Path
+    from typing import Protocol
+
+    from threat_report_agent.task import analysis_task_orchestration as task
+
+    tree = ast.parse(Path(task.__file__).read_text(encoding="utf-8"))
+    decorated = [
+        getattr(node, "name", "?")
+        for node in tree.body
+        if getattr(node, "decorator_list", None)
+    ]
+    assert not decorated, (
+        f"top-level statements in the task module are decorated: {decorated}; this module had none after P3.3 layer "
+        f"item 1 moved the loop-path cluster out, so a decorator here is most likely one that was left behind"
+    )
+    assert issubclass(task.AnalysisTaskRuntime, Protocol)
+    assert not dataclasses.is_dataclass(task.AnalysisTaskRuntime)

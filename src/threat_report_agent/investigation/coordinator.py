@@ -18,7 +18,9 @@ WHAT MOVED IN P3.3c: `_grounded_planner_action_candidates`, `_action_payload`, `
 `_planner_user_action` (an instance method whose body needs NO host: its delegation keeps `self` for call shape and
 deliberately does not forward it) and `_bound_completed_actions` (a classmethod whose delegation forwards `cls`). Four
 other members of that slice stayed for measured layer reasons - see the design record section 13.1 - because they need
-`DynamicPlanAction` or `action_is_model_or_human` at RUNTIME from layers plan 3.2 forbids `investigation/` to import.
+`DynamicPlanAction` (a model-port type, plan 3.2 item 4) at RUNTIME. ONE of the two reasons recorded here has since
+been REMOVED by P3.3 layer item 1: `action_is_model_or_human` now lives in this package
+(`investigation/loop_path.py`), so it is no longer a layer blocker - it was still one when this slice moved.
 
 THE SLICE IS SMALLER THAN THE FRAGMENT SCAN SUGGESTED, AND A PLAN RULE IS WHY. Four members that the scan grouped
 with this one stayed on the host:

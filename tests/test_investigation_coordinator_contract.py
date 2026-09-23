@@ -112,8 +112,12 @@ ORIGINAL_DECORATORS = {
 STAYED_FROM_P3_3D = ("_run_methodology_action",)
 #: Stayed on the host from the action-proposal slice, each for a MEASURED reason (this is P3.3c(2)):
 #: `_model_action_plan` and `_action_is_model_or_human` need a RUNTIME import (`isinstance` / a call) from a layer the
-#: matrix does not allow `investigation/` to import - and in `action_is_model_or_human`'s case that layer
-#: (`task.analysis_task_orchestration`) itself imports `investigation`, so the edge would be a cycle.
+#: matrix does not allow `investigation/` to import.
+#: UPDATED by P3.3 layer item 1: the reason recorded for `_action_is_model_or_human` (the edge would be a CYCLE, because
+#: `task.analysis_task_orchestration` imports `investigation`) NO LONGER HOLDS - `action_is_model_or_human` now lives in
+#: this package (`investigation/loop_path.py`), so that member's blocker is gone. `_model_action_plan`'s blocker
+#: (`DynamicPlanAction` at run time) is unchanged, and the tuple below is a HISTORICAL list of what stayed in P3.3c,
+#: not a claim about the current blockers.
 #: `_has_complete_model_action_plan` and `_merge_planned_actions` name `DynamicPlanAction` in ANNOTATIONS only, so a
 #: TYPE_CHECKING import would do - deliberately NOT taken here, because the clean fix is for the model PORT to expose
 #: that type (plan P1.2's `ports.py` does not today), and a type-only edge to an unlisted layer is a decision that
