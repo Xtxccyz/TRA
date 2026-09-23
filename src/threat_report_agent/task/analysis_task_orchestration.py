@@ -52,6 +52,9 @@ from threat_report_agent.investigation.investigation_ledger import (
     open_item_ids,
 )
 from threat_report_agent.models import utcnow
+from threat_report_agent.investigation.seed_support import (
+    HOW_SEED_CATEGORIES as HOW_SEED_CATEGORIES,
+)
 
 PERSIST_SKIP_TRACE_ERROR = "PERSIST_HOW_SKIP"
 PERSIST_KEEP_ACTION_TYPES = frozenset(
@@ -62,19 +65,6 @@ PERSIST_KEEP_ACTION_TYPES = frozenset(
         ActionType.READ_BYTES.value,
         ActionType.DECODE_CANDIDATE.value,
         ActionType.EVALUATE_CONSTANT.value,
-    }
-)
-
-HOW_SEED_CATEGORIES = frozenset(
-    {
-        "dynamic_api",
-        "loader",
-        "decode",
-        "network",
-        "execution",
-        "process",
-        "ppid",
-        "thread",
     }
 )
 

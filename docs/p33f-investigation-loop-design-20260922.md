@@ -17,7 +17,7 @@
 | references to `AnalysisService.` / `service.` inside its body | **0** | same probe, section 2 |
 | nested closures | **7, of which 1** (`execute`) reaches a receiver (6 host members) | same probe, section 5 |
 | free names it closes over | **63** | same probe, section 4 |
-| module-level names it closes over that `service.py` DEFINES | **13** | `.scratch/p33f-travellers.py` |
+| module-level names it closes over that `service.py` DEFINES | **13 -> 1** | `.scratch/p33f-travellers.py`; P3.3f-1 moved twelve of them, leaving `_investigation_scheduled_keys` to travel with the loop |
 | distinct receiver references | **45** | `.scratch/p33f-member-homes.py` |
 | production call sites | 4 in `service.py` (3413, 3574, 17731, 23255) | `git grep` |
 | test surface | 2 `getsource` sites, 1 monkeypatch site, 9 test files that call it | `.scratch/p33e-giant-prep.py`, section 6 |
@@ -33,8 +33,16 @@
 | --- | --- | --- |
 | allowed layers | **45** | `models` (18), `investigation`/siblings (22: `loop_path`, `investigation_ledger`, `mechanism_ready`, `mechanism_completeness`, `investigation_protocol`), `static.evidence_recovery`, `static.static_analysis` |
 | stdlib / third-party | **4** | `hashlib`, `typing.Mapping`, `dataclasses.replace`, `sqlalchemy.select` |
-| defined in `service.py` (not imported) | **13** | section 4 below |
-| **FORBIDDEN (unlisted layer)** | **1** | `no_new_evidence_autopsy` from `threat_report_agent.deep_analysis_quality` |
+| defined in `service.py` (not imported) | **13 -> 1** | section 4 below; P3.3f-1 moved twelve |
+| **FORBIDDEN (unlisted layer)** | **1 -> 0** | `no_new_evidence_autopsy` from `threat_report_agent.deep_analysis_quality`. P3.3f-1 sank its DEFINITION into `investigation/evidence_autopsy.py`; `service.py` still imports it through the old path, but as a re-export, so the loop's new home can import it from an allowed layer. THE VERDICT IS ABOUT THE DEFINITION, which is why the scan had to be taught to resolve names to their defining module rather than to `service.py`'s import path - its first form still printed FORBIDDEN immediately after the sink |
+
+**A SECOND FORBIDDEN NAME APPEARED IN CLUSTER B'S CLOSURE AND THE DESIGN DID NOT PREDICT IT.**
+`_HOW_SEED_CATEGORIES = HOW_SEED_CATEGORIES` needs `HOW_SEED_CATEGORIES`, which `task/analysis_task_orchestration.py`
+defines; section 3.2 does not admit `task/` into `investigation/`, so the VALUE was sunk into `investigation/seed_support.py`
+with a re-export left behind in the task module. This is the same class of blocker as the five loop-path names layer item 1
+moved, and it was invisible to the extractor's import guard because that guard checked functions but not constants
+(P3.3f-1 extended it). It also adds an edge this design did not list:
+`task.analysis_task_orchestration -> investigation.seed_support`.
 
 **THE ONE FORBIDDEN NAME IS THE WHOLE BLOCKING CONDITION, and it is cheap to remove.** MEASURED with
 `.scratch/p33e-giant-prep.py`'s closure logic: `no_new_evidence_autopsy` is 73 lines whose entire closure is
@@ -80,8 +88,14 @@ re-measure and record the number it gets, because a port this size is exactly wh
 
 ## 4. The 13 module-level travellers and who else reads them (`.scratch/p33f-travellers.py`)
 
-Exactly ONE travels with no other reader: `_investigation_scheduled_keys`. The other twelve need a SINK or a re-export,
-and TEN of them are read by test files:
+**EXECUTED in P3.3f-1, with one correction to this design's own list.** Exactly ONE travelled with no other reader -
+`_investigation_scheduled_keys` - and it is the only one still in `service.py`. The other twelve were sunk. The design's
+list understated the FOOTPRINT of that sink: the twelve bring EIGHT module constants in their closure
+(`_SEED_CATEGORY_PLAYBOOKS`, `_ARTIFACT_WIDE_SCHEDULER_DIMENSIONS`, `_HOW_SLOT_RANK`, `_PLACEHOLDER_EMU_BUDGET_STATUSES`,
+`_PER_SLOT_TRACE_CAP`, `_PROVENANCE_STRIP_KEYS`, `_HOW_SEED_CATEGORIES` and `_strip_provenance`), so P3.3f-1 moved **19
+definitions out of `service.py` plus `HOW_SEED_CATEGORIES` out of `task/`**, and a Standards-axis review measured that
+six private names and one public constant had lost their `service.` reachability until every moved name was re-exported.
+TEN of the thirteen are read by test files:
 
 | name | readers in `service.py` outside the loop | test files |
 | --- | --- | --- |
@@ -116,18 +130,26 @@ reachable from `service.py` until P4 migrates every reader. Sinking also removes
 be found by RUNNING the suite, not by grepping for `getsource`. P3.3e predicted none and found three; this slice has
 already found three before moving.
 
-## 6. The split this design prescribes
+## 6. The split this design prescribes - P3.3f-1 is DONE, P3.3f-2 remains
 
-**P3.3f-1 (preparation, one step):**
-1. sink the autopsy cluster (87 lines + 2 constants) into `investigation/` with a re-export from
-   `deep_analysis_quality.py`, removing the ONLY forbidden name;
-2. sink the seed/evidence-key cluster (the 12 names above) into `investigation/`, keeping them reachable from
-   `service.py`;
-3. leave `_investigation_scheduled_keys` to travel with the loop.
+**P3.3f-1 (preparation) - EXECUTED in round 120, with two corrections this design did not foresee:**
+1. sank the autopsy cluster into `investigation/evidence_autopsy.py` with re-exports from `deep_analysis_quality.py`,
+   removing the ONLY forbidden IMPORT. The re-export is for ALL FIVE names, not only the two that module still reads: a
+   review measured that six private names and one PUBLIC constant (`NO_NEW_EVIDENCE_CATEGORIES`, listed in `__all__`) had
+   become unreachable, and §7.1 step 4 keeps the old path reachable until P4;
+2. sank the seed/evidence-key cluster into `investigation/seed_support.py` - TWELVE functions plus the EIGHT constants
+   their closures need (the design listed twelve names and no constants), keeping every name reachable from `service.py`
+   as `X as X`;
+3. left `_investigation_scheduled_keys` to travel with the loop - the one name of the thirteen with no other reader;
+4. AND moved `HOW_SEED_CATEGORIES` out of `task/analysis_task_orchestration.py` into the same module, because the twelfth
+   name's closure needed a value defined in a layer §3.2 forbids. This is the one deviation from the prescription, it is
+   forced by the design's own §3.2 reading, and it adds the edge `task -> investigation.seed_support`.
 
-**P3.3f-2 (the move, one step):** move the loop plus its port (measured at move time), its 7 nested closures (1 of which
-carries receiver references), `_investigation_scheduled_keys`, and migrate the two `getsource` sites and re-check the
-monkeypatch site.
+**P3.3f-2 (the move, one step):** move the loop plus its port, its 7 nested closures (1 of which carries receiver
+references), `_investigation_scheduled_keys`, and migrate the two `getsource` sites and re-check the monkeypatch site.
+**THE PORT MUST BE RE-MEASURED FIRST**: P3.3f-1 changed both of its inputs - the twelve seed names and the autopsy name now
+live in allowed layers and cost no port entry at all, while whatever else the loop reads through the receiver still does.
+The 21 components in section 3 are the PRE-SINK measurement and are not a promise.
 
 **Where the loop lands is a decision for the move, with a preference:** `investigation/derivation.py` already holds the
 giant and the cluster; landing the loop there makes `self._derive_investigation_observations(...)` and the whole
