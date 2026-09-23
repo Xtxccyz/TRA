@@ -1,9 +1,9 @@
 """P3.2 contract: the task path's port, and the first cluster that moved behind it.
 
 Plan 7.1 step 2 is "stand up the minimal interface and its contract test before moving any implementation"
-(P3.2-design); step 3 is "move the one implementation" (P3.2c - the `creation` cluster, now in
-`task/task_runner.py`, with its two service.py methods reduced to one-statement delegations). This file pins both, and
-it is written this way on purpose:
+(P3.2-design); step 3 is "move the one implementation" - the `creation` cluster in P3.2c and the `lifecycle` cluster
+(`archive_case`) in P3.2d, now in `task/task_runner.py`, with their service.py methods reduced to one-statement
+delegations. This file pins both, and it is written this way on purpose:
 
   * `TASK_HOST_MEMBERS` is not trusted as a literal. `_direct_spine()` re-derives it from `service.py` on every run,
     using a FROZEN candidate list (no name heuristic), and the test fails if the derivation and the port disagree.
@@ -232,6 +232,7 @@ def test_the_runner_module_is_the_port_plus_the_creation_cluster_and_nothing_els
     assert sorted(defined) == [
         "SubmissionResult",
         "TaskHost",
+        "archive_case",
         "create_submission_task",
         "missing_task_host_members",
         "prepare_blind_run",
@@ -296,7 +297,7 @@ def test_the_service_methods_are_one_statement_delegations() -> None:
     methods = {
         node.name: node for node in service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    for name in ("create_submission_task", "prepare_blind_run"):
+    for name in ("create_submission_task", "prepare_blind_run", "archive_case"):
         node = methods[name]
         assert len(node.body) == 1, f"{name} has {len(node.body)} statements; it is supposed to delegate only"
         statement = ast.unparse(node.body[0])

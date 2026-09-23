@@ -307,3 +307,42 @@ def prepare_blind_run(
             object_id=task.id,
             payload={"scorecard_version": scorecard_version, "reference_isolated": True},
         )
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.2): identical to its old home except that the receiver it used to reach through
+# `self` is now the explicit `host: TaskHost` parameter.
+# ---------------------------------------------------------------------------
+
+
+def archive_case(host: TaskHost, case_id: str, *, actor: str = "case-reviewer") -> dict[str, object]:
+    """Archive a Case only after every Analysis Task has reached a terminal state."""
+    with host.database.session_factory.begin() as session:
+        case = session.get(CaseRecord, case_id)
+        if case is None:
+            raise LookupError(case_id)
+        if case.status == "ARCHIVED":
+            return {
+                "id": case.id,
+                "title": case.title,
+                "status": case.status,
+            }
+        active = session.scalar(
+            select(AnalysisTask.id).where(
+                AnalysisTask.case_id == case_id,
+                AnalysisTask.lifecycle.not_in(["SUCCEEDED", "FAILED", "CANCELLED"]),
+            )
+        )
+        if active:
+            raise ValueError("Case cannot be archived while an Analysis Task is active")
+        case.status = "ARCHIVED"
+        host._audit(
+            session,
+            case_id=case.id,
+            event_type="case.archived",
+            actor=actor,
+            object_type="Case",
+            object_id=case.id,
+            payload={"status": case.status},
+        )
+        return {"id": case.id, "title": case.title, "status": case.status}

@@ -2044,36 +2044,7 @@ class AnalysisService:
             return case
 
     def archive_case(self, case_id: str, *, actor: str = "case-reviewer") -> dict[str, object]:
-        """Archive a Case only after every Analysis Task has reached a terminal state."""
-        with self.database.session_factory.begin() as session:
-            case = session.get(CaseRecord, case_id)
-            if case is None:
-                raise LookupError(case_id)
-            if case.status == "ARCHIVED":
-                return {
-                    "id": case.id,
-                    "title": case.title,
-                    "status": case.status,
-                }
-            active = session.scalar(
-                select(AnalysisTask.id).where(
-                    AnalysisTask.case_id == case_id,
-                    AnalysisTask.lifecycle.not_in(["SUCCEEDED", "FAILED", "CANCELLED"]),
-                )
-            )
-            if active:
-                raise ValueError("Case cannot be archived while an Analysis Task is active")
-            case.status = "ARCHIVED"
-            self._audit(
-                session,
-                case_id=case.id,
-                event_type="case.archived",
-                actor=actor,
-                object_type="Case",
-                object_id=case.id,
-                payload={"status": case.status},
-            )
-            return {"id": case.id, "title": case.title, "status": case.status}
+        return _task_runner.archive_case(self, case_id, actor=actor)
 
     def analyze_submission(
         self,

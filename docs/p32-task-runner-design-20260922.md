@@ -57,7 +57,7 @@
 | 顺序 | 簇 | 成员 | 行数 | 需要的端口成员 | 备注 |
 |---|---|---|---|---|---|
 | **P3.2c** ✅ | `creation` | `create_submission_task`, `prepare_blind_run` + `SubmissionResult`（两者返回类型） | 152 + 8 | `_audit`, `content_store`, `database` | **已完成**：实测端口无需扩大（见第 6 节） |
-| P3.2d | `lifecycle` | `archive_case` | 31 | `_audit`, `database` | |
+| P3.2d | `lifecycle` | `archive_case` | 31 | `_audit`, `database` | **已完成**：实测无端口外依赖、无 service 内定义类型，纯机械搬迁（见第 7 节） |
 | P3.2e | `budget` | `_deferred_budget_thread_ids`, `_actual_depth` | 68 | `task_view` | 唯一**不需要**审计写入的簇 |
 | P3.2f | `cancellation` | `cancel_task`, `cancel_tool_run` | 206 | 全部 6 个 | 唯一需要 `_seal_task_audit_chain` |
 | P3.2g | workbench binding | `bind_historical_analysis`, `workbench_bind_existing_analysis` | 94 | 6 个 + `_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id` | 唯一需要**扩大端口**的簇；P3.2c 实测后从 creation 拆出 |
@@ -120,4 +120,25 @@ exit 1 报 `DIFFERS`，随后逐字节还原（`p32c-canfail.py`）。
 > 顺带记一条工具教训：第一次 can-fail 用 PowerShell 的 `Set-Content` **未带 `-Encoding utf8`** 改写文件，
 > 结果写成了本机 ANSI 代码页，验证器直接以 `UnicodeDecodeError` 崩掉。这是「响亮地失败」而不是「悄悄通过」，
 > 但它证明不了比对本身，所以 can-fail 改用 Python 明确按 UTF-8 往返重做。
+
+## 7. P3.2d 实测结果（`lifecycle` 簇已搬迁）
+
+P3.2c 之后把「测量 → 抽取 → 证同 → can-fail → 门禁」这套流程**脚本化复用**（这是 P3.2c 之后的效率改进，
+不是新方法）：`.scratch/p32-measure-cluster.py`（搬迁前测量，第 1-4 节全部问题）、
+`.scratch/p32-extract-cluster.py`（抽取 + 委托生成）、`.scratch/p32-verify-cluster.py`（逐语句比对）、
+`.scratch/p32-canfail-cluster.py`（先证明验证器会失败）。三者都接受簇名作为参数，P3.2e/f 直接复用。
+
+`archive_case` 实测（31 行，无装饰器）：宿主引用只有 `_audit` 与 `database`（均在端口内）；
+自由名 `select` / `AnalysisTask` / `CaseRecord` **已在新模块里导入**；**没有** service 内定义的类型要一起搬。
+因此这是纯机械搬迁：service.py 29,268 → 29,239 行，方法只剩一条委托
+（`return _task_runner.archive_case(self, case_id, actor=actor)`），搬迁体比对 IDENTICAL（`c52a9eb037bfe535`）。
+
+抽取器新增的一条**由实测逼出来的处理**：`archive_case` 的签名在**同一行**内写完
+（`def archive_case(self, case_id: str, *, actor: str = ...) -> dict[str, object]:`），
+而 P3.2c 的两个方法签名都是多行的，所以「`self` 独占一行」的分支匹配不到——抽取器现在先处理
+`def <name>(self` 的单行形态，再走逐行分支。生成器为此停止而不是产出错误结果，这是设计使然。
+
+抽取器还加了一条**防止搬家顺手改导入**的硬约束：搬迁代码需要的每个自由名，必须**已经**在
+`task/task_runner.py` 里导入；否则脚本**直接停止**并列出缺的导入。理由写在脚本 docstring 里：
+对活模块做导入手术，正是把「搬家」变成「重写」的那类副作用。
 

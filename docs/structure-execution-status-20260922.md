@@ -1,14 +1,14 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 48 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 49 条，本文件只汇总。
 
-- 本文档描述的树经核验于 HEAD `fa685f3e803d0eaaf6931f6d95be49bcb9eb7350`（本轮改动在该提交之上，与本文件一并提交）
+- 本文档描述的树经核验于 HEAD `de85d2e0b0d68e122e752e5d2eadd032462d565a`（本轮改动在该提交之上，与本文件一并提交）
 - **structure_status：`IN_PROGRESS`**
 - **capability_status：`UNVERIFIED`**
 
 ## 一、为什么不是 READY / ACCEPTED
 
-Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phase 0, Phase 1 and Phase 2 are COMPLETE (nine packages, 34 moved paths, report/ finished, all seven investigation siblings moved, all three task modules moved, duplicate list empty, cycle allowlist empty). PHASE 3 IS IN PROGRESS: P3.1 (facade contract stated and pinned), P3.2-design (the `TaskHost` port declared with its contract test), P3.2a/P3.2b (the failure/limitation projection seam extracted) and P3.2c (the `creation` cluster moved behind the port - `create_submission_task`, `prepare_blind_run` and the `SubmissionResult` dataclass, leaving one-statement delegations in service.py) are COMPLETE. NOT STARTED: P3.2d-P3.2g (task lifecycle, budget, cancellation and workbench binding - 399 further lines behind the same 6-member port, of which workbench binding is the ONE cluster that widens it), P3.3 (InvestigationCoordinator), P3.4 (ReportRevisionWriter), P3.5 (EmulationCoordinator), P3.6 (WorkbenchQueryReader), P3.7 (test surface off private/`getsource`), and Phases 4 and 5. The deployed images DO equal the tree - 121 files x 8 services, missing=0 differing=0 container-only=0, with 49 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient. See `docs/p32-task-runner-design-20260922.md` for the measured P3.2 scale, the port and the per-cluster order.
+Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phase 0, Phase 1 and Phase 2 are COMPLETE (nine packages, 34 moved paths, report/ finished, all seven investigation siblings moved, all three task modules moved, duplicate list empty, cycle allowlist empty). PHASE 3 IS IN PROGRESS: P3.1 (facade contract stated and pinned), P3.2-design (the `TaskHost` port declared with its contract test), P3.2a/P3.2b (the failure/limitation projection seam extracted) P3.2c (the `creation` cluster moved behind the port - `create_submission_task`, `prepare_blind_run` and the `SubmissionResult` dataclass) and P3.2d (the `lifecycle` cluster - `archive_case`) are COMPLETE, leaving one-statement delegations in service.py. NOT STARTED: P3.2e-P3.2g (budget, cancellation and workbench binding - 368 further lines behind the same 6-member port, of which workbench binding is the ONE cluster that widens it), P3.3 (InvestigationCoordinator), P3.4 (ReportRevisionWriter), P3.5 (EmulationCoordinator), P3.6 (WorkbenchQueryReader), P3.7 (test surface off private/`getsource`), and Phases 4 and 5. The deployed images DO equal the tree - 121 files x 8 services, missing=0 differing=0 container-only=0, with 49 enumerated smoke imports per container - which satisfies P5.1's mechanical condition, but the plan's own wording makes that necessary and not sufficient. See `docs/p32-task-runner-design-20260922.md` for the measured P3.2 scale, the port and the per-cluster order.
 
 `capability_status` is a different axis: the Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) were not touched by this plan's execution. `structure_status=READY` must never imply `capability_status=ACCEPTED`.
 
@@ -19,7 +19,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 | phase_0 | COMPLETE (P0.1-P0.6, plus repairs P0.3-r2/r3 and P0.5-r2/r3) |
 | phase_1 | COMPLETE (P1.1-P1.4, plus repairs P1.1-r2 and P1.3-r3) |
 | phase_2 | COMPLETE - 9 packages, 34 moved paths, report/ complete, 7 investigation siblings moved, 3 task modules moved, duplicate list empty, cycle allowlist empty |
-| phase_3 | IN PROGRESS - P3.1, P3.2-design, P3.2a, P3.2b and P3.2c COMPLETE. The blocker this entry used to record ('P3.2 needs a designed collaborator before the self-taking methods can move - the go-back-to-P1 interface-design path') is RESOLVED: the port exists, is re-derived from source by its contract test on every run, and now has its first production adapter. Remaining: P3.2d (lifecycle), P3.2e (budget), P3.2f (cancellation), P3.2g (workbench binding, the one cluster that widens the port), then P3.3-P3.7. |
+| phase_3 | IN PROGRESS - P3.1, P3.2-design, P3.2a, P3.2b, P3.2c and P3.2d COMPLETE. The blocker this entry used to record ('P3.2 needs a designed collaborator before the self-taking methods can move') is RESOLVED: the port exists, is re-derived from source by its contract test on every run, and has two clusters behind it. Remaining: P3.2e (budget), P3.2f (cancellation), P3.2g (workbench binding, the one cluster that widens the port), then P3.3-P3.7. |
 | phase_4 | NOT STARTED (remove shims, one checkpoint each, then converge the root package's exports) |
 | phase_5 | NOT STARTED (re-verification; the DSH suite has never been run in this session) |
 
@@ -76,6 +76,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 - P3.7-audit
 - P3.2-design
 - P3.2c
+- P3.2d
 
 ## 五、审计历史
 
@@ -87,7 +88,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 ## 六、后继者必须先做的事
 
 1. Read `docs/code-structure-optimization-execution-plan-reviewed-20260922.md`, `docs/p32-task-runner-design-20260922.md` and `tests/test_task_runner_contract.py` before touching P3.2 again: the port, the measured cluster order and the verification recipe are recorded there.
-2. Continue with P3.2d (`archive_case`, 31 lines, host needs `_audit` + `database`): MEASURE the cluster first (the `.scratch/p32c-creation-analysis.py` pattern with the cluster names substituted) - in P3.2c that measurement alone changed the step's scope, by finding that the return type `SubmissionResult` was defined inside service.py and that the workbench-binding pair had to be split off.
+2. Continue with P3.2e (`_deferred_budget_thread_ids` + `_actual_depth`, ~68 lines, host need `task_view` only): run `py .scratch/p32-measure-cluster.py <names>` FIRST - in P3.2c that measurement alone changed the step's scope - then `p32-extract-cluster.py`, `p32-verify-cluster.py`, `p32-canfail-cluster.py`, the battery, a rebuild and the deployment gate. P3.2f (cancellation) is the only cluster needing `_seal_task_audit_chain`; P3.2g (workbench binding) is the one that widens the port by three further helpers.
 3. Use the same recipe per cluster: extract with the generator, prove file identity with `.scratch/p32c-verify-bodies.py` (statements unparsed, receiver normalised away), PROVE THE VERIFIER CAN FAIL before trusting it, run the focused battery plus `tests/test_service_facade_contract.py` and `tests/test_task_runner_contract.py`, then rebuild and pass the deployment gate, then compare the full suite's failure NODE SET (never the count alone).
 4. WRITING THE STATUS RECORD HAS A TRAP that was measured in round 97: `render-structure-status.py` selects the newest `final_state_*` object that carries `why_not_READY`, so a new round object without that key is skipped and the tracked document silently keeps the PREVIOUS round's prose (it described 120 files / 48 smoke modules while the tree had 121/49). Give the new object the full field set, then run `py .scratch/render-structure-status.py` and `--check`.
 5. `structure_status=READY` must never imply `capability_status=ACCEPTED`: the Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) are untouched by this plan.
