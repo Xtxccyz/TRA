@@ -21,8 +21,19 @@
 | nested closures inside the giant | **16** |
 | host references already on the port | `settings` (1) |
 | implementation references (`simulation_adapters`) | **2** |
-| test files that reference it | **12** (9 CALL it, 2 only mention it, **0 use `getsource`/`getattr`**) |
+| test files that reference it | **12** (9 CALL it, 2 only mention it, **0 call `getsource` ON IT** - see the correction directly below) |
 | production call sites | 1 (`service.py:9752`) |
+
+**A CLAIM THIS TABLE GOT WRONG, CORRECTED BY THE SPEC-AXIS REVIEW OF THE MOVE ITSELF (round 116).** "0 use
+`getsource`/`getattr`" is literally true and materially misleading. `tests/test_mechanism_chains.py:199` does
+`source = inspect.getsource(AnalysisService)` and then asserts
+`"plausible_traced_creation_flags(parsed_flags)" in source`. Nothing calls `getsource` on the GIANT, but the assertion
+depends on the giant's BODY: the call site it looks for is inside `_derive_investigation_observations`. It passes today
+only because the giant is still in `AnalysisService`; when the giant moves, the text leaves the class and the assertion
+breaks. The site is already listed as NEGATIVE in `docs/p37-getsource-conversion-plan-20260922.md:49`, so the giant's
+move must migrate it - the same class of work P3.3f needs for
+`tests/test_analysis_task_orchestration.py:404`. The lesson is the phase's recurring one: a scope-limited scan
+("getsource on the giant") answered a question nobody asked ("does any test depend on the giant's text").
 
 ## 2. Per-helper verdict: TRAVEL, SINK or HOST - and a wrong answer this step caught before publishing
 
@@ -145,8 +156,12 @@ pure policy seam by layer item 2 - which is the visible payoff of that step.
 
 - **A ~2,900-line single step is the largest of the phase**, and its port growth is the largest too (up to nine new
   members). The mitigations are that every verdict above is measured, that the 16 nested closures need no handling
-  (they travel inside the method), and that **no test uses `getsource` on it** - the failure mode that made P3.3d
-  delicate does not apply.
+  (they travel inside the method), and that **no test calls `getsource` ON the giant**. THAT LAST MITIGATION IS
+  WEAKER THAN IT READS, corrected in round 116: `tests/test_mechanism_chains.py:199` calls
+  `getsource(AnalysisService)` and asserts the class's text contains `plausible_traced_creation_flags(parsed_flags)`,
+  a call site inside the giant. The assertion survives only while the giant is in the class, so the giant's move must
+  migrate it (already recorded as NEGATIVE in `docs/p37-getsource-conversion-plan-20260922.md:49`). The `getsource`
+  failure mode that made P3.3d delicate therefore DOES apply, one indirection away.
 - **THE SCAN THAT MEASURES THE SPLIT IS ITSELF THE RISK**, and this step demonstrates it twice: the first `readers()`
   could not see `self.`-qualified calls (withdrawn claim, §2), and the helper-purity classifier's first version treated
   stdlib imports (`typing`, `re`) as "leaving the allowed layers", which would have turned two sinkable helpers into
@@ -158,3 +173,63 @@ pure policy seam by layer item 2 - which is the visible payoff of that step.
 - **Three test files call moved helpers** (`test_controlled_emulation`, `test_t3_callback_fixture`,
   `test_mechanism_chains`); they must keep working through delegations, and if a delegation's shape is wrong they fail
   loudly, which is the designed failure mode.
+
+## 8. Execution state: the first half has landed (measured 2026-09-23, round 116)
+
+The move was executed in two halves, because a ~2,900-line body plus a 12-member port in one step cannot be verified
+with the phase's gates. **This section is the state, not a plan.**
+
+**LANDED** (`investigation/derivation.py`, NEW, 260 lines; `service.py` 27,889 -> 27,714 lines):
+
+| moved | shape now |
+| --- | --- |
+| `_bind_recovered_xor_verification` (40), `_decode_output_buffer` (18), `plausible_traced_creation_flags` (16) | module functions in `derivation.py`; `service.py` imports all three back by name, so `service.<name>` and every existing caller are unchanged |
+| `_DATA_LOAD_INSTRUCTION`, `_DATA_STORE_INSTRUCTION` (4 each) | module constants in `derivation.py`, REMOVED from the class (each had exactly one reader, `_instruction_access_kind`); the old path is asserted absent |
+| `_row_own_function_matches` (13), `_instruction_access_kind` (9), `_reference_access_kind` (11), `_global_accesses_from_rows` (70) | module functions; `service.py` keeps `@classmethod` one-statement delegations, so `_ghidra_data_reference_rows` and the tests that call them are unchanged |
+
+The pure helpers these four call (`_locator_key`, `_code_locator_integers`, `_function_entry_integers`,
+`_row_own_function_payload`) already live in `derivation_support.py`, so the moved bodies reach them through that
+module's alias - the import canonicalisation of section 5 was performed at the same time (`service.py` keeps the legacy
+`threat_report_agent.dataflow` path for its own un-moved code, and this is the ONLY import rewrite the move made).
+
+**NOT LANDED, with the reason each waits:** the giant itself, `_DECODE_PRODUCER_KINDS` (its only reader is the giant -
+one bare read - so it travels WITH the giant, not before it), the four HOST members, and the two execution members
+(`_run_simulation_window`, `_qiling_unavailable_observation`) with the host pin. Bringing the constant here now would
+leave this module holding a constant nothing here reads while `service.py` still reads it.
+
+**SIX INSTRUMENT DEFECTS THIS HALF COST**, all of the phase's recurring family (narrow scope or hard-coded
+configuration producing a confident wrong answer):
+
+1. **The class-constant de-indent doubled every newline** (`"\n".join(...splitlines(keepends=True))`), turning 8 lines
+   into 16. `ast.unparse` comparison, string-VALUE comparison, the byte-diff tool, the behaviour probe and the full
+   suite were ALL green; the Spec-axis review read the file. Fixed, and the byte-diff tool now compares raw lines for
+   constants as well as values.
+2. **The alias-stripping blind spot, proven by the Standards axis**: both identity tools deleted every `--external`
+   alias from BOTH sides, so a call rewritten to the WRONG MODULE (`_derivation_support.x` -> `_derivation.x`, a latent
+   `AttributeError`) still compared IDENTICAL with exit 0. Normalisation is now mapping-aware (a receiver becomes the
+   alias that really defines the name; alias references are left verbatim) and both tools audit every
+   `<alias>.<name>` against the module's symbol table. `.scratch/p33e-alias-canfail.py` tampers exactly that base and
+   requires both tools to reject it.
+3. **A second `--apply` appended a SECOND banner** (the target already carried one): valid Python, invisible to every
+   gate. The banner now has the same dedup guard the import block got after P3.3a.
+4. **Option values were treated as member names** in the extractor, both verifiers and the can-fail proof (`--target`
+   in one place, `--external` in the others), producing `KeyError` / `not found` / `substring not found` failures that
+   read like broken moves. Members are now classified by AST (method / module function / constant) instead of assumed.
+5. **`p33-verify.py` could not verify a module-level member at all** (`statements_of(..., "AnalysisService")`); it now
+   classifies by what the revision actually holds, and the hard-coded tuples are only the default slice.
+6. **`.scratch/p33e-arithmetic.py` still prints the WITHDRAWN partition** (the one that could not see `self.`-qualified
+   calls). It is marked superseded in its own header; section 2b's fixed point is the authority.
+
+**And one document claim this half disproved**, corrected in sections 1 and 7 above: "no test uses `getsource`" is not
+the same question as "no test depends on the giant's text".
+
+## 9. What the successor step must do first
+
+1. **Treat the giant as one step with its own port growth**, per section 6, now with the corrected `getsource`
+   constraint: migrate `tests/test_mechanism_chains.py:199` (or park the assertion) in the SAME step, because the
+   assertion reads the class the giant is leaving.
+2. **Bring `_DECODE_PRODUCER_KINDS` with the giant** (one bare read) and declare the host pin at that point - this
+   module has no port today, which the extractor enforces by refusing to write any body that still refers to a
+   receiver.
+3. Re-run the identity battery with `--external _derivation_support=...` (without it the tools correctly report
+   DIFFERS, which is a configuration error, not a finding) and keep the wrong-base can-fail proof in the gate list.
