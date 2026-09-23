@@ -82,7 +82,7 @@ P3.3 **不能**照做：20 个直接端口面里包含上面那些**属于 P3.4/
 
 | 顺序 | 切片 | 成员 | 行数（实测） | 实测端口需求（相对 P3.3 其余部分） |
 |---|---|---|---|---|
-| **P3.3a** | 账本（ledger） | `_persist_evidence_delivery_ledger`, `_finalize_tail_ledger`, `_park_open_ledger`, `_work_ledger`, `_ledger_ids` | **156** | `_audit`（+ 全局的 `database`） |
+| **P3.3a** ✅ | 账本（ledger） | `_persist_evidence_delivery_ledger`, `_finalize_tail_ledger`, `_park_open_ledger`, `_work_ledger`, `_ledger_ids` | **156** | `database` + `_audit`（**已完成**，见第 12 节） |
 | **P3.3b** ✅ | 前端辅助 | `_build_investigation_frontier`, `_convergence_frontier_fingerprint`, `_frontier_value_present`, `_unattempted_seed_thread_ids`, `_mechanism_missing_fields`（+ 两个模块级谓词与其 frozenset） | **312 + 15** | `database`（**1 个**，实测；见第 11 节） |
 | ~~P3.3b 原范围~~ → **P3.3b(2)** | 唯一线程族（**受阻**） | `_is_unique_thread_seed_row`, `_unique_thread_start_keys`, `_unique_execution_threads_for_view`, `_select_unique_thread_seed_rows` | **97** | 需要 `report.reporting` → **违反方案 §3.2 允许依赖矩阵**，须先把 `_address_lookup_keys` / `build_unique_execution_threads` 下移到 facts/ 或 static/ 才能搬（第 11 节） |
 | P3.3c | Action Proposal 验证与选择 | `_grounded_planner_action_candidates`, `_action_payload`, `_model_action_plan`, `_has_complete_model_action_plan`, `_merge_planned_actions`, `_deterministic_action_plan`, `_action_is_model_or_human`, `_planner_user_action`, `_bound_completed_actions` | **327** | **无**（只需 `database`；**须先按 P3.3b(2) 的教训复核其自由名是否触及 `report/`**） |
@@ -172,4 +172,45 @@ contracts、facts、static/emulation/tools 的接口与 model port，并明确�
    验证器在比较之前就崩了，退出码 1 被脚本误读为「检测成功」。
 3. 现在的证明**要求三件事同时成立**：未篡改时验证器 exit 0（基线）、篡改后 exit 1、且输出里**点名被篡改的函数并给出
    `DIFFERS`**。缺一即报 `VACUOUS`。这两次都说明：**「证明会失败」本身也需要被证明**。
+
+## 12. P3.3a 执行结果（`ledger` 簇；端口**有意**从 1 个扩到 2 个）
+
+**实测（搬迁前）**：5 个成员 / 156 行（`_ledger_ids` 是 `staticmethod`，其余为实例方法）；宿主引用只有
+`database`（3 个使用者）与 `_audit`（1 个）；闭包里的 `_audit_event_hash` 是**经由 `_audit` 到达**的（`_audit`
+留在宿主，所以它不是端口成员）；**没有** `report/` 依赖 → 不触犯 §3.2 矩阵；**没有** service 内定义的类型要随迁。
+
+因此本步按设计第 4 节的预测，**只把 `_audit` 加进端口**（1 → 2 个成员），并把理由写在
+`INVESTIGATION_HOST_MEMBERS` 旁。`service.py` 28,568 → 28,442 行；`coordinator.py` 466 → 669 行；
+5 个搬迁体逐一比对 **IDENTICAL**；can-fail 已证明（见 12.2）。
+
+**与 P3.3b 的关键差别**：这次是**纯机械**步骤——不需要缩范围、不需要迁移测试、不需要重新记录 surface。
+原因是 P3.3b 的教训被**前移**成了一条检查：搬迁前先按 §3.2 矩阵核对切片的自由名（本轮用
+`.scratch/p32-measure-cluster.py` 的自由名段），而不是等门禁或审查来发现。
+
+### 12.1 工具通用化（本步的真正副产物）
+
+P3.2/P3.3b 的抽取器、验证器与 can-fail 都是**按切片硬编码**的，于是 P3.3b 修好的「装饰器区间」缺陷**没有**自动
+传递到第二个切片——本步把三者都改成**从 argv 取切片成员**，并显式处理「模块级函数/常量在后续切片里已不存在」
+（`already moved (not in service.py)`），而不是断言失败。**每修一次工具就要问：这个修法在下一个切片还成立吗。**
+
+### 12.2 can-fail 的**第三**次教训：篡改点必须落在**被比对的范围**内
+
+1. can-fail 起初没把切片成员传给验证器，于是**基线**跑的是默认（P3.3b）名单、对 HEAD 全是委托 → 基线失败 →
+   加固后的证明**拒绝**给出结论（这是它该做的）。
+2. 传对成员后，自动挑选的篡改符号是 `AnalysisTask`——它只出现在**类型注解**里，而验证器**有意**不比对签名，
+   于是「篡改后仍然 IDENTICAL」是**正确**结果，证明据此报 `FAILED`，也是对的。
+3. 现在篡改符号从**被调用的名字**（`ast.Call` 的 `func`）中选，保证落在被比对的方法体内。三次都说明：
+   **can-fail 的价值全在于它拒绝在证据不足时说「已证明」**。
+
+### 12.3 状态文件的两处缺陷（用户在本轮指出，已修）
+
+1. **`head_sha` 落后于真实 HEAD**：旧约定把它写成**提交前**的 HEAD，于是受跟踪文档声称「在一个不含本步改动的提交上
+   完成核验」（写的是 `854d9e5`，而被核验的树成了 `fa4fe5d`）。现在 `head_sha` **就是被核验的那个提交**，
+   语义写进 `head_sha_semantics` 并渲染到文档里；每步的回滚点仍由该步 `rollback_point` 指向上一个提交。
+2. **历史段落可能误导后继者**：顶层仍有 Phase 0/1 的旧快照（例如 `import_graph` 还写着 64 模块 / 150 边），
+   以及约 20 个更早的 `final_state_round_*`，它们的 `what_a_successor_must_do_first` 点名的是早已完成的工作。
+   处置：**刷新**可廉价测量的段落（`import_graph` / `deployment` / `worktree`，各自带 `measured_at_commit`）；
+   给每个被取代的 `final_state_*` 加 `superseded_by` 与 `_historical`；给 `ghidra_worker_blocker` 加 `_resolved`；
+   并在文件顶部加**读取指引**（权威＝`step_records` + 最新 `final_state_*`）。历史**不删除**——那会丢掉 Phase 0/1
+   的证据链。
 
