@@ -1,120 +1,192 @@
-# P3.3e / P3.3f 决策记录：两个巨方法（round 103，实测）
+# P3.3e / P3.3f 决策记录：两个巨方法（round 103，实测；**经对抗式复核后重写**）
 
-> 设计记录 `docs/p33-investigation-coordinator-design-20260922.md` 把两个巨方法排在最后，并写明「只有到那时才值得
-> 决定是整体搬迁还是先切内部接缝」。**现在就是那个时候**，本文件用实测把两个巨方法分别判定到「可搬」与「受阻」。
+> 设计记录把两个巨方法排在最后，并写明「只有到那时才值得决定是整体搬迁还是先切内部接缝」。本文件给出决定，
+> **并在一次对抗式复核之后整篇重写**：初稿有几处数字与判断是错的，重写版逐条标注了「初稿错在哪、如何实测改正」。
 >
-> 可复现：`py .scratch/p32-measure-cluster.py <member> --from 32a7921`；
-> 规模与结构：`py .scratch/p33e-decision.py`。
+> 复核者的三条指控**我独立复现后确认成立**（数字、测试引用、层判定），一条**不成立**（工具文件不存在——
+> 实测 `.scratch/p32-measure-cluster.py` 存在且正在使用）。复核者对**中心论点**的反驳同样成立，见第 1.3 节。
+>
+> 可复现（**精确命令**，初稿写的调用方式有误）：
+> ```powershell
+> py .scratch/p33e-decision.py      # 规模、helper 使用者数、内部结构、层证据（REV 在脚本内固定为 32a7921）
+> py .scratch/p33e-arithmetic.py    # 搬迁总账的逐项加总（本文件第 1.1 节就是它的输出）
+> py .scratch/p32-measure-cluster.py <member> --from <rev>   # 单个成员的宿主/自由名测量
+> ```
 
-## 1. P3.3e `_derive_investigation_observations`（2,795 行）：**可以整体搬迁，且整体搬迁才是可证明的做法**
+## 0. 结论（先说结果，理由在后面）
 
-### 1.1 规模实测（整体搬迁的总账）
+**P3.3e `_derive_investigation_observations`（2,795 行）与 P3.3f `_run_investigation_loop`（3,523 行）都无法在
+当前层次上搬迁。** 初稿判定 P3.3e「可以整体搬迁」，那是在**层判定用错标准**的情况下得出的：把
+`simulation_adapters` 当成「接口」放行。按方案 §3.2 的**原则性判据**（`investigation/` 只能导入
+static/emulation/tools 的**接口**，未列出的边默认禁止）重判，它是**实现模块**（第 2.3 节）。因此：
 
-| 项 | 值 |
+**P3.3 剩下的全部工作，卡点都是「层」，不是切片。** 关键路径从此变成**层的搬迁**：把几个纯策略名/模块移到
+`investigation/` 允许导入的位置，一次能解开多个子切片（第 3 节给出五条层工作及其分别解锁的东西）。
+
+## 1. P3.3e：规模、可证明性、以及初稿错在哪
+
+### 1.1 精确总账（`.scratch/p33e-arithmetic.py` 的原始输出）
+
+| 组成部分 | 行数 |
 |---|---|
-| 巨方法本体 | **2,795 行** |
-| 它直接调用的 4 个**簇内专有** helper（可随迁） | `_follow_local_tail_jmp` 72、`_global_accesses_from_rows` 70、`_row_own_function_matches` 13、`_matching_simulation_results` 10 = **165 行** |
-| 它直接调用的 6 个**共享** helper（必须留宿主 → 端口成员） | `_function_entry_integers` 5 个使用者、`_locator_key` 5、`_emulation_entry_key` 3、`_overlay_pe_parser_thread_start` 2、`_pe_entry_integers` 2、`_investigation_value_text` 2 |
-| 3 个**模块级函数**（生产侧仅它使用 → 随迁） | `_decode_output_buffer` 18、`_bind_recovered_xor_verification` 40、`plausible_traced_creation_flags` 16 = **74 行** |
-| **整体搬迁总规模** | **3,124 行** |
+| 巨方法本体 | **2,795** |
+| 4 个簇内专有 helper（随迁）：`_follow_local_tail_jmp` 72、`_global_accesses_from_rows` 70、`_row_own_function_matches` 13、`_matching_simulation_results` 10 | **165** |
+| 3 个模块级函数（随迁）：`_bind_recovered_xor_verification` 40、`_decode_output_buffer` 18、`plausible_traced_creation_flags` 16 | **74** |
+| 1 个模块级常量（随迁）：`_DECODE_PRODUCER_KINDS`（service.py:886，字典字面量） | **7** |
+| **整体搬迁总账** | **3,041** |
 
-**测试面的引用（实测，且它改变了随迁的成本）**：`_follow_local_tail_jmp`、`_global_accesses_from_rows`、
-`_row_own_function_matches`、`_decode_output_buffer`、`_bind_recovered_xor_verification` 在测试里 **0 次引用**；
-但 **`_matching_simulation_results` 被测试引用 5 次**、**`plausible_traced_creation_flags` 被引用 6 次**。
-「生产侧只有它使用」**不等于**「随迁无成本」：这两个必须按 §7.1 第 5 步**逐个迁移测试调用方**，
-或者在旧位置留一层可导入的转发（而转发会与新家形成第二份访问路径，属于 P4 的 shim 话题）。
-这一点是本文件初稿的**不准确之处**，已按实测改正——凡「随迁」清单都必须同时给**生产使用者数**与**测试引用数**。
+另需端口从 6 扩到 **12**（新增 6 个共享 helper，共 90 行**留在宿主**）。
 
-另需：端口从 6 扩到 **12**（+6 个共享 helper）；`_DECODE_PRODUCER_KINDS` 待测归属（很可能是类常量 → 第 13 个成员）。
+**初稿的两处数字错误，均已实测改正**：
+* 初稿写总账 **3,124** —— 它把「十个被调 helper 的 255 行」换成「四个专有 helper 的 165 行」却**没有重算总和**。
+  复核者指出该矛盾后独立复measure，得出的 3,127 同样对不上：`2795 + 165 + 74 = 3,034`。真正的差额是
+  **`_DECODE_PRODUCER_KINDS` 的 7 行**——它是**模块级常量**（不是类属性），而测量脚本的「接收者引用」扫描
+  只找方法，**结构上看不见它**，所以两版都漏了。加上它才是 **3,041**，与本文件表格逐项对齐。
+* 初稿把 `_DECODE_PRODUCER_KINDS` 写成「很可能是类常量」——实测在 `service.py:886` 定义、在 6051 行（巨方法内）
+  使用，是**模块级常量**。
 
-### 1.2 两个导入层问题，各自有实测判定
+### 1.2 测试引用：初稿的「只有它用」是**生产侧**的事实，不是**搬迁成本**的事实
 
-1. **`threat_report_agent.dataflow` 是旧 shim 路径**。它在 `docs/import-policy.json` 的 `legacy_path_imports`
-   里有案（唯一一条，属 P4.1 待迁清单）。新模块**必须**写 `facts.dataflow`（canonical 路径，§3.2 允许
-   `facts/`），service.py 的旧写法留给 P4.1 统一处理。这一条不是阻塞，只是不能照抄。
-2. **`simulation_adapters` 是被两层导入的 root 模块**（`(root)` 与 `tools`）。用与
-   `methodology` 相同的判据（P3.3d 的记录）：`methodology` 只有 1 层、故判为未列边；`simulation_adapters` 有 **2 层**
-   先例，且它承载的正是模拟执行/策略接口，落在 §3.2 允许 `investigation/` 导入的
-   「static/emulation/tools 的**接口**」范围内。**判定：允许**，理由是实测先例 + 接口性质，两者都写在记录里。
+| 成员/函数 | 生产侧其他使用者 | 测试引用次数 | 测试如何用它 |
+|---|---|---|---|
+| `_follow_local_tail_jmp` / `_global_accesses_from_rows` / `_row_own_function_matches` / `_decode_output_buffer` / `_bind_recovered_xor_verification` | 无 | **0** | — |
+| `_matching_simulation_results` | 无 | **5** | `AnalysisService._matching_simulation_results(rows, {...})`（按类调用 → 它是 `staticmethod`） |
+| `plausible_traced_creation_flags` | 无 | **6** | `from threat_report_agent.service import plausible_traced_creation_flags`（模块级函数） |
+| `_overlay_pe_parser_thread_start`（进端口、留宿主） | 另有 `_record_ghidra_evidence` | 2 | `AnalysisService._overlay_pe_parser_thread_start(...)`（`staticmethod`） |
 
-### 1.3 决定：**整体搬迁**，而不是先切内部接缝
+**这些测试引用为什么不构成阻塞**（初稿完全没写，复核者也因此读成「搬走就断测试」）——两条既有机制即可覆盖，
+且都已有测试钉住：
+1. **被搬的方法在 service.py 留下单行委托**，且**保留原装饰器**（`p33-extract.py` 有 `ORIGINAL_DECORATORS` 检查）。
+   因此 `AnalysisService._matching_simulation_results(...)` 这类**按类调用**继续成立——委托仍是 `staticmethod`。
+2. **被搬的模块级函数会被 service.py 反向导入**（P3.3b 的 `frontier_status_is_open` / `deferred_keeps_planner_open`
+   就是这么做的），因此 `from threat_report_agent.service import plausible_traced_creation_flags` 继续成立；
+   `tests/test_investigation_coordinator_contract.py` 还专门断言**两个命名空间里是同一个对象**。
+   把测试**迁到新家**是 P4 的收尾（§7.1 第 5 步），不是本步的前置条件。
 
-实测它的内部结构：**34 个顶层语句、16 个嵌套函数、77 个循环、220 个 if、9 个 try**。也就是说它并非「没有接缝」，
-但那些接缝是**捕获局部变量的内层闭包**（`selectors`、`symbols_match`、`add`、`collect_caller_edges` …），
-把闭包提升为方法**必然改写数据流**。
+**但初稿的表述方式确实错了**，现已固定为纪律：**「随迁」清单必须同时给生产使用者数与测试引用数**，
+并说明它们靠哪条机制继续成立。
 
-关键判据是**可证明性**，不是规模：
+### 1.3 中心论点被复核者驳倒的部分：**「可证明」是「在重写之外可证明」**
 
-* **整体搬迁可以被逐字节级别地证明**：`p33-verify.py`（AST 身份）+ `p33c-textdiff.py`（字符串值逐字符 + 函数体代码行）
-  + `p33-arity.py`（调用元数）三件套对「整函数搬家」是完全适用的，和前面每一个切片同一标准。
-* **内部切分没有等价性证明**：把 2,795 行拆成接缝，行为等价只能靠测试覆盖来主张；而这个项目已知的基线里就有
-  6 个失败节点、且行为探针只覆盖 8 项。**用一个没有证明的操作去换一个规模更小的操作，是负交换。**
+初稿写「整体搬迁可被逐字节证明，切分没有等价性证明，所以整体更优」。复核者指出这是**不成立的**，
+我复现确认：三件套**恰好把这次搬迁真正改变的东西归一化掉了**。
 
-因此：**P3.3e 走整体搬迁**，风险是**单次检查点的失败面**（3,124 行）而不是不可验证；缓解手段是
-(a) 搬迁后**先**跑三件套再跑任何测试，(b) 全量失败**节点集合**比对（不是计数），(c) 部署门照旧，
-(d) `_matching_simulation_results` 与 `plausible_traced_creation_flags` 的**测试调用方**必须同一步迁移
-（这是实测出来的额外交付项，不是可选项）。
+| 工具 | 实际能证明 | **不能**证明 |
+|---|---|---|
+| `p33-verify.py` | 逐语句 `ast.unparse` 后（去接收者前缀、去首个接收者实参）相同 | 归一化删掉的正是「换家」这一步：**端口成员接错、兄弟调用接到错的接收者、方法被误留在端口内，都会照样打印 IDENTICAL**；且它不比对签名、不检查方法是否被删/重复、不检查「搬走的成员是否还有外部调用者」 |
+| `p33c-textdiff.py` | 字符串常量**值**逐字符 + 函数体代码行（模接收者改名与类缩进） | 只比对**模块级函数**，且初稿时**写死读 `HEAD`**（现已支持 `--from`） |
+| `p33-arity.py` | 名字调用若目标函数首参是 `host` 却漏传 → 报错 | 宿主侧成员是否存在、属性调用的元数、任何运行期行为 |
 
-### 1.4 三件套**证明不了**什么（写给下一位执行者）
+**因此正确的说法不是「整体可证明」，而是**：
+* 整体搬迁的风险是「**解析（resolution）未被证明**」——即搬过去的字节一致，但接线可能错；
+* 切分的风险是「**行为等价未被证明**」——拆出来的等价性只能靠测试主张。
+两者都不可证明，但**可核查的手段数量不同**：解析风险可以用**四类**手段核查（委托 pin、元数检查、
+宿主引用 pin、以及**新增的引用检查**：搬走的成员在 service.py 里除委托外不得再有调用者），
+而行为等价只能靠测试。**结论仍是整体搬迁**，但理由从「可证明 vs 不可证明」修正为
+「**可核查手段更多**」，并且必须把「引用检查」补进搬迁前门禁（见 1.4）。
 
-它们证明的是「搬过去的字节与结构与原来一致」。它们**不**证明：
-* 新端口成员在宿主侧的行为与原来相同（端口只是把调用改道，若宿主方法被同时改动，三件套看不见）；
-* 被搬迁的 helper 之间**接线正确**——尤其当一个 helper 变成端口调用、另一个随迁时的组合；
-* 任何**运行期**性质（顺序、事务、审计链封口），这些只有 focused 套件与行为探针覆盖。
+**同时记录一条对整体搬迁有利、初稿漏写的事实**：`_derive_investigation_observations` **只有一个调用者**
+（`execute`，service.py:9748），所以「整体 vs 切分」不影响调用图——这使整体搬迁不会同时改变多个调用路径。
 
-因此 1.3 节里 (b)(c) 两步不是形式：**搬迁本身可证明，搬迁的接线不可证明**，两者必须分开报告。
+### 1.4 三件套之外，搬迁前必须补的门禁
 
-## 2. P3.3f `_run_investigation_loop`（3,523 行）：**受阻于环，且规模远大于 P3.3e**
+1. **引用检查（新增，必须）**：对每个将被搬走的成员，统计 `service.py` 里除「自身的委托」之外的调用者——
+   必须为 0，否则说明还有调用方没被考虑。这条补的正是 1.3 表里 `p33-verify.py` 的盲区。
+2. 元数检查（已有 `p33-arity.py`）+ 契约测试的 arity pin（P3.3d 加入）。
+3. 宿主引用 pin（`host_refs == port`，P3.3g/P3.3c 已有）。
+4. **全量失败节点集合**比对。基线 6 个节点**具名**如下（初稿只写「6 个节点」，不可执行）：
+   `tests/test_analysis_api.py::test_end_to_end_static_analysis_and_report_revisions`、
+   `tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start`、
+   `tests/test_t3_callback_fixture.py::` 的四个（`test_t3_protocol_answers_callback_global_and_keeps_missing_consumer`、
+   `test_t3_one_start_discovers_global_relation_for_behavior_explanation`、
+   `test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives`、
+   `test_t3_service_one_start_enqueues_multiple_distinct_actions`）。
+5. **回滚计划**（初稿缺失）：搬迁前记录 `service.py` 与 `coordinator.py` 的 sha256；失败时用
+   `git show <pre-move-commit>:<path>` **复制式**恢复并校验哈希（禁止 `git checkout --`），
+   文件级范围仅这两个 + 契约测试。
 
-### 2.1 实测：三个独立阻塞
+### 1.5 那么 P3.3e **为什么仍然不能搬**：`simulation_adapters` 不是接口
 
-1. **环**。它需要 `threat_report_agent.task.analysis_task_orchestration` 的
-   `LOOP_PATH_BUDGET_DEFER` / `LOOP_PATH_PERSIST_BOUNDARY` / `LOOP_PATH_PERSIST_READY` /
-   `next_investigation_loop_path` / `resolve_persist_how_skip`，而该模块**自己 import investigation**
-   （`from threat_report_agent.investigation import ActionSpec, ActionType, recovery_actions_for_gap`）。
-   `investigation -> task` 会**成环**——端口化解决不了它，因为环的另一端就是调用方本身。
-   这与 P3.3c(2) 里 `action_is_model_or_human` 的阻塞**同一形状**，但规模大得多。
+巨方法需要 `simulation_adapters` 的 7 个名字（`default_simulation_runner`、
+`evidence_nature_for_simulation_status`、`may_execute_in_process`、`qiling_unavailable_observation`、
+`request_for_granted_window`、`simulation_policy_from_settings`、`worker_defers_simulation`）。实测：
 
-   **实测这些名字的定义位置**（防止「也许它们只是从别处再导出」这种可能）：
-   `resolve_persist_how_skip` 定义在 `task/analysis_task_orchestration.py:93`，
-   `LOOP_PATH_PERSIST_READY`/`LOOP_PATH_PERSIST_BOUNDARY`/`LOOP_PATH_BUDGET_DEFER` 在该文件 198–200 行，
-   `next_investigation_loop_path` 在 204 行——**都定义在 task 层内**，不是从 investigation 再导出的。
-   因此环是真实的：循环路径决策被放在了调用方那一层。
-2. **端口面 34 个**直接共享 helper（另有 5 个类常量、4 个已在端口的成员）。把端口从 6 扩到 40 左右，
-   等于把「宿主」重新变成一堵墙——这与 P3.3 的目的（把任务/调查路径从 `AnalysisService` 里分离出来）相悖。
-   必须**先**把这些 helper 下沉到允许的层（它们是纯逻辑，多数只依赖 models/database），而不是逐个加进端口。
-3. **13 个模块级函数/常量**要随迁，其中两个很大（`coalesce_investigation_seed_clusters` 138 行、
-   `_seed_context_rows` 105 行），**而且它们被测试直接导入**
-   （`tests/test_investigation_service.py` 导入 `admit_investigation_seed_clusters`、
-   `coalesce_investigation_seed_clusters`、`investigation_seed_step_budget`、`frontier_status_is_open` 等）。
-   这属于 §7.1 第 5 步「先改生产调用方，再逐个改测试调用方」的工作，**不是一次搬家能附带的**。
+* 该模块里有 `SimulationCapability`、`detect_simulation_capabilities`、`speakeasy_capability_matrix`、
+  `SimulationRequest`、`SimulationExecutionPolicy`、`default_simulation_runner` 等——**适配器与能力探测的实现**；
+* 7 个名字里**没有一个定义在 `emulation/`**，只有 `evidence_nature_for_simulation_status` 在
+  `ports.py`/`projection_protocols.py` 里出现过 1 次（且不是接口定义）。
 
-### 2.2 判定与解除路径（记录，不在本步动手）
+方案 §3.2（第 122/132 行）只允许 `investigation/` 导入 **static/emulation/tools 的接口**，未列出的边默认禁止。
+**一个装满适配器实现的 root 模块不是接口**，所以这条边与 P3.3d 被否掉的 `methodology` **同族**：
+**P3.3e 判为受阻**，解除路径见第 3 节第 2 条。
 
-**P3.3f 判为受阻**，受阻原因与 P3.3b(2)/P3.3c(2)/P3.3d(2) 同族但更深：**它需要先做「层」的工作，而不是端口的
-工作**。可执行的解除顺序（每一步都是一个独立步骤，各自有白名单与验证）：
+> 初稿在这里用了「2 层先例 + 接口性质」的双重理由放行。复核者指出「2 层先例」这个阈值**在方案里不存在**，
+> 是为了放行而事后设定的；我复现后同意，**改用方案自己写明的判据（是不是接口）**，并把该判据同样施加于
+> `methodology`（结论不变：两者都不是接口，都禁止）。
 
-1. 把 `next_investigation_loop_path` / `resolve_persist_how_skip` / `LOOP_PATH_*` 这些**循环路径决策**从
-   `task/analysis_task_orchestration.py` 下移到一个**允许被 investigation 导入**的层（它们本质是
-   investigation 的循环策略常量与纯决策，放在 task/ 里才是反常的）——这同时会解掉
-   `_action_is_model_or_human`（P3.3c(2)）的环。
-2. 把 34 个 helper 里**纯逻辑的那批**下沉（例如 `_select_*_seed_rows` / `_is_*_seed_row` 系列只依赖 models），
-   让端口不必膨胀到 40。
-3. 最后才搬 `_run_investigation_loop`，并按 §7.1 第 5 步迁移那 13 个模块级函数的测试调用方。
+## 2. P3.3f `_run_investigation_loop`（3,523 行）
 
-## 3. 本步明确不做
+### 2.1 实测事实
 
-- **不**整体搬 `_run_investigation_loop`（受阻，且端口会膨胀到约 40 个成员，与 P3.3 的目的相悖）；
-- **不**为了「看起来有进展」而先去切 `_derive_investigation_observations` 的内部接缝（没有等价性证明）；
-- **不**把 34 个共享 helper 逐个加进端口来绕过层问题；
-- **不**在本步改动 `service.py` 的旧 `dataflow` 导入（那是 P4.1 的白名单）。
+* 它需要 `task/analysis_task_orchestration.py` 的 `LOOP_PATH_PERSIST_READY`(198)、`LOOP_PATH_PERSIST_BOUNDARY`(199)、
+  `LOOP_PATH_BUDGET_DEFER`(200)、`next_investigation_loop_path`(204)、`resolve_persist_how_skip`(93)；
+  这些名字**都定义在 task 层内**（不是从 investigation 再导出），而该模块第 25 行
+  `from threat_report_agent.investigation import ActionSpec, ActionType, recovery_actions_for_gap`
+  ——`investigation -> task` 会成环。
+* 端口面：**34 个**直接共享 helper（另有 5 个类常量）。把它们逐个加进端口等于把宿主重新变成一堵墙。
+* 13 个模块级函数/常量要随迁，其中大者 `coalesce_investigation_seed_clusters`(138)、`_seed_context_rows`(105)；
+  **且被测试直接导入**（如 `tests/test_investigation_service.py` 导入 `admit_investigation_seed_clusters`、
+  `coalesce_investigation_seed_clusters`、`investigation_seed_step_budget`）——按 1.2 节的两条机制，它们**仍可导入**，
+  真正要改的是**测试从新家导入**（P4 收尾）。
 
-## 4. 对设计记录里「15 个未分配成员」的处置更新
+### 2.2 修正：**不是「受阻于设计」，而是「需要先做一个层步骤」**
 
-设计第 2 节列的 660 行未分配残留，经本轮实测已经明确归属的有：
-`_follow_local_tail_jmp`（72）与 `_overlay_pe_parser_thread_start`（40）是 P3.3e 的依赖（前者簇内专有、随迁；
-后者共享、进端口）；`_investigation_value_text`（18）同时被 P3.3e 与 P3.3f 使用（共享 → 端口）；
-`_persist_time_unique_thread_result`、`_load_investigation_execution_rows`、`_select_investigation_execution_rows`、
-`_persist_ready_emulation_actions`、`_run_emulation_informed_investigation`、`_run_saturated_investigation` 等
-出现在 P3.3f 的闭包里，属于**第 2.2 节第 2 步要下沉的那批**。剩余未认领的以
-`_collect_model_action_results`（151）与 `_semantic_action_result`（103）为首，仍待 P3.3c(2)/P3.3f 的后续步骤定性。
+初稿写「P3.3f 判为受阻」，同时在 §2.2 第 1 条给出了解除办法——**自相矛盾**：把已经写明的下一步说成阻塞。
+准确表述：**P3.3f 目前不可直接搬迁，因为它依赖一个尚未执行的层步骤**，而那一步是可做的（第 3 节第 1 条）。
+
+真正的环只有一处：`task/analysis_task_orchestration.py` 里的 `runtime._run_investigation_loop` 重新进入
+（该文件 356/368/394/400/413/441 行）。把 5 个**纯策略名**下移即可消除它。
+
+**复核者补出的、初稿漏写的成本**：`tests/test_analysis_task_orchestration.py:402` 用
+`inspect.getsource(AnalysisService._run_investigation_loop)` 做断言——搬迁后它读的是单行委托，
+属于 P3.7 的测试面改造项，必须具名记录（与 P3.3b 迁移 `test_investigation_service.py` 的那条同形）。
+
+## 3. 关键路径：**层工作**（按依赖顺序；每条都解锁不止一个子切片）
+
+| 序 | 层工作 | 解锁 | 实测依据 |
+|---|---|---|---|
+| 1 | 把**循环路径策略** `LOOP_PATH_*` / `next_investigation_loop_path` / `resolve_persist_how_skip` 从 `task/analysis_task_orchestration.py` 下移到 `investigation/`（或 contracts），task 侧改为导入 | **P3.3f**（消除环）与 **P3.3c(2)** 的 `action_is_model_or_human` | 名字定义位置实测（第 2.1 节）；方案第 133 行本就允许 `task/ -> investigation` |
+| 2 | 把 7 个模拟策略名从 `simulation_adapters` 暴露成**允许的 emulation 接口**（或把纯策略函数下移） | **P3.3e** | 第 1.5 节的判定 |
+| 3 | 把 `_address_lookup_keys` / `build_unique_execution_threads` 从 `report/reporting.py` 下移到 `facts/` 或 `static/` | **P3.3b(2)**（97 行） | P3.3b 的实测 |
+| 4 | 让 **model port** 暴露 `DynamicPlanAction`（`ports.py` 目前没有；它只 `ModelPlanningPort` 等 Protocol） | **P3.3c(2)** 的 3 个成员（71 行） | P3.3c 的实测 |
+| 5 | 把 `methodology` 提升为**被多层共享的纯模块**（它只 import 标准库与 yaml）或下移其 `FactLibrary` 构造 | **P3.3d(2)** 的 `_run_methodology_action`（271 行） | P3.3d 的实测 |
+
+这五条都属于 P1.2（端口与适配器）那条线的工作，各自应是一个独立步骤（自己白名单、自己验证）。
+**当前可执行的下一个结构步骤是第 1 条**：它同时解开一个巨方法和一个子切片，且改动范围明确
+（一个文件里的 5 个纯策略名 + task 侧导入 + 一处 getsource 测试）。
+
+## 4. 本步明确不做
+
+- 不搬任何巨方法（两者都缺各自需要的层前提）；
+- 不为「看起来有进展」而切 `_derive_investigation_observations` 的内部接缝（16 个内层闭包捕获局部变量，
+  且没有等价性证明）；
+- 不把 34 个共享 helper 加进端口来绕过层问题；
+- 不改 `service.py` 的旧 `dataflow` 导入（`legacy_path_imports` 是 P4.1 的白名单；新模块写 `facts.dataflow`）。
+
+## 5. 本文件自身的修正清单（供复核者核对）
+
+| 初稿 | 实测改正 |
+|---|---|
+| 总账 3,124 | **3,041**（逐项：2795 + 165 + 74 + 7），并给出计算脚本 |
+| 漏 `_DECODE_PRODUCER_KINDS` | 补为**模块级常量** 7 行、service.py:886；说明测量脚本为何看不见它 |
+| 「随迁无成本」的暗示 | 补**测试引用次数表**与两条「为什么测试不会断」的机制 |
+| 「整体搬迁可被逐字节证明」 | 改为「在**重写之外**可证明」，并列出三件套各自的盲区 + 新增引用检查 |
+| 「P3.3f 受阻」 | 改为「**需要一个尚未执行的层步骤**」，并补 getsource 测试项与真实环的位置 |
+| `simulation_adapters` 放行 | 按方案**接口判据**重判为**禁止** → P3.3e 受阻 |
+| 未具名基线失败 | 6 个节点**逐个具名** |
+| 无回滚计划 | 补复制式回滚（`git show <commit>:<path>` + 哈希校验） |
+| 未写调用者数量 | 补「巨方法只有一个调用者：service.py:9748」 |
+
+**复核者的一条指控不成立**：初稿引用的 `.scratch/p32-measure-cluster.py` **确实存在**（9130 字节，
+本轮多次运行），复核者称「`p32-measure-cluster.py` 不存在」与其自己的工具目录状态不符；
+不过初稿给的复现命令**确实不够精确**（未说明 `p33e-decision.py` 内部固定 REV），已在文件头改正。
