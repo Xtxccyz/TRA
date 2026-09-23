@@ -1,7 +1,9 @@
-"""P3.2 design contract: the task path's port must be exactly the spine it was measured from.
+"""P3.2 contract: the task path's port, and the first cluster that moved behind it.
 
-Plan 7.1 step 2 says to stand up the minimal interface and its contract test in the new package BEFORE moving any
-implementation, so this file pins the interface while nothing depends on it yet. It is written this way on purpose:
+Plan 7.1 step 2 is "stand up the minimal interface and its contract test before moving any implementation"
+(P3.2-design); step 3 is "move the one implementation" (P3.2c - the `creation` cluster, now in
+`task/task_runner.py`, with its two service.py methods reduced to one-statement delegations). This file pins both, and
+it is written this way on purpose:
 
   * `TASK_HOST_MEMBERS` is not trusted as a literal. `_direct_spine()` re-derives it from `service.py` on every run,
     using a FROZEN candidate list (no name heuristic), and the test fails if the derivation and the port disagree.
@@ -15,6 +17,12 @@ MEASURED (`.scratch/p32design-candidates.py`, `.scratch/p32design-scale.py`): 19
 closure 18 members / 1,040 lines of which only one (90 lines) travels with the cluster, direct spine exactly 6.
 Outside-user counts for the 6, which is what makes the port small rather than arbitrary: `database` 86,
 `_audit` 52, `settings` 34, `content_store` 24, `_seal_task_audit_chain` 6, `task_view` 1.
+
+MEASURED FOR P3.2c (`.scratch/p32c-creation-analysis.py`), and it changed the step's scope rather than being fitted to
+it: the creation cluster's host needs are only `_audit`, `content_store`, `database` (a subset of the port, so NO
+widening), but its return type `SubmissionResult` was DEFINED in service.py and had to travel with it, and the
+`bind_historical_analysis` / `workbench_bind_existing_analysis` pair had to stay behind (2-line forwarder plus 90
+lines needing three further host helpers). Both facts are pinned below.
 
     python -m pytest -q tests/test_task_runner_contract.py
 """
@@ -208,8 +216,12 @@ def test_a_host_missing_a_member_is_reported_rather_than_accepted() -> None:
     assert reported == ("_seal_task_audit_chain", "task_view"), reported
 
 
-def test_the_runner_module_is_an_interface_and_not_a_second_implementation() -> None:
-    """No behaviour, no host import, and no hidden copy of a task method."""
+def test_the_runner_module_is_the_port_plus_the_creation_cluster_and_nothing_else() -> None:
+    """The module's defined surface is PINNED, so a second implementation cannot hide here unnoticed.
+
+    P3.2-design: port only. P3.2c added exactly the `creation` cluster - its two functions and the dataclass that is
+    their return type - so this list growing is a deliberate act.
+    """
     source = RUNNER_MODULE.read_text(encoding="utf-8", errors="replace")
     tree = ast.parse(source)
     defined = [
@@ -217,10 +229,13 @@ def test_the_runner_module_is_an_interface_and_not_a_second_implementation() -> 
         for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     ]
-    assert sorted(defined) == ["TaskHost", "missing_task_host_members"], (
-        f"task_runner.py defines {defined}; until P3.2c moves the first cluster it must declare the port and nothing "
-        "else, so a second implementation cannot hide here"
-    )
+    assert sorted(defined) == [
+        "SubmissionResult",
+        "TaskHost",
+        "create_submission_task",
+        "missing_task_host_members",
+        "prepare_blind_run",
+    ], f"task_runner.py defines {sorted(defined)}; update this pin with the step that changed it"
     imported = {
         (node.module or "").split(".")[-1]
         for node in ast.walk(tree)
@@ -231,3 +246,79 @@ def test_the_runner_module_is_an_interface_and_not_a_second_implementation() -> 
     )
     assert "main" not in imported
     assert isinstance(TaskHost, type)
+
+
+def test_the_moved_cluster_reaches_the_host_only_through_the_port() -> None:
+    """The anti-drift check on the MOVED code: every `host.X` in this module must be a declared port member.
+
+    This is the one check that makes the port real rather than decorative. The design step measured that the
+    creation cluster needs only `_audit`, `database` and `content_store` - a subset of the port - so this move
+    needed no widening. If a later edit reaches for anything else, this fails and the widening becomes deliberate.
+    """
+    tree = ast.parse(RUNNER_MODULE.read_text(encoding="utf-8", errors="replace"))
+    host_refs = {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "host"
+    }
+    assert host_refs, "the moved cluster no longer touches `host` at all; either it moved again or this test is stale"
+    assert host_refs <= set(TASK_HOST_MEMBERS), (
+        f"the moved cluster reaches {sorted(host_refs - set(TASK_HOST_MEMBERS))}, which is not on the port; add it to "
+        "TASK_HOST_MEMBERS AND to the TaskHost declaration deliberately, and record why"
+    )
+    assert host_refs == {"_audit", "content_store", "database"}, (
+        f"the measured creation-cluster needs were _audit/content_store/database, now {sorted(host_refs)}"
+    )
+
+
+def test_submission_result_has_one_implementation_and_keeps_its_public_path() -> None:
+    """The dataclass MOVED out of service.py, so both facts have to be pinned: one implementation, same public path.
+
+    MEASURED before the move: `SubmissionResult` was defined in service.py (a dependency-free frozen dataclass) and
+    is the creation cluster's return type, so the cluster could not leave without it. Re-exporting keeps
+    `threat_report_agent.service.SubmissionResult` - and every one of service.py's own uses - working unchanged.
+    """
+    from threat_report_agent.service import SubmissionResult as from_service
+    from threat_report_agent.task.task_runner import SubmissionResult as from_runner
+
+    assert from_service is from_runner, "the re-export created a second class object"
+    assert from_runner.__module__ == "threat_report_agent.task.task_runner"
+    tree = ast.parse(SERVICE_MODULE.read_text(encoding="utf-8", errors="replace"))
+    assert "SubmissionResult" not in [node.name for node in tree.body if isinstance(node, ast.ClassDef)], (
+        "service.py defines SubmissionResult again; the moved implementation must have exactly one home"
+    )
+
+
+def test_the_service_methods_are_one_statement_delegations() -> None:
+    """Plan 7.1 step 4: the old path may keep a shim, never a second implementation."""
+    tree = ast.parse(SERVICE_MODULE.read_text(encoding="utf-8", errors="replace"))
+    service = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AnalysisService")
+    methods = {
+        node.name: node for node in service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name in ("create_submission_task", "prepare_blind_run"):
+        node = methods[name]
+        assert len(node.body) == 1, f"{name} has {len(node.body)} statements; it is supposed to delegate only"
+        statement = ast.unparse(node.body[0])
+        assert statement.startswith(f"return _task_runner.{name}("), f"{name} does not delegate to the new module: {statement}"
+        assert "self" in statement, f"{name} must forward the host, not call the module function bare"
+
+
+def test_the_workbench_binding_pair_is_still_on_the_host_and_that_is_recorded() -> None:
+    """A MEASURED DEFERRAL, pinned so it cannot be moved by accident and cannot be forgotten either.
+
+    Measured by `.scratch/p32c-creation-analysis.py`: `bind_historical_analysis` is a 2-line forwarder to
+    `workbench_bind_existing_analysis`, whose 90 lines need THREE host helpers that are not on the port
+    (`_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id`). Moving them therefore widens the
+    port, which is a deliberate step of its own - not something to smuggle into the creation move.
+    """
+    tree = ast.parse(SERVICE_MODULE.read_text(encoding="utf-8", errors="replace"))
+    service = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "AnalysisService")
+    methods = {
+        node.name: node for node in service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name in ("bind_historical_analysis", "workbench_bind_existing_analysis"):
+        assert name in methods, f"{name} left service.py without this pin being updated - see the docstring"
+    for helper in ("_context_payload_v3", "_context_state_for_task_v3", "_require_session_id"):
+        assert helper in methods, f"{helper} is gone, so the deferral's reason no longer holds; re-measure"
+    assert len(methods["bind_historical_analysis"].body) == 1, "the forwarder gained a body; re-measure before moving"

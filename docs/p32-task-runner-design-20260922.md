@@ -56,10 +56,11 @@
 
 | 顺序 | 簇 | 成员 | 行数 | 需要的端口成员 | 备注 |
 |---|---|---|---|---|---|
-| **P3.2c** | `creation` | `create_submission_task`, `prepare_blind_run`, `bind_historical_analysis` | 156 | `_audit`, `content_store`, `database` | 最小且端口最窄，先做 |
-| P3.2d | `lifecycle` | `archive_case`（+ 生命周期迁移面） | 31 | `_audit`, `database` | |
+| **P3.2c** ✅ | `creation` | `create_submission_task`, `prepare_blind_run` + `SubmissionResult`（两者返回类型） | 152 + 8 | `_audit`, `content_store`, `database` | **已完成**：实测端口无需扩大（见第 6 节） |
+| P3.2d | `lifecycle` | `archive_case` | 31 | `_audit`, `database` | |
 | P3.2e | `budget` | `_deferred_budget_thread_ids`, `_actual_depth` | 68 | `task_view` | 唯一**不需要**审计写入的簇 |
 | P3.2f | `cancellation` | `cancel_task`, `cancel_tool_run` | 206 | 全部 6 个 | 唯一需要 `_seal_task_audit_chain` |
+| P3.2g | workbench binding | `bind_historical_analysis`, `workbench_bind_existing_analysis` | 94 | 6 个 + `_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id` | 唯一需要**扩大端口**的簇；P3.2c 实测后从 creation 拆出 |
 
 P3.2a / P3.2b 已完成的投影面（`task/limitations.py`）不在上表内：它们的 service.py 主体已是单行委托。
 
@@ -87,3 +88,36 @@ P3.2a / P3.2b 已完成的投影面（`task/limitations.py`）不在上表内：
 - 不动 17 个共享 helper：它们经由 6 个端口成员被间接调用，属于宿主的实现细节；
 - 不在本步引入 `TaskRunner` 类骨架：计划 §7.1 第 2 步只要求**最小**接口，空的类骨架是投机结构。
   `TaskHost` 是本步唯一的结构声明，`missing_task_host_members()` 是它的可执行形式。
+
+## 6. P3.2c 实测结果（`creation` 簇已搬迁）
+
+**实测改变了本步范围，而不是让结论去迁就范围**（`.scratch/p32c-creation-analysis.py`，搬迁前运行）：
+
+| 发现 | 实测 | 处置 |
+|---|---|---|
+| 返回类型 `SubmissionResult` **定义在 service.py 内**（第 360-367 行，无依赖的 frozen dataclass） | `create_submission_task` 的返回类型 | **随簇搬迁**，service.py 改为 `from threat_report_agent.task.task_runner import SubmissionResult` 再导出；公开路径与全部既有调用点不变，`service.SubmissionResult is task_runner.SubmissionResult` 实测为 True |
+| `bind_historical_analysis` 只是**2 行转发** | 真正实现是 `workbench_bind_existing_analysis`（90 行） | 二者一起**留待 P3.2g**：搬一个转发器不产生任何收益（deletion test 不通过） |
+| `workbench_bind_existing_analysis` 需要端口外的 **3 个**宿主 helper | `_context_payload_v3`（classmethod）、`_context_state_for_task_v3`（classmethod）、`_require_session_id`（staticmethod） | 它是**唯一**需要扩大端口的簇，因此单独一步、单独一次有理由的端口放宽 |
+| creation 簇的 `host.X` 只有 3 个 | `_audit`、`content_store`、`database`，全部已在端口内 | **无需扩大端口**，这一步因此是纯机械的 |
+
+搬迁结果：`create_submission_task`（114 行）、`prepare_blind_run`（38 行）、`SubmissionResult`（8 行，含
+`@dataclass(frozen=True)`）→ `task/task_runner.py`（298 行）；service.py 29,389 → 29,268 行；两个方法在
+service.py 内各只剩**一条** `return _task_runner.<fn>(self, ...)` 委托，签名保持原有的多行排版。
+
+搬迁过程中**由工具而非肉眼**发现的两个问题，都记在这里以免后人重犯：
+
+1. **`ClassDef.lineno` 指向 `class` 行而不是装饰器行**（第一次 dry run 的 `compile()` 抓到的 `SyntaxError`）。
+   以 `data_class.lineno` 为起点会同时造成两件事：service.py 里 `@dataclass(frozen=True)` 变成悬空行，以及
+   **搬走的类丢掉装饰器**——把 frozen dataclass 悄悄变成普通类，即「披着搬家外衣的行为变更」。生成器现在从
+   `decorator_list[0].lineno` 起算，并断言搬走的源码以装饰器开头。
+2. **委托的排版**：由 AST 拼出的单行委托给 `create_submission_task` 生成了 411 字符的一行（文件内最长行只有
+   186 且与本步无关）。生成器改为复用**原始的多行签名块** + 逐参数换行的调用，使 diff 只体现方法体。
+
+验证：`p32c-verify-bodies.py` 用「逐语句 `ast.unparse` + 归一化掉接收者」比对，三个搬迁体全部 IDENTICAL
+（含装饰器）；并且**先证明它能失败**——把 `host.database` 改名为 `host.database_renamed` 后验证器以
+exit 1 报 `DIFFERS`，随后逐字节还原（`p32c-canfail.py`）。
+
+> 顺带记一条工具教训：第一次 can-fail 用 PowerShell 的 `Set-Content` **未带 `-Encoding utf8`** 改写文件，
+> 结果写成了本机 ANSI 代码页，验证器直接以 `UnicodeDecodeError` 崩掉。这是「响亮地失败」而不是「悄悄通过」，
+> 但它证明不了比对本身，所以 can-fail 改用 Python 明确按 UTF-8 往返重做。
+

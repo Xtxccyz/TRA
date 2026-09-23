@@ -355,16 +355,10 @@ from threat_report_agent.product_certification import (
 # `limitations` (the list of limitation strings), which would shadow the module and raise AttributeError.
 # MEASURED: that is exactly what the first version of this extraction did, and 7 investigation tests caught it.
 from threat_report_agent.task import limitations as _limitations
+from threat_report_agent.task import task_runner as _task_runner
 
 
-@dataclass(frozen=True)
-class SubmissionResult:
-    case_id: str
-    task_id: str
-    lifecycle: str
-    outcome: str | None
-    report_revision_id: str | None
-    gate_id: str | None = None
+from threat_report_agent.task.task_runner import SubmissionResult
 
 
 @dataclass(frozen=True)
@@ -2143,37 +2137,7 @@ class AnalysisService:
         scorecard_version: str = "blind-v2",
         actor: str = "blind-evaluator",
     ) -> None:
-        """Mark a queued task for the reference-isolated Blind v2 protocol."""
-        if not scorecard_version or len(scorecard_version) > 120:
-            raise ValueError("scorecard_version must contain between 1 and 120 characters")
-        with self.database.session_factory.begin() as session:
-            task = session.get(AnalysisTask, task_id, with_for_update=True)
-            if task is None:
-                raise LookupError(task_id)
-            if task.lifecycle != TaskLifecycle.PENDING.value:
-                raise ValueError("blind mode must be prepared before task execution")
-            background = task.request_snapshot.get("background_context") or {}
-            if isinstance(background, dict) and str(background.get("content", "")).strip():
-                raise ValueError("reference-isolated blind runs cannot contain background context")
-            task.strategy_snapshot = {
-                **(task.strategy_snapshot or {}),
-                "blind_run": {
-                    "enabled": True,
-                    "scorecard_version": scorecard_version,
-                    "reference_isolated": True,
-                    "status": "PREPARED",
-                },
-            }
-            self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="blind_run.prepared",
-                actor=actor,
-                object_type="AnalysisTask",
-                object_id=task.id,
-                payload={"scorecard_version": scorecard_version, "reference_isolated": True},
-            )
+        return _task_runner.prepare_blind_run(self, task_id, scorecard_version=scorecard_version, actor=actor)
 
     def _freeze_blind_run_snapshot(self, task_id: str) -> str:
         """Persist the immutable v2 manifest immediately before the first blind model turn."""
@@ -2322,105 +2286,20 @@ class AnalysisService:
         trace_id: str | None = None,
         actor: str = "demo-analyst",
     ) -> tuple[SubmissionResult, bool]:
-        modules = normalize_modules(selected_modules)
-        if content is not None and submitted_size != len(content):
-            raise ValueError("submitted_size must match the submitted content")
-        content_sha256 = hashlib.sha256(content).hexdigest() if content is not None else None
-        normalized_key = idempotency_key.strip() if idempotency_key else None
-        if normalized_key is not None and not 1 <= len(normalized_key) <= 200:
-            raise ValueError("Idempotency-Key must contain between 1 and 200 characters")
-        with self.database.session_factory.begin() as session:
-            case = session.get(CaseRecord, case_id)
-            if case is None:
-                raise LookupError(f"Case {case_id} does not exist")
-            if normalized_key is not None:
-                existing = session.scalar(
-                    select(AnalysisTask).where(
-                        AnalysisTask.case_id == case_id,
-                        AnalysisTask.submission_key == normalized_key,
-                    )
-                )
-                if existing is not None:
-                    existing_sha256 = existing.request_snapshot.get("sample_package", {}).get(
-                        "content_sha256"
-                    )
-                    if (
-                        content_sha256 is not None
-                        and existing_sha256 is not None
-                        and content_sha256 != existing_sha256
-                    ):
-                        raise ValueError(
-                            "Idempotency-Key is already bound to different sample content"
-                        )
-                    return (
-                        SubmissionResult(
-                            case_id,
-                            existing.id,
-                            existing.lifecycle,
-                            existing.outcome,
-                            None,
-                        ),
-                        False,
-                    )
-            stored_submission = self.content_store.put(content) if content is not None else None
-            if stored_submission is not None and stored_submission.sha256 != content_sha256:
-                raise RuntimeError("Content store returned an unexpected SHA-256")
-            is_container_scope = source_kind in {"zip", "local_folder"} or (
-                content is not None and zipfile.is_zipfile(io.BytesIO(content))
-            )
-            preset_id = (
-                "first-phase-full-static" if is_container_scope else "single-sample-static-deep"
-            )
-            target_breadth = "B1" if is_container_scope else "B0"
-            target_depth = "D2" if is_container_scope else "D3"
-            manifest = FourChannelInput(
-                task_request=TaskRequestInput(
-                    preset_id=preset_id,
-                    target_breadth=target_breadth,
-                    target_depth=target_depth,
-                    selected_report_modules=tuple(modules),
-                ),
-                sample_package=SamplePackageInput(
-                    source_kind=source_kind,
-                    display_name=filename,
-                    submitted_size=submitted_size,
-                    content_sha256=content_sha256,
-                    storage_key=(
-                        stored_submission.storage_key if stored_submission is not None else None
-                    ),
-                ),
-                background_context=(
-                    background_context_input or BackgroundContextInput(content=background_context)
-                ),
-                knowledge_snapshot=KnowledgeSnapshotInput(snapshot_id="phase1-static-rules-v1"),
-            )
-            task = AnalysisTask(
-                case_id=case_id,
-                trace_id=trace_id or new_id(),
-                submission_key=normalized_key,
-                lifecycle="PENDING",
-                target_breadth=target_breadth,
-                target_depth=target_depth,
-                selected_modules=modules,
-                request_snapshot=manifest.model_dump(mode="json"),
-            )
-            session.add(task)
-            session.flush()
-            task_id = task.id
-            self._audit(
-                session,
-                case_id=case_id,
-                task_id=task_id,
-                event_type="analysis_task.created",
-                actor=actor,
-                object_type="AnalysisTask",
-                object_id=task_id,
-                payload={
-                    "selected_report_modules": modules,
-                    "input_sha256": content_sha256,
-                },
-            )
-            return SubmissionResult(case_id, task_id, task.lifecycle, None, None), True
+        return _task_runner.create_submission_task(
+            self,
+            case_id=case_id,
+            filename=filename,
+            submitted_size=submitted_size,
+            content=content,
+            source_kind=source_kind,
+            background_context=background_context,
+            background_context_input=background_context_input,
+            selected_modules=selected_modules,
+            idempotency_key=idempotency_key,
+            trace_id=trace_id,
+            actor=actor,
+        )
 
     def execute_submission_task(
         self,
