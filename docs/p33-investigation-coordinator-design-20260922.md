@@ -347,7 +347,11 @@ host**。抽取器的簇内重写把 `cls._convergence_alternate_type(...)` 改�
 
 ### 14.3 过程失误（记下来以免复发）
 
-本轮在用 PowerShell 改脚本内容时又踩了 `Set-Content -Encoding utf8` 的 **BOM** 坑（Python 报
-`SyntaxError: invalid non-printable character U+FEFF`，且把一行注释挤到了代码行尾）。这是本会话**第三次**同类事件。
-结论写死：**脚本内容改动只用编辑器工具，不用 PowerShell 文本命令**；不得不处理时先用 `.scratch/strip-bom.py` 清 BOM 并验证可解析。
+1. 本轮在用 PowerShell 改脚本内容时又踩了 `Set-Content -Encoding utf8` 的 **BOM** 坑（Python 报
+   `SyntaxError: invalid non-printable character U+FEFF`，且把一行注释挤到了代码行尾）。这是本会话**第三次**同类事件。
+   结论写死：**脚本内容改动只用编辑器工具，不用 PowerShell 文本命令**；不得不处理时先用 `.scratch/strip-bom.py` 清 BOM 并验证可解析。
+2. **记录脚本自身有语法错误，于是「步骤记录」没有写入，而代码与文档照常提交了。** 这正是上一轮 reviewer 指出的
+   同一类缺口（「P3.3c 没有 step_records」），只是成因不同：那次是时序，这次是脚本报错没被看见。教训：
+   **写完记录后必须核对输出里的计数**（本轮 `step_records 57`）并确认渲染出的文档真的提到该步骤；
+   记录脚本的失败必须与代码提交一样被当作阻塞，而不是被 `2>&1 | Select-Object -Last` 吞掉。
 

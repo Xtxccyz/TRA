@@ -1,6 +1,6 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 56 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 57 条，本文件只汇总。
 
 - **被核验的树 = 提交 `72fa4c8ca3f3997aefd48357afbb5d805d82d6c0`**（该提交的 tree 上跑过四道门禁与全量套件）
 - `head_sha` 的语义：**`head_sha` 是被门禁核验的代码提交 `72fa4c8ca3f3`，不是「当前 HEAD」。** 四道门禁、focused 套件与全量套件都在它的 tree 上运行过。**本轮实测到的两处漂移正是这个字段造成的**：先前它记的是提交前的 HEAD，于是文档声称在一个不含本步改动的提交上完成核验；改成「当前 HEAD」后又发现，写下该值的提交本身就会移动 HEAD——**任何文件都无法正确写出「包含自己的那个提交」**。因此这里固定记代码提交，并在每次复验时核对 `src/` 与 `tests/` 是否仍与它一致（本轮实测：`git diff --name-only 72fa4c8ca3f3..HEAD -- src tests` 为空，即逐字节相同）。每一步的回滚点是该步 `rollback_point` 记录的上一个提交。
@@ -9,7 +9,7 @@
 
 ### 读取指引：本文件的哪一部分代表**当前**状态
 
-- **权威内容＝`step_records` + 最新的 `final_state_*` 对象（当前是 `final_state_round_101_p33c`，由 `authoritative_final_state` 指定）。**
+- **权威内容＝`step_records` + 最新的 `final_state_*` 对象（当前是 `final_state_round_102_p33d`，由 `authoritative_final_state` 指定）。**
 - 渲染器改写于 round 100：它过去按**字符串**排序挑最新对象，于是 `round_100` 排在 `round_97` **之前**，文档因此写着「还没有任何 P3.3 切片搬迁」而实际已搬两个。现在改为：显式指针 `authoritative_final_state` → （其次）`head_sha` 与被核验提交一致的对象 → （最后）**按数字**排序。
 - 其余一切 `final_state_round_*` 都是**历史**（每个都带 `superseded_by` 指向最新对象）；它们的 `what_a_successor_must_do_first` 可能点名早已完成的工作，**不要照它执行**。
 - 已经刷新为当前值的段落：`import_graph`、`deployment`、`worktree`（各自带 `measured_at_commit`）。
@@ -18,7 +18,7 @@
 
 ## 一、为什么不是 READY / ACCEPTED
 
-Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phases 0, 1 and 2 are COMPLETE (nine packages, 34 moved paths, all seven investigation siblings and all three task modules moved, duplicate list empty, cycle allowlist empty). PHASE 3 IS IN PROGRESS: P3.1 (facade contract) and the whole of P3.2 are COMPLETE - the `TaskHost` port has 9 members, every one used, with eleven functions behind it. P3.3 is DESIGNED (53 candidates / 8,881 lines / 20-member spine, six slices, 495 lines excluded to P3.4 and P3.6 by name) and THREE SLICES HAVE MOVED into `investigation/coordinator.py`, whose port is now `database` + `_audit` + `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`: P3.3b (five frontier helpers plus two module-level predicates), P3.3a (the five ledger members) and P3.3c (five action-proposal members). `service.py` is down from 29,640 lines at the Phase-3 start to 28,219. NOT STARTED: P3.3b(2) (blocked: `_address_lookup_keys` / `build_unique_execution_threads` must move below `report/` first), P3.3c(2) (blocked: the model PORT must expose `DynamicPlanAction`, and `action_is_model_or_human` would be a CYCLE because its module imports investigation), P3.3d-P3.3f (the two giant methods are 2,795 and 3,523 lines and go last), P3.4 (ReportRevisionWriter), P3.5 (EmulationCoordinator), P3.6 (WorkbenchQueryReader), P3.7 (test surface off private/`getsource`), and Phases 4 and 5. Per-slice detail, including every measured blocker: `docs/p33-investigation-coordinator-design-20260922.md`; P3.2's: `docs/p32-task-runner-design-20260922.md`.
+Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. Phases 0, 1 and 2 are COMPLETE (nine packages, 34 moved paths, all seven investigation siblings and all three task modules moved, duplicate list empty, cycle allowlist empty). PHASE 3 IS IN PROGRESS: P3.1 (facade contract) and the whole of P3.2 are COMPLETE (the `TaskHost` port has 9 members, all used, with eleven functions behind it). P3.3 is DESIGNED (53 candidates / 8,881 lines / 20-member spine, six slices, 495 lines excluded to P3.4/P3.6 by name) and FOUR SLICES HAVE MOVED into `investigation/coordinator.py`, whose port is now SIX members (`database`, `_audit`, `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`, `_CONVERGENCE_ALTERNATES`, `_CONVERGENCE_EXPECTED_KINDS`, `_canonical_json`): P3.3b (frontier helpers), P3.3a (ledger), P3.3c (action proposal) and P3.3d (convergence contract). `service.py` is down from 29,640 lines at the Phase-3 start to 28,028. NOT STARTED: P3.3b(2), P3.3c(2) and P3.3d(2) - all three BLOCKED on LAYER moves rather than on effort (a helper below `report/`, the model port exposing `DynamicPlanAction`, and `methodology` becoming a declared shared module or its fact library moving down) - plus P3.3e/P3.3f (the two giant methods, 2,795 and 3,523 lines, deliberately last), P3.4 (ReportRevisionWriter), P3.5 (EmulationCoordinator), P3.6 (WorkbenchQueryReader), P3.7 (test surface off private/`getsource`), and Phases 4 and 5. Per-slice detail and every measured blocker: `docs/p33-investigation-coordinator-design-20260922.md`.
 
 `capability_status` is a different axis: the Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) were not touched by this plan's execution. `structure_status=READY` must never imply `capability_status=ACCEPTED`.
 
@@ -29,7 +29,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 | phase_0 | COMPLETE (P0.1-P0.6, plus repairs P0.3-r2/r3 and P0.5-r2/r3) |
 | phase_1 | COMPLETE (P1.1-P1.4, plus repairs P1.1-r2 and P1.3-r3) |
 | phase_2 | COMPLETE - 9 packages, 34 moved paths, report/ complete, 7 investigation siblings moved, 3 task modules moved, duplicate list empty, cycle allowlist empty |
-| phase_3 | IN PROGRESS - P3.1 and P3.2 COMPLETE (TaskHost, 9 members all used; eleven functions; service.py 29,640 -> 28,898). P3.3 DESIGNED and THREE SLICES MOVED into `investigation/coordinator.py` (port = `database`, `_audit`, `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`): P3.3b (frontier helpers), P3.3a (ledger), P3.3c (action proposal); service.py 28,898 -> 28,219. Remaining: P3.3b(2) and P3.3c(2) (both blocked on LAYER moves, not on effort), P3.3d-P3.3f (giant methods last), then P3.4-P3.7. |
+| phase_3 | IN PROGRESS - P3.1 and P3.2 COMPLETE (TaskHost, 9 members all used; service.py 29,640 -> 28,898). P3.3 DESIGNED with FOUR SLICES MOVED into `investigation/coordinator.py` (port = six members): P3.3b, P3.3a, P3.3c, P3.3d; service.py 28,898 -> 28,028. Three sub-slices are BLOCKED on layer moves (P3.3b(2), P3.3c(2), P3.3d(2)) and the two giant methods (P3.3e/P3.3f) are last. Then P3.4-P3.7. |
 | phase_4 | NOT STARTED (remove shims, one checkpoint each, then converge the root package's exports) |
 | phase_5 | NOT STARTED (re-verification; the DSH suite has never been run in this session) |
 
@@ -95,6 +95,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 - P3.3b
 - P3.3a
 - P3.3c
+- P3.3d
 
 ## 五、审计历史
 
@@ -105,10 +106,10 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 
 ## 六、后继者必须先做的事
 
-1. **权威内容＝`step_records` + 最新的 `final_state_*` 对象（当前是 `final_state_round_100_p33a`）。** 每一步的完整门禁证据都在`step_records` 里，本文件只汇总。
-2. P3.3b, P3.3a and P3.3c are DONE - do not re-open them. The next clean slice is P3.3d (methodology action + convergence contract, ~514 lines). BEFORE moving anything, run `py .scratch/p32-measure-cluster.py <members> --from <pre-move commit>` and `py .scratch/p33c-edges.py`-style classification: the measurement tool now scans `self.` AND `cls.` and can read a revision, and both P3.3b and P3.3c lost members because a free name needed a layer the matrix forbids.
-3. The slice tools take members from argv and now include the IMPORT GUARD the P3.3 extractor was missing - keep it: it stops a move whose body needs a name the target module does not import (that defect cost 7 test errors in P3.3c). The delegation generator forwards each member's OWN receiver (`cls` for classmethods).
-4. Three probes exist for claims nothing else can check: `p33-verify.py` (AST-identical bodies), `p33c-textdiff.py` (string VALUES byte-for-byte plus body code lines - `ast.unparse` cannot see string content) and `p33c-thresholds.py` (proves a surface delta is only a receiver rename). Run them, and re-prove can-fail before trusting any of them.
+1. Read `step_records` plus the object named by `authoritative_final_state`; they are the only current content.
+2. P3.3b, P3.3a, P3.3c and P3.3d are DONE - do not re-open them. Before the next slice, run `py .scratch/p32-measure-cluster.py <members> --from <pre-move commit>` (it scans `self.` AND `cls.` and reads a revision) and classify the free names against plan 3.2's matrix - that check is what shrank P3.3b by four members, P3.3c by four and P3.3d by one.
+3. The remaining P3.3 work is P3.3e (`_derive_investigation_observations`, 2,795 lines) and P3.3f (`_run_investigation_loop`, 3,523), plus the three BLOCKED sub-slices whose unblocking is a LAYER change, not effort. Moving either giant wholesale is a single checkpoint with the whole investigation loop as its failure surface; the design says do the surrounding slices first, which is now done.
+4. KEEP THE GUARDS THAT WERE EARNED THE HARD WAY: the extractor's import guard, its arity stop and its derived travelling constants; the contract test's arity pins (`test_no_call_omits_the_host_a_sibling_requires`); and the three probes (`p33-verify.py` for AST identity, `p33c-textdiff.py` for string values + code lines, `p33c-thresholds.py` for surface deltas). Each was added because something slipped past every other gate.
 5. `structure_status=READY` must never imply `capability_status=ACCEPTED`: the Ghidra B3/C3 capability items (T4 route B2, T8, T3, T6, T7, the diagnostic channel, undeclared truncation) are untouched by this plan.
 
 ## 七、已记录、但**不得**在结构步骤里修的行为缺陷
