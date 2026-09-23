@@ -1,6 +1,6 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 63 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 64 条，本文件只汇总。
 
 - **被核验的树 = 提交 `65a15726141c59c28957fc18be498599c0da619f`**（该提交的 tree 上跑过四道门禁与全量套件）
 - `head_sha` 的语义：**`head_sha` 是被门禁核验的代码提交 `65a15726141c`，不是「当前 HEAD」。** 四道门禁、focused 套件与全量套件都在它的 tree 上运行过。**本轮实测到的两处漂移正是这个字段造成的**：先前它记的是提交前的 HEAD，于是文档声称在一个不含本步改动的提交上完成核验；改成「当前 HEAD」后又发现，写下该值的提交本身就会移动 HEAD——**任何文件都无法正确写出「包含自己的那个提交」**。因此这里固定记代码提交，并在每次复验时核对 `src/` 与 `tests/` 是否仍与它一致（本轮实测：`git diff --name-only 65a15726141c..HEAD -- src tests` 为空，即逐字节相同）。每一步的回滚点是该步 `rollback_point` 记录的上一个提交。
@@ -97,6 +97,11 @@ UNCHANGED and untouched by this plan: capability acceptance is measured on the a
 - P3.3c
 - P3.3d
 - P3.3e/f-decision
+- P3.3-layer4
+- P3.3c2
+- PROC-tooling-gate
+- P3.3-layer2
+- P3.3e-design
 
 ## 五、审计历史
 
@@ -112,7 +117,7 @@ UNCHANGED and untouched by this plan: capability acceptance is measured on the a
 ## 六、后继者必须先做的事
 
 1. **HARD GATES FOR EVERY SLICE - a slice that is missing any of these is NOT complete, and the next slice does not start until it is: 1. `py scripts/check-slice-tooling.py` (plus `--self-check`) - every `scripts/` and `.scratch/` python file parses, because a corrupted INSTRUMENT is invisible to git (`.scratch` is gitignored) and has already happened once; 2. the tool's own can-fail proof against a deliberately damaged subject, restoring every file byte-for-byte; 3. focused tests on the slice's own contract files; 4. the FULL suite; 5. `py scripts/check-deployed-code-hashes.py --strict --import-smoke`, AFTER `git status --porcelain -- src tests` is clean apart from what this step commits and AFTER a rebuild if `src/` changed (the gate compares BYTES, so a stale image or a file some other process rewrote reads as a code mismatch); 6. failure-set comparison by NODE SET, never by count; 7. commit, then confirm `git rev-parse HEAD` equals `git rev-parse origin/main`, and if a push fails say so in the tracked status rather than claiming sync. PUSH ROUTE, MEASURED 2026-09-23: try SSH FIRST - `GIT_SSH_COMMAND="ssh -i <key> -o HostName=ssh.github.com -o Port=443" git push origin main` authenticated and pushed, while the `ghproxy.net` HTTPS mirror (installed as a global `url.insteadOf` rewrite) failed with `schannel: failed to receive handshake`, and direct github.com:443 is unreachable here. AND: never use 'the file got shorter' or 'more tests pass' as completion evidence.**
-2. **PUSH RESOLVED (was pending, recorded and cleared in the same session).** Local HEAD and `origin/main` are both `3542722fe8f3`; the remote reports the same commit. The earlier failure was network interception of SSH, NOT credentials or policy: `ssh -v -T git@github.com` connects, receives a mismatched banner (`compat_banner: no match: af8ca74`) and times out, over both `ssh.github.com:443` and `github.com:22`. THE ROUTE THAT WORKS ON THIS MACHINE is HTTPS through the already-configured local proxy with the SSH remote left alone: `git -c url."https://github.com/".insteadOf="git@github.com:" push origin main`. If a push fails again, try that before concluding anything about access rights.
+2. **PUSH ROUTE - MEASURED TWICE, AND IT INVERTED, SO TRY BOTH.** 2026-09-23 later in the session: SSH worked (`GIT_SSH_COMMAND="ssh -i <key> -o HostName=ssh.github.com -o Port=443" git push origin main` authenticated as Xtxccyz and pushed), while the `ghproxy.net` HTTPS mirror failed repeatedly with `schannel: failed to receive handshake` and direct `github.com:443` was not TCP-reachable. EARLIER the same day the opposite held (SSH intercepted with a mismatched banner, the mirror working). So: try SSH first, then the mirror rewrite, and if both fail report the repository as NOT in sync rather than guessing. The remote is `git@github.com:Xtxccyz/TRA.git`; after any push confirm `git rev-parse HEAD` equals `git rev-parse origin/main`.
 3. Read `step_records` plus the object named by `authoritative_final_state`; they are the only current content.
 4. BEFORE TRUSTING ANY SLICE INSTRUMENT, RUN IT: `.scratch/p33-extract.py` was found NOT COMPILING at the start of this step (two statements merged onto one line by the PowerShell text mangling this project keeps hitting). The tooling is gitignored, so corruption leaves no `git status` signal - running it is the only detector, and moving these instruments into tracked `scripts/` is now overdue.
 5. ANY MOVE MUST DERIVE THE IMPORTS ITS NEW HOME NEEDS and refuse to add them silently. The guard stopped this slice and named exactly the two names the two layer items had made reachable - which is the clearest evidence that those items were the real blockers. Spans must start at the FIRST DECORATOR and carry the comment block above a definition; declarations must preserve the receiver shape (`cls` for classmethods, kept but not forwarded when the moved body needs no host).
