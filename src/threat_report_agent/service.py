@@ -184,8 +184,6 @@ from threat_report_agent.investigation.investigation_ledger import (
     begin_item,
     close_item,
     defer_item,
-    deferred_item_ids,
-    open_item_ids,
     register_work_item,
     should_skip_work_item,
     status_from_thread_state,
@@ -8155,64 +8153,13 @@ class AnalysisService:
         return plan
 
     def _work_ledger(self, task_id: str) -> list[dict[str, object]]:
-        with self.database.session_factory() as session:
-            task = session.get(AnalysisTask, task_id)
-            if task is None:
-                return []
-            snapshot = dict((task.strategy_snapshot or {}).get("investigation") or {})
-            raw = snapshot.get("work_ledger") or []
-            if not isinstance(raw, list):
-                return []
-            return [dict(item) for item in raw if isinstance(item, Mapping)]
+        return _coordinator._work_ledger(self, task_id)
 
     def _park_open_ledger(self, task_id: str) -> None:
-        """Coverage made no progress: park remaining OPEN items as 待完成."""
-        with self.database.session_factory.begin() as session:
-            task = session.get(AnalysisTask, task_id)
-            if task is None:
-                return
-            snapshot = dict((task.strategy_snapshot or {}).get("investigation") or {})
-            ledger = [dict(item) for item in (snapshot.get("work_ledger") or []) if isinstance(item, Mapping)]
-            for item_id in open_item_ids(ledger):
-                ledger = defer_item(ledger, item_id, reason="COVERAGE_STALLED")
-                thread = session.get(InvestigationThreadRecord, item_id)
-                if thread is not None and thread.state not in {
-                    InvestigationThreadState.CLAIM_READY.value,
-                    InvestigationThreadState.CLOSED.value,
-                }:
-                    thread.state = InvestigationThreadState.BLOCKED.value
-            snapshot["work_ledger"] = ledger
-            task.strategy_snapshot = {
-                **(task.strategy_snapshot or {}),
-                "investigation": snapshot,
-            }
+        return _coordinator._park_open_ledger(self, task_id)
 
     def _finalize_tail_ledger(self, task_id: str) -> None:
-        """After the dedicated tail pass, remaining 待完成 become honest UNKNOWN."""
-        with self.database.session_factory.begin() as session:
-            task = session.get(AnalysisTask, task_id)
-            if task is None:
-                return
-            snapshot = dict((task.strategy_snapshot or {}).get("investigation") or {})
-            ledger = [dict(item) for item in (snapshot.get("work_ledger") or []) if isinstance(item, Mapping)]
-            for item_id in deferred_item_ids(ledger):
-                ledger = terminate_item(
-                    ledger,
-                    item_id,
-                    LEDGER_UNKNOWN,
-                    reason="TAIL_PASS_UNCLOSED",
-                )
-                thread = session.get(InvestigationThreadRecord, item_id)
-                if thread is not None and thread.state not in {
-                    InvestigationThreadState.CLAIM_READY.value,
-                    InvestigationThreadState.CLOSED.value,
-                }:
-                    thread.state = InvestigationThreadState.UNKNOWN.value
-            snapshot["work_ledger"] = ledger
-            task.strategy_snapshot = {
-                **(task.strategy_snapshot or {}),
-                "investigation": snapshot,
-            }
+        return _coordinator._finalize_tail_ledger(self, task_id)
 
     def _run_saturated_investigation(self, task_id: str) -> list[str]:
         """Keep investigating until the work ledger has no OPEN or DEFERRED items."""
@@ -14032,7 +13979,7 @@ class AnalysisService:
 
     @staticmethod
     def _ledger_ids(ledger: EvidenceDeliveryLedger, stage: EvidenceStage) -> list[str]:
-        return sorted({event.evidence_id for event in ledger.events if event.stage == stage})
+        return _coordinator._ledger_ids(ledger, stage)
 
     @classmethod
     def _bound_completed_actions(
@@ -27727,94 +27674,14 @@ class AnalysisService:
         ledger: EvidenceDeliveryLedger,
         model_call_id: str | None,
     ) -> None:
-        """Append unseen funnel events; Evidence itself remains immutable.
-
-        This method is idempotent for a turn.  It permits a caller to persist
-        delivery before a failed response and append later model-reference or
-        verifier-acceptance events without updating the original trace rows.
-        """
-        subject_keys = tuple(dict.fromkeys(event.evidence_id for event in ledger.events))
-        existing = (
-            set(
-                session.execute(
-                    select(EvidenceDeliveryTrace.subject_key, EvidenceDeliveryTrace.stage).where(
-                        EvidenceDeliveryTrace.task_id == task.id,
-                        EvidenceDeliveryTrace.turn_id == ledger.turn_id,
-                        EvidenceDeliveryTrace.subject_key.in_(subject_keys),
-                    )
-                ).all()
-            )
-            if subject_keys
-            else set()
+        return _coordinator._persist_evidence_delivery_ledger(
+            self,
+            session,
+            task=task,
+            artifact_id=artifact_id,
+            ledger=ledger,
+            model_call_id=model_call_id,
         )
-        existing_evidence_ids = (
-            set(
-                session.scalars(
-                    select(Evidence.id).where(
-                        Evidence.task_id == task.id, Evidence.id.in_(subject_keys)
-                    )
-                ).all()
-            )
-            if subject_keys
-            else set()
-        )
-        evidence_artifacts = (
-            {
-                str(evidence_id): str(evidence_artifact_id)
-                for evidence_id, evidence_artifact_id in session.execute(
-                    select(Evidence.id, Evidence.artifact_id).where(
-                        Evidence.task_id == task.id,
-                        Evidence.id.in_(subject_keys),
-                    )
-                ).all()
-            }
-            if subject_keys
-            else {}
-        )
-        added = 0
-        for event in ledger.events:
-            key = (event.evidence_id, event.stage.value)
-            if key in existing:
-                continue
-            details = dict(event.details)
-            role = details.pop("context_role", None)
-            score = details.pop("selection_score", None)
-            exclusion = details.pop("exclusion_reason", None)
-            session.add(
-                EvidenceDeliveryTrace(
-                    task_id=task.id,
-                    artifact_id=artifact_id or evidence_artifacts.get(event.evidence_id),
-                    thread_id=event.thread_id or None,
-                    model_call_id=model_call_id,
-                    turn_id=event.turn_id,
-                    subject_key=event.evidence_id,
-                    evidence_id=(
-                        event.evidence_id if event.evidence_id in existing_evidence_ids else None
-                    ),
-                    stage=event.stage.value,
-                    context_role=str(role) if role else None,
-                    selection_score=float(score) if score is not None else None,
-                    exclusion_reason=str(exclusion) if exclusion else None,
-                    details=details,
-                )
-            )
-            added += 1
-        if added:
-            self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="evidence.delivery_traced",
-                actor="evidence-retriever",
-                object_type="EvidenceDeliveryTrace",
-                object_id=ledger.turn_id[:80],
-                payload={
-                    "turn_id": ledger.turn_id,
-                    "thread_id": ledger.thread_id,
-                    "record_count": added,
-                    "model_call_id": model_call_id,
-                },
-            )
 
     def record_evidence_delivery_trace(
         self,

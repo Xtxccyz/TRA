@@ -1,17 +1,22 @@
-"""P3.3b contract: the investigation slice's port, the slice behind it, and the members that had to STAY.
+"""P3.3 contract: the investigation slices' port, the slices behind it, and the members that had to STAY.
 
 Plan 7.1 step 2 is "stand up the minimal interface and its contract test before moving any implementation"; P3.3's
-slices follow P3.2's recipe (`docs/p33-investigation-coordinator-design-20260922.md`). This file pins the first slice.
+slices follow P3.2's recipe (`docs/p33-investigation-coordinator-design-20260922.md`), and this file pins the two that
+have moved: P3.3b (frontier helpers) and P3.3a (the ledger).
 
-MEASURED, and it is why the slice is smaller than the fragment scan suggested: four members that the scan grouped with
-this one stay on the host. `_is_unique_thread_seed_row`, `_unique_thread_start_keys` and
+MEASURED, and it is why P3.3b's slice is smaller than the fragment scan suggested: four members that the scan grouped
+with it stay on the host. `_is_unique_thread_seed_row`, `_unique_thread_start_keys` and
 `_unique_execution_threads_for_view` read `_address_lookup_keys` / `build_unique_execution_threads` from
 `report/reporting.py`, and plan 3.2's allowed-dependency matrix lets `investigation/` import only contracts, facts,
 static/emulation/tools interfaces and the model port - "未列出的边默认禁止". `_select_unique_thread_seed_rows` stays
 with them because it calls two of them. Moving those four would have created a NEW forbidden
-`investigation -> report` edge; that is pinned below so a later step cannot do it by accident.
+`investigation -> report` edge; that is pinned below so a later step cannot do it by accident. (MEASURED afterwards:
+the repository contains exactly ONE `investigation -> report` import, `investigation/persist_how.py`, and it is the
+one recorded in `docs/import-policy.json`'s `known_violations` - so the first attempt would have made a known
+violation worse.)
 
-The port is ONE member (`database`), which is what the design's own slice table measured.
+The port is TWO members: `database` (P3.3b, what the design measured) and `_audit` (P3.3a, which the ledger slice
+measured for itself).
 
     python -m pytest -q tests/test_investigation_coordinator_contract.py
 """
@@ -37,11 +42,18 @@ SERVICE_MODULE = PACKAGE / "service.py"
 COORDINATOR_MODULE = PACKAGE / "investigation" / "coordinator.py"
 
 MOVED_MEMBERS = (
+    # P3.3b
     "_build_investigation_frontier",
     "_convergence_frontier_fingerprint",
     "_frontier_value_present",
     "_unattempted_seed_thread_ids",
     "_mechanism_missing_fields",
+    # P3.3a (the ledger slice; MEASURED host needs `database` + `_audit`)
+    "_persist_evidence_delivery_ledger",
+    "_finalize_tail_ledger",
+    "_park_open_ledger",
+    "_work_ledger",
+    "_ledger_ids",
 )
 MOVED_MODULE_FUNCS = ("frontier_status_is_open", "deferred_keeps_planner_open")
 #: Stayed on the host: moving them would need `report.reporting`, which plan 3.2 does not allow `investigation/` to
@@ -58,6 +70,11 @@ ORIGINAL_DECORATORS = {
     "_frontier_value_present": ["staticmethod"],
     "_unattempted_seed_thread_ids": [],
     "_mechanism_missing_fields": ["classmethod"],
+    "_persist_evidence_delivery_ledger": [],
+    "_finalize_tail_ledger": [],
+    "_park_open_ledger": [],
+    "_work_ledger": [],
+    "_ledger_ids": ["staticmethod"],
 }
 
 
@@ -119,9 +136,9 @@ def test_the_coordinator_module_defines_exactly_the_port_and_the_moved_slice() -
 
 def test_the_port_matches_the_pin_and_is_fully_used() -> None:
     assert len(set(INVESTIGATION_HOST_MEMBERS)) == len(INVESTIGATION_HOST_MEMBERS), "the pin has a duplicate"
-    assert INVESTIGATION_HOST_MEMBERS == ("database",), (
-        "the design measured this slice's need as `database` only; widening it needs a measured reason recorded in "
-        "the step's findings"
+    assert INVESTIGATION_HOST_MEMBERS == ("database", "_audit"), (
+        "the port is `database` (P3.3b) plus `_audit` (P3.3a's ledger slice writes an audit event through the host); "
+        "widening it further needs a measured reason recorded in the step's findings"
     )
     assert _protocol_members() == set(INVESTIGATION_HOST_MEMBERS), (
         f"InvestigationHost declares {sorted(_protocol_members())} but the pin is {sorted(INVESTIGATION_HOST_MEMBERS)}"

@@ -1,13 +1,17 @@
 """P3.3 investigation coordinator: the port an investigation slice needs from its host, plus the slice behind it.
 
-STATUS: slice P3.3b (frontier helpers) has moved. Plan 7.1 orders every migration in nine steps - step 2 is
-"先建立最小公开接口和 contract test" and step 3 is "移动同一份实现" - and P3.3 is executed in the six slices its
-measurement produced (`docs/p33-investigation-coordinator-design-20260922.md`), smallest port cost first.
+STATUS: slices P3.3b (frontier helpers) and P3.3a (the ledger) have moved. Plan 7.1 orders every migration in nine
+steps - step 2 is "先建立最小公开接口和 contract test" and step 3 is "移动同一份实现" - and P3.3 is executed in the six
+slices its measurement produced (`docs/p33-investigation-coordinator-design-20260922.md`), smallest port cost first.
 
 WHAT MOVED IN P3.3b: `_build_investigation_frontier`, `_convergence_frontier_fingerprint`, `_frontier_value_present`,
 `_unattempted_seed_thread_ids` and `_mechanism_missing_fields` (MEASURED: its only use in service.py is inside the
 moved `_build_investigation_frontier`, so it travels with the slice rather than widening the port), plus the
 module-level pair `frontier_status_is_open` / `deferred_keeps_planner_open` and the two frozensets they close over.
+
+WHAT MOVED IN P3.3a: `_persist_evidence_delivery_ledger`, `_finalize_tail_ledger`, `_park_open_ledger`,
+`_work_ledger` and `_ledger_ids` (a `@staticmethod`: no receiver, so it ships with no host parameter at all). Their
+only host references are `database` and `_audit`, which is why the port grew by exactly one member.
 
 THE SLICE IS SMALLER THAN THE FRAGMENT SCAN SUGGESTED, AND A PLAN RULE IS WHY. Four members that the scan grouped
 with this one stayed on the host:
@@ -25,9 +29,14 @@ with this one stayed on the host:
   import (facts/ or static/), exactly the shape of the `facts -> investigation` decision recorded in
   `docs/plan-conflict-resolutions-20260922.md`: move the thing first, then the edge, never one alone.
 
-THE PORT (ONE member, and that matches the design's own measurement): `database`. The design's slice table measured
-this slice's need as "无（切片内自洽，只需 `database`）" and it was right; the first implementation of this step
-exported two class constants that only a STAYING member reads, which was a port widened on a false claim.
+THE PORT (two members, each measured): `database` and `_audit`.
+
+  * `database` came with P3.3b: the design's slice table measured that slice's need as
+    "无（切片内自洽，只需 `database`）" and it was right. The FIRST implementation exported two class constants that
+    only a STAYING member reads, which was a port widened on a false claim - corrected to one member before commit.
+  * `_audit` came with P3.3a: the ledger writes an audit event. MEASURED on the five ledger members, `_audit` is
+    their only host reference besides `database`, and `_audit_event_hash` is reached THROUGH `_audit` (which stays a
+    host operation), so it is not a port member.
 
 WHY THE MOVE SPLITS HOST STATE FROM CLOSURE STATE, as a rule rather than case by case:
 
@@ -53,31 +62,63 @@ from threat_report_agent.investigation.investigation import (
     InvestigationThreadState,
     investigation_frontier_fingerprint,
 )
+from threat_report_agent.investigation.investigation_ledger import (
+    LEDGER_UNKNOWN,
+    defer_item,
+    deferred_item_ids,
+    open_item_ids,
+    terminate_item,
+)
 from threat_report_agent.models import (
     AnalysisTask,
     Artifact,
+    AuditEvent,
     Evidence,
+    EvidenceDeliveryTrace,
     InvestigationActionRecord,
     InvestigationHypothesisRecord,
     InvestigationThreadRecord,
 )
+from threat_report_agent.static.evidence_recovery import EvidenceDeliveryLedger, EvidenceStage
 
 #: The measured host needs of the slices moved so far - the ONLY things an investigation slice may require of its host.
 #: Pinned by `tests/test_investigation_coordinator_contract.py`, which re-derives it from `service.py` and fails if it
 #: grew or if a member became unused, so widening it is a deliberate act (the P3.2g precedent).
-INVESTIGATION_HOST_MEMBERS: tuple[str, ...] = ("database",)
+#:
+#: WIDENED ONCE, ON PURPOSE, IN P3.3a (one member -> two): the ledger slice writes an audit event through the host's
+#: `_audit` writer. MEASURED with `.scratch/p32-measure-cluster.py` on the five ledger members - `_audit` is their
+#: only host reference besides `database`, and `_audit_event_hash` is reached THROUGH `_audit` (which stays a host
+#: operation), so it is not a port member.
+INVESTIGATION_HOST_MEMBERS: tuple[str, ...] = (
+    "database",
+    # --- added by P3.3a (the ledger slice) ---
+    "_audit",
+)
 
 
 class InvestigationHost(Protocol):
     """What an investigation slice may use on the object that owns it.
 
-    One member, because the measurement says so. `database` is annotated loosely ON PURPOSE: plan 3.2's matrix does
+    Two members, because the measurement says so. `database` is annotated loosely ON PURPOSE: plan 3.2's matrix does
     not list `database` among the modules `investigation/` may import ("未列出的边默认禁止"), and no module under
     `investigation/` imports it today, so naming the concrete type here would create a new edge just to describe an
-    attribute this code only ever calls methods on at runtime.
+    attribute this code only ever calls methods on at runtime. `_audit` is declared with the host's real signature.
     """
 
     database: object
+
+    def _audit(
+        self,
+        session: Session,
+        *,
+        case_id: str | None,
+        event_type: str,
+        actor: str,
+        object_type: str,
+        object_id: str,
+        payload: dict[str, object],
+        task_id: str | None = None,
+    ) -> AuditEvent: ...
 
 
 def missing_investigation_host_members(host: object) -> tuple[str, ...]:
@@ -464,3 +505,175 @@ def deferred_keeps_planner_open(item: object) -> bool:
         return False
     reason = str(item.get("reason") or "").upper()
     return reason not in _PLANNER_CLOSED_DEFERRED_REASONS
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.3b): identical to its old home in service.py. The receiver it used to reach through
+# `self`/`cls` is now an explicit `host: InvestigationHost` parameter, and ONLY where the body still needs one.
+# ---------------------------------------------------------------------------
+
+
+def _persist_evidence_delivery_ledger(
+    host: InvestigationHost,
+    session: Session,
+    *,
+    task: AnalysisTask,
+    artifact_id: str | None,
+    ledger: EvidenceDeliveryLedger,
+    model_call_id: str | None,
+) -> None:
+    """Append unseen funnel events; Evidence itself remains immutable.
+
+        This method is idempotent for a turn.  It permits a caller to persist
+        delivery before a failed response and append later model-reference or
+        verifier-acceptance events without updating the original trace rows.
+        """
+    subject_keys = tuple(dict.fromkeys(event.evidence_id for event in ledger.events))
+    existing = (
+        set(
+            session.execute(
+                select(EvidenceDeliveryTrace.subject_key, EvidenceDeliveryTrace.stage).where(
+                    EvidenceDeliveryTrace.task_id == task.id,
+                    EvidenceDeliveryTrace.turn_id == ledger.turn_id,
+                    EvidenceDeliveryTrace.subject_key.in_(subject_keys),
+                )
+            ).all()
+        )
+        if subject_keys
+        else set()
+    )
+    existing_evidence_ids = (
+        set(
+            session.scalars(
+                select(Evidence.id).where(
+                    Evidence.task_id == task.id, Evidence.id.in_(subject_keys)
+                )
+            ).all()
+        )
+        if subject_keys
+        else set()
+    )
+    evidence_artifacts = (
+        {
+            str(evidence_id): str(evidence_artifact_id)
+            for evidence_id, evidence_artifact_id in session.execute(
+                select(Evidence.id, Evidence.artifact_id).where(
+                    Evidence.task_id == task.id,
+                    Evidence.id.in_(subject_keys),
+                )
+            ).all()
+        }
+        if subject_keys
+        else {}
+    )
+    added = 0
+    for event in ledger.events:
+        key = (event.evidence_id, event.stage.value)
+        if key in existing:
+            continue
+        details = dict(event.details)
+        role = details.pop("context_role", None)
+        score = details.pop("selection_score", None)
+        exclusion = details.pop("exclusion_reason", None)
+        session.add(
+            EvidenceDeliveryTrace(
+                task_id=task.id,
+                artifact_id=artifact_id or evidence_artifacts.get(event.evidence_id),
+                thread_id=event.thread_id or None,
+                model_call_id=model_call_id,
+                turn_id=event.turn_id,
+                subject_key=event.evidence_id,
+                evidence_id=(
+                    event.evidence_id if event.evidence_id in existing_evidence_ids else None
+                ),
+                stage=event.stage.value,
+                context_role=str(role) if role else None,
+                selection_score=float(score) if score is not None else None,
+                exclusion_reason=str(exclusion) if exclusion else None,
+                details=details,
+            )
+        )
+        added += 1
+    if added:
+        host._audit(
+            session,
+            case_id=task.case_id,
+            task_id=task.id,
+            event_type="evidence.delivery_traced",
+            actor="evidence-retriever",
+            object_type="EvidenceDeliveryTrace",
+            object_id=ledger.turn_id[:80],
+            payload={
+                "turn_id": ledger.turn_id,
+                "thread_id": ledger.thread_id,
+                "record_count": added,
+                "model_call_id": model_call_id,
+            },
+        )
+
+
+def _finalize_tail_ledger(host: InvestigationHost, task_id: str) -> None:
+    """After the dedicated tail pass, remaining 待完成 become honest UNKNOWN."""
+    with host.database.session_factory.begin() as session:
+        task = session.get(AnalysisTask, task_id)
+        if task is None:
+            return
+        snapshot = dict((task.strategy_snapshot or {}).get("investigation") or {})
+        ledger = [dict(item) for item in (snapshot.get("work_ledger") or []) if isinstance(item, Mapping)]
+        for item_id in deferred_item_ids(ledger):
+            ledger = terminate_item(
+                ledger,
+                item_id,
+                LEDGER_UNKNOWN,
+                reason="TAIL_PASS_UNCLOSED",
+            )
+            thread = session.get(InvestigationThreadRecord, item_id)
+            if thread is not None and thread.state not in {
+                InvestigationThreadState.CLAIM_READY.value,
+                InvestigationThreadState.CLOSED.value,
+            }:
+                thread.state = InvestigationThreadState.UNKNOWN.value
+        snapshot["work_ledger"] = ledger
+        task.strategy_snapshot = {
+            **(task.strategy_snapshot or {}),
+            "investigation": snapshot,
+        }
+
+
+def _park_open_ledger(host: InvestigationHost, task_id: str) -> None:
+    """Coverage made no progress: park remaining OPEN items as 待完成."""
+    with host.database.session_factory.begin() as session:
+        task = session.get(AnalysisTask, task_id)
+        if task is None:
+            return
+        snapshot = dict((task.strategy_snapshot or {}).get("investigation") or {})
+        ledger = [dict(item) for item in (snapshot.get("work_ledger") or []) if isinstance(item, Mapping)]
+        for item_id in open_item_ids(ledger):
+            ledger = defer_item(ledger, item_id, reason="COVERAGE_STALLED")
+            thread = session.get(InvestigationThreadRecord, item_id)
+            if thread is not None and thread.state not in {
+                InvestigationThreadState.CLAIM_READY.value,
+                InvestigationThreadState.CLOSED.value,
+            }:
+                thread.state = InvestigationThreadState.BLOCKED.value
+        snapshot["work_ledger"] = ledger
+        task.strategy_snapshot = {
+            **(task.strategy_snapshot or {}),
+            "investigation": snapshot,
+        }
+
+
+def _work_ledger(host: InvestigationHost, task_id: str) -> list[dict[str, object]]:
+    with host.database.session_factory() as session:
+        task = session.get(AnalysisTask, task_id)
+        if task is None:
+            return []
+        snapshot = dict((task.strategy_snapshot or {}).get("investigation") or {})
+        raw = snapshot.get("work_ledger") or []
+        if not isinstance(raw, list):
+            return []
+        return [dict(item) for item in raw if isinstance(item, Mapping)]
+
+
+def _ledger_ids(ledger: EvidenceDeliveryLedger, stage: EvidenceStage) -> list[str]:
+    return sorted({event.evidence_id for event in ledger.events if event.stage == stage})
