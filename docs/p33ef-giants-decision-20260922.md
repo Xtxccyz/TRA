@@ -155,15 +155,20 @@ static/emulation/tools 的**接口**，未列出的边默认禁止）重判，�
 
 | 序 | 层工作 | 解锁 | 实测依据 |
 |---|---|---|---|
-| 1 | 把**循环路径策略** `LOOP_PATH_*` / `next_investigation_loop_path` / `resolve_persist_how_skip` 从 `task/analysis_task_orchestration.py` 下移到 `investigation/`（或 contracts），task 侧改为导入 | **P3.3f**（消除环）与 **P3.3c(2)** 的 `action_is_model_or_human` | 名字定义位置实测（第 2.1 节）；方案第 133 行本就允许 `task/ -> investigation` |
+| 1 | ~~把**循环路径策略** `LOOP_PATH_*` / `next_investigation_loop_path` / `resolve_persist_how_skip` 从 `task/analysis_task_orchestration.py` 下移到 `investigation/`（或 contracts），task 侧改为导入~~ **已完成**：落到 `investigation/loop_path.py`（16 个模块级名字 / 167 行，task 侧 re-export） | ~~**P3.3f**（消除环）与 **P3.3c(2)** 的 `action_is_model_or_human`~~ 环已消除；P3.3c(2) 仍受第 4 条阻塞 | 名字定义位置实测（第 2.1 节）；方案第 133 行本就允许 `task/ -> investigation`。完成记录见 `docs/p33-layer1-loop-path-module-design-20260922.md` |
 | 2 | 把 7 个模拟策略名从 `simulation_adapters` 暴露成**允许的 emulation 接口**（或把纯策略函数下移） | **P3.3e** | 第 1.5 节的判定 |
 | 3 | 把 `_address_lookup_keys` / `build_unique_execution_threads` 从 `report/reporting.py` 下移到 `facts/` 或 `static/` | **P3.3b(2)**（97 行） | P3.3b 的实测 |
 | 4 | 让 **model port** 暴露 `DynamicPlanAction`（`ports.py` 目前没有；它只 `ModelPlanningPort` 等 Protocol） | **P3.3c(2)** 的 3 个成员（71 行） | P3.3c 的实测 |
 | 5 | 把 `methodology` 提升为**被多层共享的纯模块**（它只 import 标准库与 yaml）或下移其 `FactLibrary` 构造 | **P3.3d(2)** 的 `_run_methodology_action`（271 行） | P3.3d 的实测 |
 
 这五条都属于 P1.2（端口与适配器）那条线的工作，各自应是一个独立步骤（自己白名单、自己验证）。
-**当前可执行的下一个结构步骤是第 1 条**：它同时解开一个巨方法和一个子切片，且改动范围明确
-（一个文件里的 5 个纯策略名 + task 侧导入 + 一处 getsource 测试）。
+**第 1 条已于本轮完成**（`investigation/loop_path.py`，见 `docs/p33-layer1-loop-path-module-design-20260922.md`），
+`investigation -> task` 的环因此消除。
+
+**当前可执行的下一个结构步骤是第 4 条**（让 model port 暴露 `DynamicPlanAction`）：它是五条里最小、最纯的改动
+（往 `ports.py` 加一个名字，不动任何行为），却解开 P3.3c(2) 的 3 个成员 / 71 行的最后一个阻塞。
+紧随其后应做**第 2 条**（把 7 个模拟策略名暴露成允许的 emulation 接口），因为它是唯一解开 P3.3e
+（2,795 行的 `_derive_investigation_observations`）的前提——那是本阶段剩余价值最大的一步。
 
 ## 4. 本步明确不做
 
