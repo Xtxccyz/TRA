@@ -427,3 +427,103 @@ def test_the_port_record_matches_the_defined_ports() -> None:
         "EmulationOutcomeView has no producer in the tree; if an adapter now exists, update this note rather than "
         "deleting the admission"
     )
+
+
+def test_the_model_action_contract_is_reachable_without_the_model_implementation() -> None:
+    """P3.3 layer item 4, pinned where it belongs: the decoupling property, not just the move.
+
+    WHY THIS EXISTS: P3.3c(2)'s three members need `DynamicPlanAction`, and `investigation/` may not import the model
+    IMPLEMENTATION (`model/model_gateway.py` imports httpx). The class therefore moved to `contracts.py` - the pure
+    pydantic contract layer the plan's matrix already allows `investigation/` to import - and BOTH the gateway and this
+    port module re-export the same object. This test asserts the property that makes the port re-export legitimate:
+    importing the contract must NOT import the gateway. MEASURED, and it is why the port re-exports the class from
+    `contracts` rather than from the gateway: the gateway would pull httpx into every importer of this file, which its
+    own docstring forbids.
+    """
+    import subprocess
+    import sys as _sys
+
+    code = (
+        "import sys\n"
+        "import threat_report_agent.contracts as contracts\n"
+        "leaked = sorted(name for name in sys.modules if 'model_gateway' in name)\n"
+        "print(contracts.DynamicPlanAction.__module__)\n"
+        "assert not leaked, f'the contract layer imported the model implementation: {leaked}'\n"
+    )
+    result = subprocess.run(
+        [_sys.executable, "-c", code],
+        cwd=str(PACKAGE.parent),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert result.returncode == 0, result.stderr[-800:]
+    assert result.stdout.strip() == "threat_report_agent.contracts", (
+        f"the canonical class must live in contracts.py; it reports {result.stdout.strip()!r}"
+    )
+
+
+def _definitions_of(name: str, root: Path, source: str | None = None) -> list[str]:
+    """Every `class <name>` in `root` (or in `source`, for the self-check), as `path:line`.
+
+    Kept as a helper so the CHECK ITSELF can be shown to fail: §4.3 of the plan wants verification reproducible from
+    tracked files, and a can-fail proof that lives only in a gitignored script cannot be re-run by a reader.
+    """
+    found: list[str] = []
+    paths = [Path(f"<{name}-synthetic>")] if source is not None else sorted(root.rglob("*.py"))
+    for path in paths:
+        text = source if source is not None else path.read_text(encoding="utf-8", errors="replace")
+        for node in ast.walk(ast.parse(text)):
+            if isinstance(node, ast.ClassDef) and node.name == name:
+                found.append(f"{path.name}:{node.lineno}")
+    return found
+
+
+def test_the_model_action_contract_is_defined_once_and_only_reexported() -> None:
+    """The plan's rule 3.2 line 142: "re-export is not a second implementation" - made checkable.
+
+    Scans ALL of `src/threat_report_agent`, not just `model/`, because the claim being pinned is that there is exactly
+    ONE definition of the type anywhere in the product - a duplicate in `contracts.py`, `service.py` or
+    `investigation/` would be the same violation.
+
+    Also pins the OLD path's promise: `threat_report_agent.model.model_gateway.DynamicPlanAction`, the root shim
+    `threat_report_agent.model_gateway.DynamicPlanAction` and the model PORT are the same object as the contract's, so
+    every existing caller keeps working while the canonical home changed.
+    """
+    definitions = _definitions_of("DynamicPlanAction", PACKAGE)
+    assert definitions == ["contracts.py:141"], (
+        f"expected exactly one definition, in contracts.py; found {definitions}. The canonical class is the contract "
+        "layer's and every other path must only re-export it"
+    )
+
+    from threat_report_agent import contracts as contracts_module
+    from threat_report_agent import model_gateway as root_shim
+    from threat_report_agent import ports as ports_module
+    from threat_report_agent.model import model_gateway as package_path
+
+    assert package_path.DynamicPlanAction is contracts_module.DynamicPlanAction
+    assert root_shim.DynamicPlanAction is contracts_module.DynamicPlanAction
+    assert ports_module.DynamicPlanAction is contracts_module.DynamicPlanAction, (
+        "the model port must EXPOSE the type (plan 3.2 line 132 lists the model port among the things "
+        "`investigation/` may import), and it must be the same object rather than a second declaration"
+    )
+
+
+def test_the_duplicate_definition_check_can_fail() -> None:
+    """The self-check the plan asks for: a check whose failure mode is not demonstrated is not a check.
+
+    MEASURED: the layer-item-4 move first pinned only `model/*.py`, so a duplicate in `contracts.py` or `service.py`
+    would have passed it while the design doc claimed "exactly one definition in src/". This pins the checker against a
+    synthetic duplicate, and against the real tree, so both halves are exercised from a tracked file.
+    """
+    assert _definitions_of(
+        "DynamicPlanAction", PACKAGE, source="class DynamicPlanAction:\n    pass\n"
+    ) == ["<DynamicPlanAction-synthetic>:1"], (
+        "the checker does not detect a duplicate definition, so the pin above proves nothing"
+    )
+    assert (
+        _definitions_of("DynamicPlanAction", PACKAGE, source="class SomethingElse:\n    pass\n")
+        == []
+    )
+    assert _definitions_of("DynamicPlanAction", PACKAGE) == ["contracts.py:141"]

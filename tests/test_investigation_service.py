@@ -41,7 +41,8 @@ from threat_report_agent.service import (
     investigation_budget_charged_action_count,
     investigation_seed_step_budget,
 )
-from threat_report_agent.model_gateway import DynamicPlanAction, ModelGateway
+from threat_report_agent.model_gateway import ModelGateway
+from threat_report_agent.contracts import DynamicPlanAction
 from threat_report_agent.investigation import (
     ActionSpec,
     ActionType,

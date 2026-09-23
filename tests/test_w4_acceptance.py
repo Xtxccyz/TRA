@@ -12,7 +12,8 @@ from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.contracts import BackgroundContextInput
 from threat_report_agent.config import ModelProviderSettings
 from threat_report_agent.database import Database
-from threat_report_agent.model_gateway import DynamicPlanAction, ModelGateway
+from threat_report_agent.model_gateway import ModelGateway
+from threat_report_agent.contracts import DynamicPlanAction
 from threat_report_agent.service import AnalysisService
 from threat_report_agent.models import (
     AnalysisTask,

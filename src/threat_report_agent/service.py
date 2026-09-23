@@ -205,12 +205,12 @@ from threat_report_agent.report.analyst_report import (
 from threat_report_agent.model.model_gateway import (
     AtomicClaimDraft,
     AtomicClaimEnvelope,
-    DynamicPlanAction,
     DynamicPlanEnvelope,
     ModelGateway,
     ModelRequest,
     provider_contract,
 )
+from threat_report_agent.contracts import DynamicPlanAction
 from threat_report_agent.investigation.mechanism_completeness import (
     mechanism_completeness_score,
     mechanism_is_critical_ready,

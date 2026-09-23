@@ -17,10 +17,11 @@ only host references are `database` and `_audit`, which is why the port grew by 
 WHAT MOVED IN P3.3c: `_grounded_planner_action_candidates`, `_action_payload`, `_deterministic_action_plan`,
 `_planner_user_action` (an instance method whose body needs NO host: its delegation keeps `self` for call shape and
 deliberately does not forward it) and `_bound_completed_actions` (a classmethod whose delegation forwards `cls`). Four
-other members of that slice stayed for measured layer reasons - see the design record section 13.1 - because they need
-`DynamicPlanAction` (a model-port type, plan 3.2 item 4) at RUNTIME. ONE of the two reasons recorded here has since
-been REMOVED by P3.3 layer item 1: `action_is_model_or_human` now lives in this package
-(`investigation/loop_path.py`), so it is no longer a layer blocker - it was still one when this slice moved.
+other members of that slice stayed for measured layer reasons - see the design record section 13.1. BOTH of those
+reasons have since been REMOVED, so P3.3c(2) is movable: P3.3 layer item 1 moved `action_is_model_or_human` into this
+package (`investigation/loop_path.py`), and layer item 4 moved `DynamicPlanAction` into
+`threat_report_agent.contracts`, which this package may import and which the model port also exposes. Neither name is a
+layer blocker any more; they were when this slice moved.
 
 THE SLICE IS SMALLER THAN THE FRAGMENT SCAN SUGGESTED, AND A PLAN RULE IS WHY. Four members that the scan grouped
 with this one stayed on the host:

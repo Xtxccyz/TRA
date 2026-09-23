@@ -28,7 +28,7 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from threat_report_agent.model_gateway import DynamicPlanAction  # noqa: E402
+from threat_report_agent.contracts import DynamicPlanAction
 
 
 def _plan(**overrides: object) -> dict[str, object]:

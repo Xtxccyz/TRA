@@ -33,7 +33,17 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from threat_report_agent.contracts import DynamicPlanAction as DynamicPlanAction
 from threat_report_agent.projection_protocols import AnalysisSnapshotView, ReportRevisionView
+
+#: ``DynamicPlanAction`` is re-exported above so the MODEL PORT exposes the type a model-authored plan action is - the
+#: action P3.3 layer item 4 asks for, and the one ``investigation/`` needs for P3.3c(2)'s three members (plan section
+#: 3.2 line 132 lists "model port" among the things ``investigation/`` may import).
+#:
+#: WHY IT COMES FROM `contracts` AND NOT FROM `model/model_gateway.py`: the gateway imports httpx, and this module's own
+#: rule is that it stays free of persistence, transport, SDK and ORM imports. The class therefore lives in the pure
+#: contract layer and this is a RE-EXPORT of the same object - not a second implementation (plan section 3.2 line 142).
+#: MEASURED: importing this module pulls no httpx and no `model_gateway`.
 
 
 @runtime_checkable
