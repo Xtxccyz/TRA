@@ -1587,31 +1587,12 @@ class AnalysisService:
         http_status: object,
         last_status: str | None,
     ) -> str:
-        route = "/".join(item for item in (str(provider or "").strip(), str(model or "").strip()) if item)
-        route = route or "unconfigured"
-        if http_status in {402, "402"}:
-            return (
-                f"对话模型线路 {route} 返回 HTTP 402（配额或余额不足）。"
-                "请打开左下角设置 →「模型」检查同一条线路。"
-            )
-        if http_status in {401, 403, "401", "403"}:
-            return (
-                f"对话模型线路 {route} 认证失败（HTTP {http_status}）。"
-                "请检查左下角设置 →「模型」中的 API Key。"
-            )
-        if last_status in {"FAILED", "TIMEOUT", "EMPTY", "ERROR"}:
-            return (
-                f"对话模型线路 {route} 调用失败（{last_status}）。"
-                "请在左下角设置 →「模型」检查供应商、模型名和密钥。"
-            )
-        if not configured:
-            return (
-                "调查与对话共用左下角设置 →「模型」。"
-                "请在「模型」中填写供应商后再点「分析」。"
-            )
-        return (
-            "调查与对话共用左下角设置 →「模型」。后端先跑确定性静态队列，"
-            "后续调查由该对话模型通过工具完成。"
+        return _coordinator._planner_user_action(
+            configured=configured,
+            provider=provider,
+            model=model,
+            http_status=http_status,
+            last_status=last_status,
         )
 
     def _model_status_payload(
@@ -11784,8 +11765,7 @@ class AnalysisService:
 
     @staticmethod
     def _deterministic_action_plan(artifacts: list[Artifact]) -> list[str]:
-        """Return the mandatory artifact order used when planning is unavailable."""
-        return [item.id for item in artifacts]
+        return _coordinator._deterministic_action_plan(artifacts)
 
     @staticmethod
     def _expected_evidence_for_tool(tool_name: str) -> tuple[str, ...]:
@@ -12871,135 +12851,11 @@ class AnalysisService:
         artifact_ids: set[str],
         limit: int = 6,
     ) -> list[dict[str, object]]:
-        """Offer a small set of evidence-grounded planning choices to a model.
-
-        A planner still chooses whether a lead deserves work and which candidate
-        to use.  The service derives these choices solely from delivered static
-        Evidence so an empty JSON object cannot be mistaken for planning when
-        the next safe step is already concrete.  This is advisory prompt input,
-        never an execution authorization or a deterministic action disguised as
-        model output.
-        """
-        candidates: list[dict[str, object]] = []
-        seen: set[tuple[str, str]] = set()
-
-        def value_for(
-            mapping: Mapping[str, object],
-            names: tuple[str, ...],
-        ) -> str:
-            for name in names:
-                value = mapping.get(name)
-                if isinstance(value, (str, int)) and str(value).strip():
-                    return str(value).strip()
-            return ""
-
-        for item in context_manifest:
-            artifact_id = str(item.get("artifact_id") or "")
-            evidence_id = str(item.get("evidence_id") or "")
-            if not artifact_id or artifact_id not in artifact_ids or not evidence_id:
-                continue
-            if str(item.get("nature")) == "BACKGROUND_REPORTED":
-                continue
-            anchor = item.get("anchor")
-            anchor = anchor if isinstance(anchor, Mapping) else {}
-            value = item.get("value")
-            value = value if isinstance(value, Mapping) else {}
-            # A model-directed function action needs function-scoped Evidence.
-            # PE-header entry RVAs are navigation metadata, not a recovered
-            # function target, and must not turn into deep probing actions.
-            function_target = DeepMiningPlanner._function_key(item)
-            api_target = value_for(
-                value,
-                ("api", "api_name", "target_name", "target_function", "name", "indicator"),
-            )
-            # Imports and function-context rows sometimes preserve the API
-            # only in an explicit call-target array.  The first bounded call
-            # target is a valid Xref lead when no direct locator exists.
-            if not api_target:
-                for field in ("call_targets", "calls", "functions"):
-                    nested = value.get(field)
-                    if not isinstance(nested, (list, tuple)):
-                        continue
-                    for child in nested:
-                        if not isinstance(child, Mapping):
-                            continue
-                        api_target = value_for(
-                            child,
-                            ("api", "api_name", "target_name", "target_function", "name"),
-                        )
-                        if api_target:
-                            break
-                    if api_target:
-                        break
-            if function_target:
-                target = function_target
-                action_type = ActionType.TRACE_API_ARGUMENT
-                expected = ["api_argument_trace", "function_context"]
-                question = (
-                    "Which concrete arguments and call-site condition reach the "
-                    "cited function, and which static consumer receives its output?"
-                )
-                hypothesis = (
-                    "The cited function contains a statically recoverable mechanism "
-                    "whose arguments or data flow distinguish it from a dead helper."
-                )
-                alternatives = [
-                    "The function is an initialization or compatibility helper without a security-relevant consumer."
-                ]
-                missing = ["argument data flow", "call-site condition", "downstream consumer"]
-                failure = (
-                    "The delivered function anchor did not expose a bounded static argument "
-                    "path; the mechanism remains unknown rather than absent."
-                )
-            elif api_target and not re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", api_target):
-                target = api_target
-                action_type = ActionType.GET_XREFS_TO
-                expected = ["xref", "function_context"]
-                question = (
-                    "Which concrete static callsite or data reference anchors the cited API, "
-                    "before any function-level inference is attempted?"
-                )
-                hypothesis = (
-                    "The cited API has an artifact-local static reference that can anchor "
-                    "a bounded mechanism investigation."
-                )
-                alternatives = ["The API is an unused import or compatibility dependency."]
-                missing = ["artifact-local callsite or data reference"]
-                failure = (
-                    "No artifact-local Xref was recovered for the cited API; this does not "
-                    "establish runtime absence."
-                )
-            else:
-                continue
-            identity = (artifact_id, target.casefold())
-            if identity in seen:
-                continue
-            seen.add(identity)
-            candidates.append(
-                {
-                    "evidence_id": evidence_id,
-                    "target_selector": {"target": target},
-                    "action": {
-                        "action_type": action_type.value,
-                        "target_artifact_id": artifact_id,
-                        "priority": len(candidates) + 1,
-                        "reason": "Use the delivered static anchor to reduce mechanism uncertainty.",
-                        "question": question,
-                        "hypothesis": hypothesis,
-                        "alternatives": alternatives,
-                        "missing_evidence": missing,
-                        "failure_meaning": failure,
-                        "evidence_ids": [evidence_id],
-                        "target_selector": {"target": target},
-                        "expected_evidence_kinds": expected,
-                        "success_condition": "new_targeted_evidence",
-                        "failure_interpretation": "NO_NEW_EVIDENCE",
-                    },
-                }
-            )
-            if len(candidates) >= limit:
-                break
-        return candidates
+        return _coordinator._grounded_planner_action_candidates(
+            context_manifest,
+            artifact_ids=artifact_ids,
+            limit=limit,
+        )
 
     @staticmethod
     def _frontier_value_present(value: object) -> bool:
@@ -13986,28 +13842,7 @@ class AnalysisService:
         cls,
         actions: list[dict[str, object]],
     ) -> list[dict[str, object]]:
-        """Keep planner history auditable without replaying unbounded IDs.
-
-        A single parser action can produce thousands of Evidence rows.  The
-        full set remains queryable from the Evidence ledger; planner Turns
-        only need a bounded sample plus the authoritative count to correlate
-        the next decision and stay below the model context limit.
-        """
-        bounded: list[dict[str, object]] = []
-        for raw in actions:
-            if not isinstance(raw, Mapping):
-                continue
-            item = dict(raw)
-            raw_ids = item.get("new_evidence_ids")
-            if isinstance(raw_ids, (list, tuple, set)):
-                evidence_ids = [str(value) for value in raw_ids if str(value).strip()]
-                item["new_evidence_ids"] = evidence_ids[: cls._MAX_COMPLETED_ACTION_EVIDENCE_IDS]
-                if len(evidence_ids) > cls._MAX_COMPLETED_ACTION_EVIDENCE_IDS:
-                    item["new_evidence_ids_truncated"] = (
-                        len(evidence_ids) - cls._MAX_COMPLETED_ACTION_EVIDENCE_IDS
-                    )
-            bounded.append(item)
-        return bounded
+        return _coordinator._bound_completed_actions(cls, actions)
 
     def _persist_analysis_turn(
         self,
@@ -26770,58 +26605,7 @@ class AnalysisService:
 
     @staticmethod
     def _action_payload(row: InvestigationActionRecord) -> dict[str, object]:
-        parameters = dict(row.parameters or {})
-        model_provenance = parameters.get("_model_provenance", {})
-        if not isinstance(model_provenance, Mapping):
-            model_provenance = {}
-        planner_turn_id = parameters.get("_planner_turn_id")
-        planner_turn_id = (
-            str(planner_turn_id).strip()
-            if isinstance(planner_turn_id, (str, int)) and str(planner_turn_id).strip()
-            else None
-        )
-        origin = parameters.get("origin")
-        origin = str(origin).strip() if isinstance(origin, str) and origin.strip() else None
-        if origin not in {"model", "human", "deterministic_fallback"}:
-            origin = "model" if planner_turn_id else "deterministic_fallback"
-        raw_source_ids = parameters.get("_source_evidence_ids", [])
-        if not isinstance(raw_source_ids, (list, tuple, set)):
-            raw_source_ids = []
-        return {
-            "id": row.id,
-            "task_id": row.task_id,
-            "thread_id": row.thread_id,
-            "hypothesis_id": row.hypothesis_id,
-            "artifact_id": row.artifact_id,
-            "action_type": row.action_type,
-            "reason": row.reason,
-            "parameters": parameters,
-            "target_selector": row.target_selector,
-            "expected_evidence_kinds": row.expected_evidence_kinds,
-            "source_evidence_ids": [
-                str(item)
-                for item in raw_source_ids
-                if isinstance(item, (str, int)) and str(item).strip()
-            ][:32],
-            "success_condition": row.success_condition,
-            "failure_interpretation": row.failure_interpretation,
-            "cost_units": row.cost_units,
-            "priority": row.priority,
-            "status": row.status,
-            "attempts": row.attempts,
-            "depends_on": row.depends_on,
-            "result_evidence_ids": row.result_evidence_ids,
-            "error": row.error,
-            "origin": origin,
-            "planner_turn_id": planner_turn_id,
-            "model_provenance": dict(model_provenance),
-            "model_call_id": model_provenance.get("model_call_id"),
-            "model_run_id": model_provenance.get("model_run_id"),
-            "provider": model_provenance.get("provider"),
-            "model": model_provenance.get("model"),
-            "created_at": row.created_at.isoformat(),
-            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
-        }
+        return _coordinator._action_payload(row)
 
     def workbench_action(self, action_id: str) -> dict[str, object]:
         """Return one task-owned action and its bounded execution result."""

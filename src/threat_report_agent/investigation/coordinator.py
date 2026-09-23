@@ -1,8 +1,9 @@
 """P3.3 investigation coordinator: the port an investigation slice needs from its host, plus the slice behind it.
 
-STATUS: slices P3.3b (frontier helpers) and P3.3a (the ledger) have moved. Plan 7.1 orders every migration in nine
-steps - step 2 is "先建立最小公开接口和 contract test" and step 3 is "移动同一份实现" - and P3.3 is executed in the six
-slices its measurement produced (`docs/p33-investigation-coordinator-design-20260922.md`), smallest port cost first.
+STATUS: slices P3.3b (frontier helpers), P3.3a (the ledger) and P3.3c (action-proposal validation) have moved. Plan 7.1
+orders every migration in nine steps - step 2 is "先建立最小公开接口和 contract test" and step 3 is "移动同一份实现" -
+and P3.3 is executed in the six slices its measurement produced
+(`docs/p33-investigation-coordinator-design-20260922.md`), smallest port cost first.
 
 WHAT MOVED IN P3.3b: `_build_investigation_frontier`, `_convergence_frontier_fingerprint`, `_frontier_value_present`,
 `_unattempted_seed_thread_ids` and `_mechanism_missing_fields` (MEASURED: its only use in service.py is inside the
@@ -12,6 +13,12 @@ module-level pair `frontier_status_is_open` / `deferred_keeps_planner_open` and 
 WHAT MOVED IN P3.3a: `_persist_evidence_delivery_ledger`, `_finalize_tail_ledger`, `_park_open_ledger`,
 `_work_ledger` and `_ledger_ids` (a `@staticmethod`: no receiver, so it ships with no host parameter at all). Their
 only host references are `database` and `_audit`, which is why the port grew by exactly one member.
+
+WHAT MOVED IN P3.3c: `_grounded_planner_action_candidates`, `_action_payload`, `_deterministic_action_plan`,
+`_planner_user_action` (an instance method whose body needs NO host: its delegation keeps `self` for call shape and
+deliberately does not forward it) and `_bound_completed_actions` (a classmethod whose delegation forwards `cls`). Four
+other members of that slice stayed for measured layer reasons - see the design record section 13.1 - because they need
+`DynamicPlanAction` or `action_is_model_or_human` at RUNTIME from layers plan 3.2 forbids `investigation/` to import.
 
 THE SLICE IS SMALLER THAN THE FRAGMENT SCAN SUGGESTED, AND A PLAN RULE IS WHY. Four members that the scan grouped
 with this one stayed on the host:
@@ -29,7 +36,7 @@ with this one stayed on the host:
   import (facts/ or static/), exactly the shape of the `facts -> investigation` decision recorded in
   `docs/plan-conflict-resolutions-20260922.md`: move the thing first, then the edge, never one alone.
 
-THE PORT (two members, each measured): `database` and `_audit`.
+THE PORT (three members, each measured): `database`, `_audit` and `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`.
 
   * `database` came with P3.3b: the design's slice table measured that slice's need as
     "无（切片内自洽，只需 `database`）" and it was right. The FIRST implementation exported two class constants that
@@ -37,6 +44,9 @@ THE PORT (two members, each measured): `database` and `_audit`.
   * `_audit` came with P3.3a: the ledger writes an audit event. MEASURED on the five ledger members, `_audit` is
     their only host reference besides `database`, and `_audit_event_hash` is reached THROUGH `_audit` (which stays a
     host operation), so it is not a port member.
+  * `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` came with P3.3c: `_bound_completed_actions` bounds evidence ids with it. It
+    is a CLASS constant that `tests/test_ghidra_performance.py` pins on `AnalysisService`, so it cannot move; the
+    slice was FIRST reported as needing no host at all, and the contract test - not the measurement - caught that.
 
 WHY THE MOVE SPLITS HOST STATE FROM CLOSURE STATE, as a rule rather than case by case:
 
@@ -52,6 +62,8 @@ WHY THE MOVE SPLITS HOST STATE FROM CLOSURE STATE, as a rule rather than case by
 """
 from __future__ import annotations
 
+import re
+
 from typing import Mapping, Protocol
 
 from sqlalchemy import select
@@ -59,6 +71,7 @@ from sqlalchemy.orm import Session
 
 from threat_report_agent.investigation.investigation import (
     ActionType,
+    DeepMiningPlanner,
     InvestigationThreadState,
     investigation_frontier_fingerprint,
 )
@@ -89,23 +102,40 @@ from threat_report_agent.static.evidence_recovery import EvidenceDeliveryLedger,
 #: `_audit` writer. MEASURED with `.scratch/p32-measure-cluster.py` on the five ledger members - `_audit` is their
 #: only host reference besides `database`, and `_audit_event_hash` is reached THROUGH `_audit` (which stays a host
 #: operation), so it is not a port member.
+#:
+#: WIDENED AGAIN IN P3.3c (two -> three): `_bound_completed_actions` bounds evidence ids with the host's
+#: `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` class constant. This one is a MEASUREMENT FAILURE STORY worth keeping: the
+#: slice was first reported as "host need: NONE" because `.scratch/p32-measure-cluster.py` scanned only `self.` and the
+#: reference is `cls._MAX_COMPLETED_ACTION_EVIDENCE_IDS` (a classmethod). The CONTRACT TEST caught it, not the tool -
+#: the host-reference pin exists for exactly this. The tool now scans `self.` AND `cls.`, and takes `--from <rev>` so
+#: it cannot silently measure a post-move tree.
 INVESTIGATION_HOST_MEMBERS: tuple[str, ...] = (
     "database",
     # --- added by P3.3a (the ledger slice) ---
     "_audit",
+    # --- added by P3.3c (the action-proposal slice) ---
+    "_MAX_COMPLETED_ACTION_EVIDENCE_IDS",
 )
 
 
 class InvestigationHost(Protocol):
     """What an investigation slice may use on the object that owns it.
 
-    Two members, because the measurement says so. `database` is annotated loosely ON PURPOSE: plan 3.2's matrix does
-    not list `database` among the modules `investigation/` may import ("未列出的边默认禁止"), and no module under
+    Three members, each measured. `database` is annotated loosely ON PURPOSE: plan 3.2's matrix does not list
+    `database` among the modules `investigation/` may import ("未列出的边默认禁止"), and no module under
     `investigation/` imports it today, so naming the concrete type here would create a new edge just to describe an
-    attribute this code only ever calls methods on at runtime. `_audit` is declared with the host's real signature.
+    attribute this code only ever calls methods on at runtime. `_audit` and `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` are
+    declared with the shapes the host really has them in: a method and a class constant.
+
+    WHY THE CLASS CONSTANT IS ON THE PORT RATHER THAN MOVED WITH ITS READER: MEASURED, its only reader inside
+    service.py moved in P3.3c, but it is a CLASS ATTRIBUTE and `tests/test_ghidra_performance.py:116,118` pins
+    `AnalysisService._MAX_COMPLETED_ACTION_EVIDENCE_IDS`, so it must stay on the class. Same rule as P3.3b's
+    `_CATALOG_HOW_SEED_SCAN_LIMIT`: a class attribute read through the receiver stays on the host and is declared
+    here; only MODULE-LEVEL closure state travels with a moved function.
     """
 
     database: object
+    _MAX_COMPLETED_ACTION_EVIDENCE_IDS: int
 
     def _audit(
         self,
@@ -677,3 +707,272 @@ def _work_ledger(host: InvestigationHost, task_id: str) -> list[dict[str, object
 
 def _ledger_ids(ledger: EvidenceDeliveryLedger, stage: EvidenceStage) -> list[str]:
     return sorted({event.evidence_id for event in ledger.events if event.stage == stage})
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.3 slices): identical to its old home in service.py. The receiver it used to reach
+# through `self`/`cls` is now an explicit `host: InvestigationHost` parameter, and ONLY where the body still
+# needs one. This banner is deliberately SLICE-AGNOSTIC: it used to name the first slice, so the second slice's
+# code was appended under a label that lied about which step moved it.
+# ---------------------------------------------------------------------------
+
+
+def _grounded_planner_action_candidates(
+    context_manifest: list[dict[str, object]],
+    *,
+    artifact_ids: set[str],
+    limit: int = 6,
+) -> list[dict[str, object]]:
+    """Offer a small set of evidence-grounded planning choices to a model.
+
+        A planner still chooses whether a lead deserves work and which candidate
+        to use.  The service derives these choices solely from delivered static
+        Evidence so an empty JSON object cannot be mistaken for planning when
+        the next safe step is already concrete.  This is advisory prompt input,
+        never an execution authorization or a deterministic action disguised as
+        model output.
+        """
+    candidates: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def value_for(
+        mapping: Mapping[str, object],
+        names: tuple[str, ...],
+    ) -> str:
+        for name in names:
+            value = mapping.get(name)
+            if isinstance(value, (str, int)) and str(value).strip():
+                return str(value).strip()
+        return ""
+
+    for item in context_manifest:
+        artifact_id = str(item.get("artifact_id") or "")
+        evidence_id = str(item.get("evidence_id") or "")
+        if not artifact_id or artifact_id not in artifact_ids or not evidence_id:
+            continue
+        if str(item.get("nature")) == "BACKGROUND_REPORTED":
+            continue
+        anchor = item.get("anchor")
+        anchor = anchor if isinstance(anchor, Mapping) else {}
+        value = item.get("value")
+        value = value if isinstance(value, Mapping) else {}
+        # A model-directed function action needs function-scoped Evidence.
+        # PE-header entry RVAs are navigation metadata, not a recovered
+        # function target, and must not turn into deep probing actions.
+        function_target = DeepMiningPlanner._function_key(item)
+        api_target = value_for(
+            value,
+            ("api", "api_name", "target_name", "target_function", "name", "indicator"),
+        )
+        # Imports and function-context rows sometimes preserve the API
+        # only in an explicit call-target array.  The first bounded call
+        # target is a valid Xref lead when no direct locator exists.
+        if not api_target:
+            for field in ("call_targets", "calls", "functions"):
+                nested = value.get(field)
+                if not isinstance(nested, (list, tuple)):
+                    continue
+                for child in nested:
+                    if not isinstance(child, Mapping):
+                        continue
+                    api_target = value_for(
+                        child,
+                        ("api", "api_name", "target_name", "target_function", "name"),
+                    )
+                    if api_target:
+                        break
+                if api_target:
+                    break
+        if function_target:
+            target = function_target
+            action_type = ActionType.TRACE_API_ARGUMENT
+            expected = ["api_argument_trace", "function_context"]
+            question = (
+                "Which concrete arguments and call-site condition reach the "
+                    "cited function, and which static consumer receives its output?"
+            )
+            hypothesis = (
+                "The cited function contains a statically recoverable mechanism "
+                    "whose arguments or data flow distinguish it from a dead helper."
+            )
+            alternatives = [
+                "The function is an initialization or compatibility helper without a security-relevant consumer."
+            ]
+            missing = ["argument data flow", "call-site condition", "downstream consumer"]
+            failure = (
+                "The delivered function anchor did not expose a bounded static argument "
+                    "path; the mechanism remains unknown rather than absent."
+            )
+        elif api_target and not re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", api_target):
+            target = api_target
+            action_type = ActionType.GET_XREFS_TO
+            expected = ["xref", "function_context"]
+            question = (
+                "Which concrete static callsite or data reference anchors the cited API, "
+                    "before any function-level inference is attempted?"
+            )
+            hypothesis = (
+                "The cited API has an artifact-local static reference that can anchor "
+                    "a bounded mechanism investigation."
+            )
+            alternatives = ["The API is an unused import or compatibility dependency."]
+            missing = ["artifact-local callsite or data reference"]
+            failure = (
+                "No artifact-local Xref was recovered for the cited API; this does not "
+                    "establish runtime absence."
+            )
+        else:
+            continue
+        identity = (artifact_id, target.casefold())
+        if identity in seen:
+            continue
+        seen.add(identity)
+        candidates.append(
+            {
+                "evidence_id": evidence_id,
+                "target_selector": {"target": target},
+                "action": {
+                    "action_type": action_type.value,
+                    "target_artifact_id": artifact_id,
+                    "priority": len(candidates) + 1,
+                    "reason": "Use the delivered static anchor to reduce mechanism uncertainty.",
+                    "question": question,
+                    "hypothesis": hypothesis,
+                    "alternatives": alternatives,
+                    "missing_evidence": missing,
+                    "failure_meaning": failure,
+                    "evidence_ids": [evidence_id],
+                    "target_selector": {"target": target},
+                    "expected_evidence_kinds": expected,
+                    "success_condition": "new_targeted_evidence",
+                    "failure_interpretation": "NO_NEW_EVIDENCE",
+                },
+            }
+        )
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def _action_payload(row: InvestigationActionRecord) -> dict[str, object]:
+    parameters = dict(row.parameters or {})
+    model_provenance = parameters.get("_model_provenance", {})
+    if not isinstance(model_provenance, Mapping):
+        model_provenance = {}
+    planner_turn_id = parameters.get("_planner_turn_id")
+    planner_turn_id = (
+        str(planner_turn_id).strip()
+        if isinstance(planner_turn_id, (str, int)) and str(planner_turn_id).strip()
+        else None
+    )
+    origin = parameters.get("origin")
+    origin = str(origin).strip() if isinstance(origin, str) and origin.strip() else None
+    if origin not in {"model", "human", "deterministic_fallback"}:
+        origin = "model" if planner_turn_id else "deterministic_fallback"
+    raw_source_ids = parameters.get("_source_evidence_ids", [])
+    if not isinstance(raw_source_ids, (list, tuple, set)):
+        raw_source_ids = []
+    return {
+        "id": row.id,
+        "task_id": row.task_id,
+        "thread_id": row.thread_id,
+        "hypothesis_id": row.hypothesis_id,
+        "artifact_id": row.artifact_id,
+        "action_type": row.action_type,
+        "reason": row.reason,
+        "parameters": parameters,
+        "target_selector": row.target_selector,
+        "expected_evidence_kinds": row.expected_evidence_kinds,
+        "source_evidence_ids": [
+            str(item)
+            for item in raw_source_ids
+            if isinstance(item, (str, int)) and str(item).strip()
+        ][:32],
+        "success_condition": row.success_condition,
+        "failure_interpretation": row.failure_interpretation,
+        "cost_units": row.cost_units,
+        "priority": row.priority,
+        "status": row.status,
+        "attempts": row.attempts,
+        "depends_on": row.depends_on,
+        "result_evidence_ids": row.result_evidence_ids,
+        "error": row.error,
+        "origin": origin,
+        "planner_turn_id": planner_turn_id,
+        "model_provenance": dict(model_provenance),
+        "model_call_id": model_provenance.get("model_call_id"),
+        "model_run_id": model_provenance.get("model_run_id"),
+        "provider": model_provenance.get("provider"),
+        "model": model_provenance.get("model"),
+        "created_at": row.created_at.isoformat(),
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+    }
+
+
+def _deterministic_action_plan(artifacts: list[Artifact]) -> list[str]:
+    """Return the mandatory artifact order used when planning is unavailable."""
+    return [item.id for item in artifacts]
+
+
+def _planner_user_action(
+    *,
+    configured: bool,
+    provider: str,
+    model: str,
+    http_status: object,
+    last_status: str | None,
+) -> str:
+    route = "/".join(item for item in (str(provider or "").strip(), str(model or "").strip()) if item)
+    route = route or "unconfigured"
+    if http_status in {402, "402"}:
+        return (
+            f"对话模型线路 {route} 返回 HTTP 402（配额或余额不足）。"
+                "请打开左下角设置 →「模型」检查同一条线路。"
+        )
+    if http_status in {401, 403, "401", "403"}:
+        return (
+            f"对话模型线路 {route} 认证失败（HTTP {http_status}）。"
+                "请检查左下角设置 →「模型」中的 API Key。"
+        )
+    if last_status in {"FAILED", "TIMEOUT", "EMPTY", "ERROR"}:
+        return (
+            f"对话模型线路 {route} 调用失败（{last_status}）。"
+                "请在左下角设置 →「模型」检查供应商、模型名和密钥。"
+        )
+    if not configured:
+        return (
+            "调查与对话共用左下角设置 →「模型」。"
+                "请在「模型」中填写供应商后再点「分析」。"
+        )
+    return (
+        "调查与对话共用左下角设置 →「模型」。后端先跑确定性静态队列，"
+            "后续调查由该对话模型通过工具完成。"
+    )
+
+
+def _bound_completed_actions(
+    host: InvestigationHost,
+    actions: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Keep planner history auditable without replaying unbounded IDs.
+
+        A single parser action can produce thousands of Evidence rows.  The
+        full set remains queryable from the Evidence ledger; planner Turns
+        only need a bounded sample plus the authoritative count to correlate
+        the next decision and stay below the model context limit.
+        """
+    bounded: list[dict[str, object]] = []
+    for raw in actions:
+        if not isinstance(raw, Mapping):
+            continue
+        item = dict(raw)
+        raw_ids = item.get("new_evidence_ids")
+        if isinstance(raw_ids, (list, tuple, set)):
+            evidence_ids = [str(value) for value in raw_ids if str(value).strip()]
+            item["new_evidence_ids"] = evidence_ids[: host._MAX_COMPLETED_ACTION_EVIDENCE_IDS]
+            if len(evidence_ids) > host._MAX_COMPLETED_ACTION_EVIDENCE_IDS:
+                item["new_evidence_ids_truncated"] = (
+                    len(evidence_ids) - host._MAX_COMPLETED_ACTION_EVIDENCE_IDS
+                )
+        bounded.append(item)
+    return bounded

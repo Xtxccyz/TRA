@@ -54,6 +54,14 @@ MOVED_MEMBERS = (
     "_park_open_ledger",
     "_work_ledger",
     "_ledger_ids",
+    # P3.3c (action-proposal validation; the tool FIRST reported "host need: NONE" and the contract test below is
+    # what corrected it - `_bound_completed_actions` reads the host's `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` through
+    # `cls.`, which the measurement missed while it scanned only `self.`)
+    "_grounded_planner_action_candidates",
+    "_action_payload",
+    "_deterministic_action_plan",
+    "_planner_user_action",
+    "_bound_completed_actions",
 )
 MOVED_MODULE_FUNCS = ("frontier_status_is_open", "deferred_keeps_planner_open")
 #: Stayed on the host: moving them would need `report.reporting`, which plan 3.2 does not allow `investigation/` to
@@ -75,7 +83,26 @@ ORIGINAL_DECORATORS = {
     "_park_open_ledger": [],
     "_work_ledger": [],
     "_ledger_ids": ["staticmethod"],
+    "_grounded_planner_action_candidates": ["classmethod"],
+    "_action_payload": ["staticmethod"],
+    "_deterministic_action_plan": ["staticmethod"],
+    "_planner_user_action": [],
+    "_bound_completed_actions": ["classmethod"],
 }
+#: Stayed on the host from the action-proposal slice, each for a MEASURED reason (this is P3.3c(2)):
+#: `_model_action_plan` and `_action_is_model_or_human` need a RUNTIME import (`isinstance` / a call) from a layer the
+#: matrix does not allow `investigation/` to import - and in `action_is_model_or_human`'s case that layer
+#: (`task.analysis_task_orchestration`) itself imports `investigation`, so the edge would be a cycle.
+#: `_has_complete_model_action_plan` and `_merge_planned_actions` name `DynamicPlanAction` in ANNOTATIONS only, so a
+#: TYPE_CHECKING import would do - deliberately NOT taken here, because the clean fix is for the model PORT to expose
+#: that type (plan P1.2's `ports.py` does not today), and a type-only edge to an unlisted layer is a decision that
+#: belongs with that fix rather than smuggled into a move.
+STAYED_FROM_P3_3C = (
+    "_model_action_plan",
+    "_has_complete_model_action_plan",
+    "_merge_planned_actions",
+    "_action_is_model_or_human",
+)
 
 
 @pytest.fixture
@@ -136,9 +163,10 @@ def test_the_coordinator_module_defines_exactly_the_port_and_the_moved_slice() -
 
 def test_the_port_matches_the_pin_and_is_fully_used() -> None:
     assert len(set(INVESTIGATION_HOST_MEMBERS)) == len(INVESTIGATION_HOST_MEMBERS), "the pin has a duplicate"
-    assert INVESTIGATION_HOST_MEMBERS == ("database", "_audit"), (
-        "the port is `database` (P3.3b) plus `_audit` (P3.3a's ledger slice writes an audit event through the host); "
-        "widening it further needs a measured reason recorded in the step's findings"
+    assert INVESTIGATION_HOST_MEMBERS == ("database", "_audit", "_MAX_COMPLETED_ACTION_EVIDENCE_IDS"), (
+        "the port is `database` (P3.3b) plus `_audit` (P3.3a's ledger) plus `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` "
+        "(P3.3c's `_bound_completed_actions`, a class constant that `tests/test_ghidra_performance.py` pins on "
+        "AnalysisService so it cannot move); widening it further needs a measured reason in the step's findings"
     )
     assert _protocol_members() == set(INVESTIGATION_HOST_MEMBERS), (
         f"InvestigationHost declares {sorted(_protocol_members())} but the pin is {sorted(INVESTIGATION_HOST_MEMBERS)}"
@@ -165,6 +193,17 @@ def test_a_host_missing_a_member_is_reported_rather_than_accepted() -> None:
 
 
 def test_the_moved_members_are_one_statement_delegations_with_their_original_shape() -> None:
+    """Every moved member delegates in ONE statement, keeps its call shape, and passes a host only if one is needed.
+
+    MEASURED against the module's own signatures rather than a hand-written table, because P3.3c added a shape the
+    earlier tests could not express: `_planner_user_action` is a plain INSTANCE method whose moved body needs no host
+    at all. Its delegation must therefore KEEP `self` (or every existing `service._planner_user_action(...)` call would
+    shift its arguments) while NOT forwarding it (the module function takes no host, so forwarding would raise).
+    """
+    import inspect
+
+    from threat_report_agent.investigation import coordinator as coordinator_module
+
     methods = {
         node.name: node for node in _service_class().body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -176,10 +215,49 @@ def test_the_moved_members_are_one_statement_delegations_with_their_original_sha
         assert statement.startswith(f"return _coordinator.{name}("), f"{name} does not delegate: {statement}"
         decorators = [ast.unparse(d) for d in node.decorator_list]
         assert decorators == ORIGINAL_DECORATORS[name], f"{name} changed call shape: {decorators}"
-        if decorators:
-            assert "self" not in statement, f"{name} is a class/static member but forwards `self`: {statement}"
+
+        parameters = list(inspect.signature(getattr(coordinator_module, name)).parameters)
+        takes_host = bool(parameters) and parameters[0] == "host"
+        # The forwarded receiver is the member's OWN first parameter, which is `cls` for a classmethod and `self` for
+        # an instance method. Requiring the literal string "self" failed on `_bound_completed_actions` even though its
+        # delegation was correct - a test that encodes one receiver name cannot check both shapes.
+        own_receiver = node.args.args[0].arg if node.args.args else None
+        if takes_host:
+            assert own_receiver is not None, f"{name} has no receiver to forward but its module function needs a host"
+            assert f"{own_receiver}," in statement or f"({own_receiver})" in statement, (
+                f"{name} needs a host but does not forward its own receiver `{own_receiver}`: {statement}"
+            )
         else:
-            assert "self" in statement, f"{name} must forward the host, not call the module function bare"
+            assert "self" not in statement and "cls" not in statement, (
+                f"{name} forwards a receiver but its module function takes no host (that would raise): {statement}"
+            )
+        if decorators in ([], ["classmethod"]):
+            receiver = "cls" if decorators == ["classmethod"] else "self"
+            assert receiver in [a.arg for a in node.args.args[:1]], (
+                f"{name} lost its `{receiver}` parameter, which changes how every existing caller must call it"
+            )
+
+
+def test_the_action_proposal_members_that_could_not_move_stayed_whole_with_measured_reasons() -> None:
+    """P3.3c(2), pinned: these four stay because of a LAYER rule, not because they were forgotten."""
+    methods = {
+        node.name: node for node in _service_class().body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name in STAYED_FROM_P3_3C:
+        node = methods[name]
+        assert "_coordinator." not in ast.unparse(node), f"{name} was moved after all; re-measure the layer rule"
+        assert len(node.body) > 1, f"{name} looks like a delegation now, but this slice left it whole"
+    runtime_blocked = {
+        "_model_action_plan": "DynamicPlanAction",
+        "_action_is_model_or_human": "action_is_model_or_human",
+    }
+    for name, symbol in runtime_blocked.items():
+        source = ast.unparse(methods[name])
+        assert symbol in source, f"{name} no longer uses {symbol}; the reason it stayed changed, so re-measure"
+        assert "isinstance" in source or f"{symbol}(" in source, (
+            f"{name} no longer uses {symbol} at RUNTIME; if it is annotations-only now, it belongs in the movable set"
+        )
 
 
 def test_the_four_members_that_needed_report_reporting_stayed_whole() -> None:

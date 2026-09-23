@@ -279,7 +279,7 @@
       "len(entries) + len(members) >= max_files",
       "len(entries) > self.settings.max_sample_files",
       "len(entries) >= max_files",
-      "len(evidence_ids) > cls._MAX_COMPLETED_ACTION_EVIDENCE_IDS",
+      "len(evidence_ids) > host._MAX_COMPLETED_ACTION_EVIDENCE_IDS",
       "len(evidence_rows) > self._REPORT_PROJECTION_EVIDENCE_LIMIT",
       "len(hits) >= max(max_hits * 4, 64)",
       "len(ids) < max_evidence_per_cluster",
