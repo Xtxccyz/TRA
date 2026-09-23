@@ -89,8 +89,8 @@ P3.3 **不能**照做：20 个直接端口面里包含上面那些**属于 P3.4/
 | **P3.3c(2)** | 受阻：模型动作计划 | `_model_action_plan`, `_has_complete_model_action_plan`, `_merge_planned_actions`, `_action_is_model_or_human` | **74** | 需要 `DynamicPlanAction`（`model/model_gateway.py`）与 `action_is_model_or_human`（`task/`）——**均为 §3.2 未允许的层**，且后者会成环（见第 13.1 节） |
 | **P3.3d** ✅ | 收敛合同 | `_convergence_failure_contract`, `_build_convergence_alternate`, `_convergence_completed_fields`, `_convergence_alternate_type`, `_convergence_method_id` | **243** | `_canonical_json` + 两个**类常量**（**已完成**，见第 14 节） |
 | **P3.3d(2)** | 受阻：方法论动作 | `_run_methodology_action` | **271** | **两个阻塞**：`investigation -> methodology` 无先例的未列层边；模块级 `REFERENCE_ISOLATED_FACT_LIBRARY` 与未搬方法共享（见第 14.2 节） |
-| P3.3e | 观测派生 | `_derive_investigation_observations` | **2,795** | `_emulation_entry_key`, `_function_entry_integers`, `_investigation_value_text`, `_overlay_pe_parser_thread_start`（+ `settings`） |
-| P3.3f | 调查循环本体 | `_run_investigation_loop` | **3,523** | `_audit`, `_canonical_json`, `_investigation_value_text`, `_is_task_cancelled`, `_link_claim_evidence`, `_persist_pma_static_analysis_plan`（+ `content_store`, `database`, `settings`） |
+| **P3.3e** | 观测派生 | `_derive_investigation_observations` | **2,795** | **判定：整体搬迁（3,124 行总账）**；端口 6 → 12；见 `docs/p33ef-giants-decision-20260922.md` |
+| **P3.3f** | 调查循环本体 | `_run_investigation_loop` | **3,523** | **判定：受阻于环**（`investigation -> task`）＋ 34 个共享 helper ＋ 13 个被测试导入的模块级项；见同一决策文件 |
 
 P3.3b 与 P3.3c 的端口需求：**P3.3b 实测为「只需 `database`」**（已按此执行）；**P3.3c 起初被同一个工具报成「无」，
 但那是工具缺陷**——`_bound_completed_actions` 是通过 `cls.` 读类常量 `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`，
