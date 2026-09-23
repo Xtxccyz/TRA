@@ -141,6 +141,21 @@ static/emulation/tools 的**接口**，未列出的边默认禁止）重判，�
   `coalesce_investigation_seed_clusters`、`investigation_seed_step_budget`）——按 1.2 节的两条机制，它们**仍可导入**，
   真正要改的是**测试从新家导入**（P4 收尾）。
 
+> **实测修正（round 120，P3.3f-1 执行后）**：上述两条数字与一条做法都被实际执行改写，保留原文以便对照：
+> 1. **「13 个随迁」在 P3.3f-1 之后只剩 1 个**（`_investigation_scheduled_keys`）。其余 12 个连同它们闭包里的
+>    **8 个模块常量**（本决策未列）被**下沉**到 `investigation/seed_support.py`，`service.py` 以 `X as X` 保留可
+>    达性；因此 P3.3f-2 要随迁的模块级名字只有 1 个，而不是 13 个。
+> 2. **「测试从新家导入」并没有发生**：十个测试文件仍按原路径从 `service.py` 导入，这正是 §7.1 第 4 步
+>    （旧路径保留到 P4 再删 shim）所要求的；把它们改成从新家导入是 P4 的工作。
+> 3. **还多出一个本决策未预见的层阻塞**：`_HOW_SEED_CATEGORIES = HOW_SEED_CATEGORIES` 的右值定义在
+>    `task/analysis_task_orchestration.py`（`HOW_SEED_CATEGORIES`，12 行 frozenset），而 §3.2 不允许
+>    `investigation/` 导入 task 层——与第 1 条同类。它同样在下沉步中移入 `investigation/seed_support.py`，并在 task
+>    侧保留再导出（沿用 layer item 1 的 `task` 侧再导出先例），形成新边
+>    `task.analysis_task_orchestration -> investigation.seed_support`。它之所以能被发现，是因为探针遍历了**常量**的
+>    闭包——而提取器的 import guard 当时只检查函数（该缺口已在 P3.3f-1 修复）。
+> 4. **端口「34 个 helper」也必须重测**：P3.3f-1 改变了它的两个输入（12 个 seed 名与 autopsy 名现在都在允许层内，
+>    不再占用端口；而循环仍通过 receiver 读取的其它名字照旧占用）。P3.3f-2 必须**先重测再搬**，实测数字写进该步记录。
+
 ### 2.2 修正：**不是「受阻于设计」，而是「需要先做一个层步骤」**
 
 初稿写「P3.3f 判为受阻」，同时在 §2.2 第 1 条给出了解除办法——**自相矛盾**：把已经写明的下一步说成阻塞。
