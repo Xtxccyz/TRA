@@ -1,3 +1,5 @@
+import ast
+import inspect
 import json
 from dataclasses import replace
 from datetime import timedelta
@@ -5,6 +7,10 @@ from types import SimpleNamespace
 
 import httpx
 from sqlalchemy import select
+
+from threat_report_agent.investigation.coordinator import (
+    _build_investigation_frontier as frontier_implementation,
+)
 
 from threat_report_agent.content_store import LocalContentStore
 from threat_report_agent.database import Database
@@ -2742,9 +2748,22 @@ def test_admit_investigation_seed_clusters_keeps_how_drops_empty_supporting() ->
     assert deferred_keeps_planner_open({"reason": "dependency", "action_type": "GET_CALLEES"}) is True
     loop_source = __import__("inspect").getsource(AnalysisService._run_investigation_loop)
     assert "admit_investigation_seed_clusters" in loop_source
-    frontier_source = __import__("inspect").getsource(AnalysisService._build_investigation_frontier)
-    assert "frontier_status_is_open" in frontier_source
-    assert "deferred_keeps_planner_open" in frontier_source
+    # P3.3b MOVED the frontier builder into `investigation/coordinator.py`. The old form here read
+    # `getsource(AnalysisService._build_investigation_frontier)`, which is now a one-line DELEGATION - so it would have
+    # kept passing only because the wrapper happened to name the same symbols, i.e. it would have proved nothing.
+    # This resolves the CANONICAL implementation through the import system and reads its AST, which a shim cannot
+    # satisfy. MEASURED reason the source-text form had to change rather than be deleted: the check's subject is "the
+    # frontier consults these two predicates", and deleting it would drop that coverage (plan P3.7: 不能通过删除测试
+    # 解决耦合). The behaviour-level replacement for this white-box coupling belongs to P3.7 (plan: 把
+    # `inspect.getsource(AnalysisService._...)` 改成输入/输出行为断言).
+    frontier_names = {
+        node.id
+        for node in ast.walk(ast.parse(inspect.getsource(frontier_implementation)))
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+    assert {"frontier_status_is_open", "deferred_keeps_planner_open"} <= frontier_names, (
+        f"the frontier implementation no longer consults the status/deferred predicates: {sorted(frontier_names)}"
+    )
 
 
 def test_model_plan_accepts_legacy_expected_evidence_field(test_settings) -> None:

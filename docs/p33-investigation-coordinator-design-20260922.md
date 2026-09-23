@@ -83,14 +83,16 @@ P3.3 **不能**照做：20 个直接端口面里包含上面那些**属于 P3.4/
 | 顺序 | 切片 | 成员 | 行数（实测） | 实测端口需求（相对 P3.3 其余部分） |
 |---|---|---|---|---|
 | **P3.3a** | 账本（ledger） | `_persist_evidence_delivery_ledger`, `_finalize_tail_ledger`, `_park_open_ledger`, `_work_ledger`, `_ledger_ids` | **156** | `_audit`（+ 全局的 `database`） |
-| P3.3b | 前端/线程辅助 | `_build_investigation_frontier`, `_convergence_frontier_fingerprint`, `_frontier_value_present`, `_unattempted_seed_thread_ids`, `_is_unique_thread_seed_row`, `_select_unique_thread_seed_rows`, `_unique_thread_start_keys`, `_unique_execution_threads_for_view` | **409** | **无**（切片内自洽，只需 `database`） |
-| P3.3c | Action Proposal 验证与选择 | `_grounded_planner_action_candidates`, `_action_payload`, `_model_action_plan`, `_has_complete_model_action_plan`, `_merge_planned_actions`, `_deterministic_action_plan`, `_action_is_model_or_human`, `_planner_user_action`, `_bound_completed_actions` | **327** | **无**（只需 `database`） |
+| **P3.3b** ✅ | 前端辅助 | `_build_investigation_frontier`, `_convergence_frontier_fingerprint`, `_frontier_value_present`, `_unattempted_seed_thread_ids`, `_mechanism_missing_fields`（+ 两个模块级谓词与其 frozenset） | **312 + 15** | `database`（**1 个**，实测；见第 11 节） |
+| ~~P3.3b 原范围~~ → **P3.3b(2)** | 唯一线程族（**受阻**） | `_is_unique_thread_seed_row`, `_unique_thread_start_keys`, `_unique_execution_threads_for_view`, `_select_unique_thread_seed_rows` | **97** | 需要 `report.reporting` → **违反方案 §3.2 允许依赖矩阵**，须先把 `_address_lookup_keys` / `build_unique_execution_threads` 下移到 facts/ 或 static/ 才能搬（第 11 节） |
+| P3.3c | Action Proposal 验证与选择 | `_grounded_planner_action_candidates`, `_action_payload`, `_model_action_plan`, `_has_complete_model_action_plan`, `_merge_planned_actions`, `_deterministic_action_plan`, `_action_is_model_or_human`, `_planner_user_action`, `_bound_completed_actions` | **327** | **无**（只需 `database`；**须先按 P3.3b(2) 的教训复核其自由名是否触及 `report/`**） |
 | P3.3d | 方法论动作与收敛合同 | `_run_methodology_action`, `_convergence_failure_contract`, `_build_convergence_alternate`, `_convergence_completed_fields`, `_convergence_alternate_type`, `_convergence_method_id` | **514** | `_audit`, `_is_reference_isolated_blind`, `_link_claim_evidence`（+ `database`, `methodology_library`） |
 | P3.3e | 观测派生 | `_derive_investigation_observations` | **2,795** | `_emulation_entry_key`, `_function_entry_integers`, `_investigation_value_text`, `_overlay_pe_parser_thread_start`（+ `settings`） |
 | P3.3f | 调查循环本体 | `_run_investigation_loop` | **3,523** | `_audit`, `_canonical_json`, `_investigation_value_text`, `_is_task_cancelled`, `_link_claim_evidence`, `_persist_pma_static_analysis_plan`（+ `content_store`, `database`, `settings`） |
 
 P3.3b 与 P3.3c 的端口需求实测为**空**，这是本设计里最有用的两个数字：它们是完全自洽的切片，
 可以独立搬迁而不扩大端口，因此应当先做——这也是 P3.2 的顺序原则（先搬不需要扩端口的簇）。
+**P3.3b 已按此执行并完成**（见第 11 节：实测端口是 1 个成员 `database`，与这里的「只需 database」一致）。
 
 **为什么两个巨方法必须最后**：它们不是「大一点的簇」，而是**单个 3,523 / 2,795 行的方法**。
 一次搬迁的失败面是整段调查循环；而 P3.2 的成功恰恰来自「每步只搬几十到几百行、每步都能逐字节证明」。
@@ -118,3 +120,56 @@ P3.3 特有的**行为**成功标准（计划原文，必须由 contract test �
 - **不**为 P3.3 预先声明 20 个端口成员；
 - **不**在结构步骤里修「硬预算耗尽时的 limitation 缺口」（独立行为任务）；
 - **不**动 `investigation/` 现有 9 个模块的公开面（P3.3 只新增 `coordinator.py`）。
+
+## 11. P3.3b 执行结果（首个切片；**方案的依赖矩阵否决了三分之一的范围**）
+
+**实际搬迁**：`_build_investigation_frontier`（213）、`_unattempted_seed_thread_ids`（35）、
+`_convergence_frontier_fingerprint`（27）、`_frontier_value_present`（25）、`_mechanism_missing_fields`（12）
+= **312 行 / 5 个成员**，加两个模块级谓词（`frontier_status_is_open`、`deferred_keeps_planner_open`，15 行）
+与其闭合的两个 frozenset。`service.py` 28,898 → 28,568 行；`coordinator.py` 466 行。
+9 个搬迁项用 `p33-verify.py` 逐一比对 **IDENTICAL**，can-fail 已证明（见下）。
+
+### 11.1 方案 §3.2 的依赖矩阵否决了 4 个成员的搬迁（这是本步最重要的发现）
+
+片段扫描把 8 个「前端/线程」成员算作同一簇，但实测显示其中 **4 个必须留在宿主**：
+
+| 成员 | 行数 | 实测原因 |
+|---|---|---|
+| `_is_unique_thread_seed_row` | 29 | 读 `_address_lookup_keys` |
+| `_unique_thread_start_keys` | 11 | 读 `_address_lookup_keys` |
+| `_unique_execution_threads_for_view` | 47 | 读 `build_unique_execution_threads` |
+| `_select_unique_thread_seed_rows` | 22 | 调用上面两个成员 |
+
+这三个 helper 来自 `report/reporting.py`，而方案 §3.2（第 132 行）只允许 `investigation/` 导入
+contracts、facts、static/emulation/tools 的接口与 model port，并明确「**未列出的边默认禁止**」。
+搬这 4 个成员会**新建一条 `investigation -> report` 的禁止边**——正是 P1.2 端口化要消除的那类耦合。
+因此它们**不搬**，成为 **P3.3b(2)**：要搬迁必须先按方案的口径把
+`_address_lookup_keys` / `build_unique_execution_threads` **下移**到 `investigation/` 允许导入的层
+（`facts/` 或 `static/`），这与 `docs/plan-conflict-resolutions-20260922.md` 里 `facts -> investigation` 的裁决
+是同一形状：**先把东西挪下去，再声明边，绝不只做一半**。
+
+> 测量工具的教训：`p33b-edge.py` 第一次跑在**工作树**上，于是报告「没有任何成员需要 report.reporting」——
+> 因为那时成员体已经被替换成单行委托。**对着错误的 revision 测量，会让工具给出自信的错误答案**；
+> 改成读 `git show HEAD:service.py` 才得到正确结论。这与 P3.3 设计里「先测量」是同一条纪律的另一面。
+
+### 11.2 双轴自审（`review` skill：Standards + Spec 两个独立子代理）发现并**已修**的问题
+
+| 轴 | 发现 | 处置 |
+|---|---|---|
+| Standards（HARD） | `investigation -> report.reporting` 违反方案 §3.2 矩阵（`--strict` 看不见，因为 `forbidden_edges` 是扁平模块名且 `investigation.coordinator` 无 `moved_paths` 条目） | **缩范围**：4 个成员不搬（11.1），新契约测试增加一条 pin，断言该模块**不导入** `threat_report_agent.report.*` |
+| Standards（HARD） | 端口在**错误声明**上被扩大：docstring 称两个类常量都被 `structure-surface.json` 按符号记录，实测只有 `_CATALOG_HOW_SEED_SCAN_LIMIT` 是；`_UNIQUE_THREAD_VIEW_KINDS` 的唯一读者也已留下 | 端口从 3 个成员缩到 **1 个**（`database`），与设计第 4 节的实测一致；docstring 与契约测试同步 |
+| Standards（judgement） | 新测试重复了 `test_pe_entry_function_budget.py` 的数值 pin（`>= 2048`） | 删除重复 pin，只保留「常量仍在 `AnalysisService` 上」这一条，并注明数值 pin 的唯一位置 |
+| Standards（judgement） | 委托生成出 135 字符单行 | 抽取器改为按**整行宽度**（>110）换行，而不是只看实参串长度 |
+| Standards（judgement） | 删除模块级常量留下 8 个空行 | 抽取器增加「3+ 连续空行折叠为 2」；**先实测** HEAD 的 `service.py` 有 **0** 处这样的连续空行，所以该规范化不可能产生无关改动 |
+| Spec | `tests/test_investigation_service.py` 用 `getsource(AnalysisService._build_investigation_frontier)` 断言源码里出现谓词名——搬迁后该断言读的是单行委托 | 迁移为**经导入系统解析规范实现**再读 AST（shim 无法满足），保留同一主题；行为级替换按方案归 P3.7 |
+| Standards（delta） | 上述迁移使记录的 surface `test_getsource_count.reaching_a_private_member` 由 21 降到 20，P1.4 门因此变红 | **有意重新记录** surface，并核对 diff 只改这一个数字（`21 -> 20`），随后 `--all --strict` 通过；这正是 P3.7 的期望方向 |
+
+### 11.3 本步的工具教训：can-fail 证明**两次**是空洞的
+
+1. 第一次：篡改搜索从函数起点找到**文件末尾**，改到了后面另一个函数里的符号，验证器（只被问了被点名的方法）
+   正确地报告无差异——于是脚本报「CAN-FAIL PROOF FAILED」，但那是**证明**的问题。
+2. 第二次：篡改字符串字面量时插到了**文档字符串**的前两个引号之间（`""-tampered"Doc…`），产生 `SyntaxError`；
+   验证器在比较之前就崩了，退出码 1 被脚本误读为「检测成功」。
+3. 现在的证明**要求三件事同时成立**：未篡改时验证器 exit 0（基线）、篡改后 exit 1、且输出里**点名被篡改的函数并给出
+   `DIFFERS`**。缺一即报 `VACUOUS`。这两次都说明：**「证明会失败」本身也需要被证明**。
+
