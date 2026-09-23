@@ -180,3 +180,15 @@ P2-V.8 把 `semantic_predicates.py`（199 行、零包内依赖的纯谓词）�
 | 方向 | `service -> report.revision_writer`（向下）；新模块**永不** import `service`，由 contract test 断言 |
 | 门禁读数 | 116 模块 / 252 运行时同包边 / **cycles 0** / 允许清单为空；`forbidden_edges` 未命中 |
 | 记录位置 | 本文件 + `docs/import-policy.json` 的 `recorded_allowed_edges`；**诚实限制**：`check-import-graph.py` 今天仍不读该键，所以本条同样依赖本文件的人工登记（与决策 (d) 相同的限制） |
+
+---
+
+## 决策 (f)：`workbench_query.py` 的层行与 `workbench_query -> models` 边——**记录并采纳**（round 127，P3.6-1 两轴审查的硬发现）
+
+| 项 | 内容 |
+|---|---|
+| 新模块 | `threat_report_agent.workbench_query`（根包模块，P3.6-1 建立，承载只读 workbench 视图） |
+| 问题 | 方案 §3.2 的矩阵里**没有这一行**，而该模块 import `models`——按 §3.2「未列出的边默认禁止」，这条边需要一个**决定**，不能靠 deny-list 沉默（`_recorded_allowed_edges_note` 自己写明未列出的边无法被机器检查）。设计 §2 已点出该问题并给出建议，但提交时未落记录，两轴审查的 Standards 轴把它列为 HARD VIOLATION |
+| 采纳的行规则 | **沿用 `report/` 行的规则**：允许 contracts、facts、investigation 只读投影、`models`；禁止 `service`、`main.py`、HTTP、DSH、任何实现模块。理由是该行与 P3.6 的成功标准互为两面——"HTTP adapter 不被 investigation 导入" |
+| 登记的边 | `recorded_allowed_edges` 增加 `["workbench_query", "models"]`（先例：`["report.revision_writer", "models"]`） |
+| 已知缺口（诚实记录） | 今天 `main.py` **并不** import `workbench_query`（它经 `service` 的 delegation 到达，调用方迁移属 P4.1），所以"`main -> workbench_query` 是向下"目前是**尚未存在**的边；`check-import-graph.py` 也无法以此模块为对象做层检查——这与决策 (e) 的限制相同：**未列出的边依赖人工登记**。若将来把矩阵机器化，本行与 (e) 必须一起编码 |

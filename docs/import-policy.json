@@ -386,6 +386,10 @@
     [
       "report.revision_writer",
       "models"
+    ],
+    [
+      "workbench_query",
+      "models"
     ]
   ],
   "_recorded_allowed_edges_note": "Edges that section 3.2's matrix does not list but that a recorded DECISION accepts. The gate does NOT read this key today: `forbidden_edges` is a deny-list and the matrix is not machine-encoded, so an unlisted edge cannot be machine-checked at all - that blind spot is stated here rather than hidden. The decision and its measurements are in `docs/plan-conflict-resolutions-20260922.md` decision (d). MEASURED round 106: `model.model_gateway -> contracts` exists because `DynamicPlanAction` moved into the pure contract layer so that (a) `investigation/` may import it (matrix line 132) and (b) the model port can expose it WITHOUT importing httpx (the gateway imports httpx; `ports.py` documents itself as free of transport/SDK imports). Cycle count stayed 0 and no forbidden edge was hit. To machine-check this class of decision, encode the matrix as an allow-list and make check-import-graph.py --strict fail on any unregistered edge."
