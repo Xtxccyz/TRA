@@ -542,6 +542,26 @@ def test_the_four_members_that_needed_report_reporting_stayed_whole() -> None:
             # delegation the move left behind).
             assert name in moved, f"{name} is neither on the host nor defined in the moved module"
             continue
+        if name == "_unique_execution_threads_for_view":
+            # P3.6-1 moved THIS ONE's body into `workbench_query.py`, a read-only projection reader that may import
+            # `report` - the tuple's reason is about `investigation/`, and the derivation-module import check above still
+            # proves no `report` edge exists THERE. The assertion follows the body to its new home instead of demanding
+            # it stay here, and keeps proving the reason (the new home really uses `build_unique_execution_threads`).
+            source = ast.unparse(methods[name])
+            assert "_workbench_query._unique_execution_threads_for_view" in source, (
+                f"{name} is neither whole nor delegated to the read-only module; re-measure"
+            )
+            workbench_tree = ast.parse((PACKAGE / "workbench_query.py").read_text(encoding="utf-8"))
+            body = next(
+                (node for node in ast.walk(workbench_tree)
+                 if isinstance(node, ast.FunctionDef) and node.name == name),
+                None,
+            )
+            assert body is not None, f"{name}'s body is not in workbench_query.py"
+            assert "build_unique_execution_threads" in ast.unparse(body), (
+                f"{name} no longer uses build_unique_execution_threads; the reason it needed `report` changed"
+            )
+            continue
         source = ast.unparse(methods[name])
         assert "_coordinator." not in source, f"{name} was moved after all; see the module docstring for why it cannot"
         assert len(methods[name].body) > 1, f"{name} looks like a delegation now, but this slice left it whole"
@@ -549,7 +569,8 @@ def test_the_four_members_that_needed_report_reporting_stayed_whole() -> None:
         assert "_address_lookup_keys" in ast.unparse(methods[name]), (
             f"{name} no longer needs `_address_lookup_keys`; the reason it stayed changed, so re-measure"
         )
-    assert "build_unique_execution_threads" in ast.unparse(methods["_unique_execution_threads_for_view"])
+    # The `build_unique_execution_threads` assertion for `_unique_execution_threads_for_view` moved INTO the loop
+    # above, where it now checks the member's NEW home (P3.6-1) instead of this class body.
 
 
 def test_the_moved_module_functions_are_one_object_behind_two_paths() -> None:
