@@ -156,17 +156,29 @@ static/emulation/tools 的**接口**，未列出的边默认禁止）重判，�
 | 序 | 层工作 | 解锁 | 实测依据 |
 |---|---|---|---|
 | 1 | ~~把**循环路径策略** `LOOP_PATH_*` / `next_investigation_loop_path` / `resolve_persist_how_skip` 从 `task/analysis_task_orchestration.py` 下移到 `investigation/`（或 contracts），task 侧改为导入~~ **已完成**：落到 `investigation/loop_path.py`（16 个模块级名字 / 167 行，task 侧 re-export） | ~~**P3.3f**（消除环）与 **P3.3c(2)** 的 `action_is_model_or_human`~~ 环已消除；P3.3c(2) 仍受第 4 条阻塞 | 名字定义位置实测（第 2.1 节）；方案第 133 行本就允许 `task/ -> investigation`。完成记录见 `docs/p33-layer1-loop-path-module-design-20260922.md` |
-| 2 | 把 7 个模拟策略名从 `simulation_adapters` 暴露成**允许的 emulation 接口**（或把纯策略函数下移） | **P3.3e** | 第 1.5 节的判定 |
+| 2 | 把 7 个模拟策略名从 `simulation_adapters` 暴露成**允许的 emulation 接口**（或把纯策略函数下移） | ~~**P3.3e**~~ **部分完成**：**策略那一半已解锁**（5 个纯策略名 + 实测闭包共 12 个名字下移到 `emulation/policy.py`），**但 P3.3e 仍未解锁**——见下方修正 | 第 1.5 节的判定；实测见 `docs/p33-layer2-emulation-policy-design-20260922.md` |
 | 3 | 把 `_address_lookup_keys` / `build_unique_execution_threads` 从 `report/reporting.py` 下移到 `facts/` 或 `static/` | **P3.3b(2)**（97 行） | P3.3b 的实测 |
 | 4 | ~~让 **model port** 暴露 `DynamicPlanAction`（`ports.py` 目前没有；它只 `ModelPlanningPort` 等 Protocol）~~ **已完成**：类本体（107 行）先移入纯契约层 `contracts.py`，再由 `ports.py` 与 `model/model_gateway.py` 各自 re-export 同一对象 | **P3.3c(2)** 的 3 个成员（71 行）——两个阻塞（本条与第 1 条）均已消除 | P3.3c 的实测；路线与实测见 `docs/p33-layer4-model-action-contract-design-20260922.md`，新边 `model -> contracts` 的登记见 `docs/plan-conflict-resolutions-20260922.md` 决策 (d) |
 | 5 | 把 `methodology` 提升为**被多层共享的纯模块**（它只 import 标准库与 yaml）或下移其 `FactLibrary` 构造 | **P3.3d(2)** 的 `_run_methodology_action`（271 行） | P3.3d 的实测 |
 
 这五条都属于 P1.2（端口与适配器）那条线的工作，各自应是一个独立步骤（自己白名单、自己验证）。
-**第 1 条与第 4 条均已完成**（第 1 条：`investigation/loop_path.py`，消除 `investigation -> task` 的环；第 4 条：
-`DynamicPlanAction` 落入 `contracts.py` 并由 model port 暴露）。**P3.3c(2) 的两个层阻塞因此都已消失，它现在可以直接搬。**
+**第 1 条、第 4 条已全部完成，第 2 条的「策略那一半」已完成**（第 1 条：`investigation/loop_path.py`，消除
+`investigation -> task` 的环；第 4 条：`DynamicPlanAction` 落入 `contracts.py` 并由 model port 暴露；第 2 条：
+5 个纯策略名与其 12 个名字的实测闭包下移到 `emulation/policy.py`）。
 
-**当前可执行的下一个结构步骤是 P3.3c(2) 本身**（`_model_action_plan` / `_has_complete_model_action_plan` /
-`_merge_planned_actions`，71 行）：按 §7.1 走常规切片流程，`isinstance` 保持原样即可（canonical 类仍是那个具名类型）。
+### 第 2 条的实测修正：**P3.3e 仍然不能搬，但卡点从「7 个名字」缩小到「运行模拟这件事」**
+
+逐名展开闭包后（`.scratch/layer2-closure.py`）：7 个名字里 **5 个完全不触及实现**，另 2 个触及——
+`default_simulation_runner`（闭包含 isolated runner + qiling adapter + builtin adapter 表）与
+`qiling_unavailable_observation`（qiling adapter）。因此「把 7 个都当接口放行」会是一层转发、实现边依然存在
+（正是删除测试要拒绝的形状）；于是只下移纯的那 5 个。**下移后巨方法的实现依赖只剩两处，且都是"执行"**：
+`default_simulation_runner(policy, …)`（`service.py:6725`，紧接着 `runner.run(...)` 在进程内跑模拟）与
+`qiling_unavailable_observation(policy)`（`:6769`）。所以 P3.3e 的下一个前置不是继续搬策略，而是**给已声明的
+`ports.EmulationPort` 一个生产者**并把这两处执行走它——这与方案 §3.3「emulation 暴露结构化请求与 simulation
+result」一致。两个评审轴独立复算后给出同一结论。
+
+**当前可执行的下一个结构步骤是「runner / simulation-result 端口」**，它同时服务 P3.3e 与 §3.3 的接口要求；
+之后再做 P3.3c(2) 式的常规切片。
 之后应做**第 2 条**（把 7 个模拟策略名暴露成允许的 emulation 接口），因为它是唯一解开 P3.3e
 （2,795 行的 `_derive_investigation_observations`）的前提——那是本阶段剩余价值最大的一步。第 3 条与第 5 条
 分别解开 P3.3b(2)（97 行）与 P3.3d(2)（271 行），实测依据均在表中。
