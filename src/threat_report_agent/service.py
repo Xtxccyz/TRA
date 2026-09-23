@@ -244,6 +244,7 @@ from threat_report_agent.simulation_adapters import (
     static_phase_simulation_evidence,
 )
 from threat_report_agent.emulation.policy import (
+    SimulationExecutionPolicy,
     may_execute_in_process,
     worker_defers_simulation,
     evidence_nature_for_simulation_status,
@@ -357,6 +358,7 @@ from threat_report_agent.product_certification import (
 # MEASURED: that is exactly what the first version of this extraction did, and 7 investigation tests caught it.
 from threat_report_agent.task import limitations as _limitations
 from threat_report_agent.investigation.derivation import (
+    SimulationWindowOutcome,
     _bind_recovered_xor_verification,
     _decode_output_buffer,
     plausible_traced_creation_flags,
@@ -6523,14 +6525,6 @@ class AnalysisService:
                 # dispatch; a second placeholder survives into the report even
                 # after SUCCEEDED/UNSUPPORTED lands.
             elif artifact_content:
-                runner = default_simulation_runner(
-                    policy,
-                    # One definition for all three sites (`may_execute_in_process`). Previously this site
-                    # computed the condition while two others hardcoded `True`.
-                    execute_in_process=may_execute_in_process(
-                        policy, environment=self.settings.environment
-                    ),
-                )
                 windows = controlled_emulation_windows(
                     artifact_content,
                     pe_summary or {},
@@ -6554,7 +6548,7 @@ class AnalysisService:
                         nature="STATIC_INFERRED",
                     )
                 for window in windows[:2]:
-                    result = runner.run(request_for_granted_window(policy, window))
+                    result = self._run_simulation_window(policy, window)
                     payload = result.as_dict()
                     if result.status == "SUCCEEDED" and result.output_bytes:
                         payload["output_hex"] = result.output_bytes.hex()
@@ -6567,7 +6561,7 @@ class AnalysisService:
                         ),
                     )
                 qiling_row = (
-                    qiling_unavailable_observation(policy)
+                    self._qiling_unavailable_observation(policy)
                     if not worker_defers_simulation(policy)
                     else None
                 )
@@ -17260,6 +17254,42 @@ class AnalysisService:
         return matching_simulation_results(
             rows, selector, require_success=require_success
         )
+
+    def _run_simulation_window(
+        self, policy: SimulationExecutionPolicy, window: Mapping[str, object]
+    ) -> SimulationWindowOutcome:
+        """Run ONE granted window in the isolated runner the HOST owns (P3.3e's execution seam).
+
+        RELOCATED VERBATIM from `_derive_investigation_observations`, where the runner construction and the
+        `runner.run(...)` call sat inline: the moved derivation must not import `simulation_adapters` (plan section 3.2
+        admits emulation INTERFACES into `investigation/`, and that module is an implementation), so the two lines that
+        touch it live here, behind the port, and the moved body calls this instead.
+
+        MEASURED BEHAVIOUR EQUIVALENCE for building the runner PER WINDOW instead of once per action: every `self.<x>`
+        store in `IsolatedSimulationRunner` is in `__init__` (`adapters`, `policy`, `environment`,
+        `execute_in_process`), `run` mutates nothing on it and the module holds no mutable global state - so two runners
+        built from the same policy are interchangeable. `.scratch/p33e-seam-verify.py` asserts the relocated fragments
+        appear here byte-for-byte and that the site they left only calls this member.
+        """
+        runner = default_simulation_runner(
+            policy,
+            # One definition for all three sites (`may_execute_in_process`). Previously this site
+            # computed the condition while two others hardcoded `True`.
+            execute_in_process=may_execute_in_process(
+                policy, environment=self.settings.environment
+            ),
+        )
+        return runner.run(request_for_granted_window(policy, window))
+
+    def _qiling_unavailable_observation(
+        self, policy: SimulationExecutionPolicy
+    ) -> dict[str, object] | None:
+        """The Qiling policy probe, kept on the host because it calls into `simulation_adapters`.
+
+        Relocated verbatim from the same seam (one call site, `qiling_unavailable_observation(policy)`). The moved
+        derivation needs the row but may not import the module that produces it.
+        """
+        return qiling_unavailable_observation(policy)
 
     @classmethod
     def _has_uncovered_emulation_entry(

@@ -192,10 +192,39 @@ The pure helpers these four call (`_locator_key`, `_code_locator_integers`, `_fu
 module's alias - the import canonicalisation of section 5 was performed at the same time (`service.py` keeps the legacy
 `threat_report_agent.dataflow` path for its own un-moved code, and this is the ONLY import rewrite the move made).
 
+**THE EXECUTION SEAM HAS ALSO LANDED** (P3.3e-move-2a, round 117), and it is recorded here because it changes this
+document's own state table. Section 4's two execution members now exist on `AnalysisService`:
+`_run_simulation_window(policy, window)` and `_qiling_unavailable_observation(policy)`, with the runner construction and
+the `runner.run(...)` call RELOCATED from the giant's `CONTROLLED_EMULATE` branch, and the giant calls them through
+`self`. The branch therefore no longer names `simulation_adapters` at all, which is what lets the giant move into
+`investigation/` next.
+
+Three things about that seam are decisions this document did not make, and they are recorded here rather than left to be
+rediscovered:
+
+  * **The seam was executed as its OWN step, before the giant's move, although section 6 step 3 prescribes it inside
+    that move.** Reason: it is the ONLY behaviour-adjacent part (§7), and isolating it means the behaviour gates
+    (`test_controlled_emulation` calls the giant at four sites, plus the isolation/budget tests, the behaviour probe and
+    the full suite) prove "no behaviour change" in a step where nothing else moved. The plan's nine-step algorithm is
+    therefore satisfied at the granularity of the giant's migration, not of this half-step.
+  * **One behaviour delta exists and is deliberate:** the runner is built PER WINDOW (0 times when no window was
+    granted, up to 2 per action) instead of once per action before the empty-window check. MEASURED as unobservable:
+    every `self.<x>` store in `IsolatedSimulationRunner` is in `__init__`, `run` stores nothing on it, the module holds
+    no mutable global, `may_execute_in_process` is pure and `SimulationExecutionPolicy` is frozen. It is now PROBED, not
+    argued: `tests/test_investigation_derivation_seam.py` asserts policy-driven outcomes (`WORKER_REQUIRED` under the
+    isolated policy, `POLICY_DENIED` for a simulator the policy does not allow), which a member building the runner from
+    a default policy cannot produce - proven by `.scratch/p33e-seam-test-canfail.py`.
+  * **`SimulationWindowOutcome` was declared in `derivation.py`, not "in the coordinator" as section 4 says.** The
+    coordinator cannot take it: `tests/test_investigation_coordinator_contract.py` asserts that the coordinator's pin
+    equals EXACTLY the receiver references its own bodies make, so widening that pin for a member the coordinator never
+    calls would fail a gate whose purpose is keeping pins honest. Declaring it beside its consumer is the layer-correct
+    alternative, and the deviation is recorded here.
+
+For the same reason the host PIN is still not declared: a pin must name exactly what THIS module's bodies read, and
+after the seam none of them is here yet. It lands with the giant's body, one step later.
+
 **NOT LANDED, with the reason each waits:** the giant itself, `_DECODE_PRODUCER_KINDS` (its only reader is the giant -
-one bare read - so it travels WITH the giant, not before it), the four HOST members, and the two execution members
-(`_run_simulation_window`, `_qiling_unavailable_observation`) with the host pin. Bringing the constant here now would
-leave this module holding a constant nothing here reads while `service.py` still reads it.
+one bare read - so it travels WITH the giant, not before it), the four HOST members, and the host pin.
 
 **SIX INSTRUMENT DEFECTS THIS HALF COST**, all of the phase's recurring family (narrow scope or hard-coded
 configuration producing a confident wrong answer):

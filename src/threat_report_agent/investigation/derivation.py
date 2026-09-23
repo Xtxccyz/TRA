@@ -38,17 +38,53 @@ ONE IMPORT IS CANONICALISED ON PURPOSE. The moved bodies need `addresses_alias` 
 `service.py` reaches them through `threat_report_agent.dataflow`, the LEGACY shim path that the plan's import policy
 records as debt to be repaid; a new module imports `threat_report_agent.facts.dataflow` instead. That is the only
 import rewrite this move performs, and it is recorded in the step's records.
+
+THE EXECUTION SEAM, added by the step after this one (P3.3e-move-2a). The giant's body builds a simulation runner and
+calls `qiling_unavailable_observation` inline. Both live in `simulation_adapters`, an IMPLEMENTATION module that plan
+section 3.2 does not admit into `investigation/`, so neither can be imported here. The host therefore grew two members -
+`_run_simulation_window` and `_qiling_unavailable_observation` - whose bodies are the giant's own lines relocated, and
+the giant now calls them through `self`. This module declares the outcome TYPE of the first of those
+(`SimulationWindowOutcome`, below) because it is what consumes it.
 """
 from __future__ import annotations
 
 import re
 
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, Protocol
 
 from threat_report_agent.facts.dataflow import addresses_alias, output_buffer_identity
 from threat_report_agent.investigation import derivation_support as _derivation_support
 from threat_report_agent.models import Evidence
 from threat_report_agent.static.static_analysis import credible_windows_process_creation_flags
+
+
+class SimulationWindowOutcome(Protocol):
+    """What running ONE granted window through the host's isolated runner reports back.
+
+    DECLARED HERE, WHERE IT IS CONSUMED - a deliberate deviation from the P3.3e design document, which places it "in
+    the coordinator". The reason it cannot go there is measurable: `coordinator.py`'s contract test asserts that its
+    `INVESTIGATION_HOST_MEMBERS` pin equals EXACTLY the receiver references its own moved bodies make, so widening that
+    pin for a member the coordinator never calls would fail a gate that exists to keep pins honest. This type is the
+    return of the host member `_run_simulation_window`, and it is what the GIANT's body will consume next step: that
+    body reads `status`, `stop_reason` and `output_bytes` and calls `as_dict()` - which is why all four are declared,
+    even though the seam member itself only forwards the object.
+
+    The four members are exactly what that body touches (MEASURED in the giant's `CONTROLLED_EMULATE` branch), and
+    their types are those of the object the host really returns (`simulation_adapters.SimulationResult`): `status: str`,
+    `stop_reason: str | None`, `output_bytes: bytes`. A narrower or wider shape here would be a lie only a type checker
+    could catch - and `tests/test_investigation_derivation_seam.py` pins the shape against a real outcome.
+
+    THE HOST PIN ARRIVES WITH THE GIANT'S BODY, not with this type. A pin must name exactly what this module's own
+    bodies read (the coordinator's contract test asserts that equality), and after this seam none of those bodies is
+    here yet; declaring seven host members for a module that reads none of them would be the aspirational-pin defect
+    this phase has already recorded once.
+    """
+
+    status: str
+    stop_reason: str | None
+    output_bytes: bytes
+
+    def as_dict(self) -> dict[str, object]: ...
 
 
 # ---------------------------------------------------------------------------
