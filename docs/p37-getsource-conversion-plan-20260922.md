@@ -76,3 +76,31 @@ flag 没有被关掉；或用 P1 的端口做一个记录型协作者来断言�
   两者互不阻塞；
 * P3.3–P3.6 每次搬动都会让若干 `getsource` 目标**消失或改址**；因此本方案的第 2 节清单要在每个 P3 子步后**重新生成**
   （一条命令：`py .scratch/p37-classify.py`），而不是照抄本文件。
+
+---
+
+## 附录 A：计数对账（round 128 实测，`py .scratch/p37-recount.py`）
+
+**两个数字测的不是同一件事，先把它们对齐再动手：**
+
+| 指标 | 值 | 含义 |
+|---|---|---|
+| 本方案第 2 节的站点数 | **18** | round 94 实测的**私有可达**站点（`getsource(AnalysisService._…)` 这一类） |
+| P1.4 表面 `test_getsource_count.total` | **39** | 测试里**全部** `inspect.getsource(...)` **调用**（AST 计数，15 个文件） |
+| 本次实测的私有可达站点 | **17** | 与方案的 18 相差 1 —— round 94 之后有一个站点已转换/改形 |
+| P1.4 表面 `reaching_a_private_member` | **17** | 与本次实测的 17 一致 |
+
+**结论**：方案第 2 节的逐点表对**私有可达**子集仍然有效，但它的 18 已过时（今天 17）；而表面记的 39 是**全部**调用，
+其中 22 个的目标是公开/非 service 符号（`analyst_report.render_official_markdown`、`PersistHow.*`、
+`simulation_adapters._speakeasy_adapter`、`auth_module` 等）。**两条计数都不错，但它们不能互换使用**——
+用 39 去核对方案的 18 会得出"方案漏了 21 个点"，用 18 去核对表面会得出"表面多算了 21 个"，两者都是错的。
+
+**逐文件分布（全部 39 个调用）**：`test_controlled_emulation.py` 9、`test_pe_entry_function_budget.py` 6、
+`test_investigation_recovery_loop.py` 4、`test_vb6_shim_evidence_reaches_the_body.py` 4、
+`test_analysis_task_orchestration.py` 3、`test_investigation_service.py` 2、`test_persist_how.py` 2、
+`test_static_wording_repair_on_publish_path.py` 2、其余 7 个文件各 1。
+
+**对后续执行的约束**：P3.7 的转换按**私有可达子集（17）**逐点做；每转换一个站点，`test_getsource_count.total`
+**必然下降**，因此每次都要**重录表面**并用"该站点已改为行为断言"作为依据（先例：P3.4-1 的
+`threshold_comparisons` 重录带值断言）。**不得**为了把总数降到某个数字而删掉负向守卫——方案的失败处理写明：
+不能通过删除测试"解决"耦合，缺少行为面时先补 contract test。
