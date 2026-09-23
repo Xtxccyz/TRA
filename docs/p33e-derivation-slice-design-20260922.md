@@ -59,6 +59,29 @@ read of which at most two are genuinely host-bound once the call graph is re-clo
 does this classification and **will be run as a fixed point during the move** - exactly the discipline the extractor
 already applies to host needs, and the numbers in §4 follow from it rather than from a guess.
 
+## 2b. The cluster-wide fixed point (added by the preparation rounds, measured)
+
+Per-helper verdicts kept flipping while the preparation slices ran, because each helper's verdict depends on the verdicts
+of the helpers it calls, so `.scratch/p33e-cluster-fixed-point.py` now computes the whole partition at once and prints the
+reason for every host member. Against `8059cfc`, with the two class constants checked separately by
+`.scratch/constant-readers.py`:
+
+| partition | names | lines |
+| --- | --- | --- |
+| **PURE** - readers outside the giant, no host state → `investigation/derivation_support.py` | `_parse_static_address`, `_locator_key`, `_row_own_function_payload`, `_code_locator_integers`, `_function_entry_integers`, `_pe_entry_integers`, `_overlay_pe_parser_thread_start` | 102 |
+| **TRAVELS** - no reader outside the giant, dependencies met | `_bind_recovered_xor_verification` 40, `_decode_output_buffer` 18, `_row_own_function_matches` 13, `plausible_traced_creation_flags` 16, **plus `_instruction_access_kind` 9, `_reference_access_kind` 11 and `_global_accesses_from_rows` 70 once the constants below travel** | 177 |
+| **HOST** - must become port members | `_emulation_entry_key` 2 (needs an emulation implementation module), `_follow_local_tail_jmp` 72 (reads `_MAX_GHIDRA_INSTRUCTIONS_PER_FUNCTION`, which TWO methods outside the cluster also read), `_investigation_value_text` 18 (its recursive call goes through the class name, so moving it would import `service`), `_matching_simulation_results` 10 (needs the same emulation module) | 102 |
+| **MODULE-LEVEL, travels** | `_DECODE_PRODUCER_KINDS` 7, `_bind_recovered_xor_verification` 40, `_decode_output_buffer` 18, `plausible_traced_creation_flags` 16 | 81 |
+
+**THE CONSTANTS DECIDE THREE MEMBERS, measured**: `_DATA_LOAD_INSTRUCTION` and `_DATA_STORE_INSTRUCTION` have exactly
+ONE reader each (`_instruction_access_kind`), so they can travel as module constants - which makes that helper, and then
+`_reference_access_kind` (which calls it) and `_global_accesses_from_rows` (which calls that), travel too.
+`_MAX_GHIDRA_INSTRUCTIONS_PER_FUNCTION` is read by `_record_builtin_code_signal_evidence` and `_record_ghidra_evidence`
+as well, so it must stay a class attribute and `_follow_local_tail_jmp` must stay a host member.
+
+**Port for the giant's move, measured: 6 existing + 4 host members + 2 execution members = 12** - the figure the giants
+decision doc estimated, and the same one the preparation step reached from the other direction.
+
 ## 3. Module-level names that must travel
 
 | name | lines | kind | note |
