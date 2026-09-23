@@ -171,7 +171,7 @@ P2-V.8 把 `semantic_predicates.py`（199 行、零包内依赖的纯谓词）�
 
 | 项 | 内容 |
 |---|---|
-| 新边 | `threat_report_agent.report.revision_writer -> threat_report_agent.models`（导入 `AnalysisSnapshot`，`ReportRevision` 将在 P3.4-2 由同一模块**构造**） |
+| 新边 | `threat_report_agent.report.revision_writer -> threat_report_agent.models`（P3.4-1 导入 `AnalysisSnapshot`；P3.4-2 又导入 `AnalysisTask`、`Artifact`、`AuditEvent`、`CaseRecord`、`ReportRevision`——`ReportRevision` 由同一模块**构造**。评审实测：本条边现在覆盖**六**个模型类型，第一版只写了两个，属「记录只写了一半后果」的缺陷，已更正） |
 | 触发它的改动 | P3.4-1 把 revision-writer 的组装层（`_snapshot_report_context`、`_select_report_evidence_rows`、`_migrate_snapshot_payload`、`_canonical_sha256`、常量 `_REPORT_PROJECTION_EVIDENCE_LIMIT`）从 `service.py` 移入 `report/revision_writer.py` |
 | 为什么不能靠"不在 deny-list 里" | 方案 §3.2 第 122 行「未列出的边默认禁止」；`report/` 那一行（第 133 行）只列 contracts、facts、investigation 只读投影。`docs/import-policy.json` 的 `_recorded_allowed_edges_note` 自己写明**未列出的边无法被机器检查**，所以沉默不等于许可 |
 | 为什么这是真新边（实测） | `report/revision_writer.py` 是 `report/` 包里**第一个**导入 `models` 的模块；`report/reporting.py` 今天不导入 `models`（它出现的 `Artifact` 只在文案字符串里） |

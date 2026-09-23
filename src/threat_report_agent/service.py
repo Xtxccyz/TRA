@@ -179,11 +179,9 @@ from threat_report_agent.investigation.investigation_ledger import (
 from threat_report_agent.report.analyst_report import (
     AnalystReportPlanEnvelope,
     compact_analyst_context,
-    compose_official_markdown,
     official_revision_semantic_gains,
     render_official_markdown,
     slot_evidence_corpora,
-    stamp_official_report_chrome,
     verify_model_slot_proposals,
 )
 from threat_report_agent.model.model_gateway import (
@@ -202,11 +200,6 @@ from threat_report_agent.investigation.mechanism_completeness import (
 from threat_report_agent.investigation.mechanism_ready import inspect_mechanism_ready as inspect_mechanism_ready
 from threat_report_agent.deep_analysis_quality import no_new_evidence_autopsy
 from threat_report_agent.static.pma_static_plan import static_analysis_plan_snapshot
-from threat_report_agent.report.report_verification import (
-    corrections_summary,
-    correctness_summary,
-    verify_report_correctness,
-)
 from threat_report_agent.report.reporting import (
     REPORT_MODULES,
     STATIC_ANALYSIS_PLAN_SNAPSHOT_KEY,
@@ -216,9 +209,6 @@ from threat_report_agent.report.reporting import (
     build_static_link_mechanism_projections,
     build_unique_execution_threads,
     normalize_modules,
-    report_bloat_violations,
-    report_analytical_violations,
-    report_v3_quality_violations,
 )
 from threat_report_agent.secret_store import SecretCipher
 from threat_report_agent.simulation_adapters import (
@@ -384,6 +374,7 @@ from threat_report_agent.task import task_runner as _task_runner
 
 from threat_report_agent.task.task_runner import SubmissionResult
 from threat_report_agent.report import revision_writer as _revision_writer
+from threat_report_agent.report.revision_writer import ReportComposeGateRejected as ReportComposeGateRejected
 
 
 @dataclass(frozen=True)
@@ -462,25 +453,9 @@ class AnalysisRunOrphaned(Exception):
 _PROVENANCE_FREE_DIGEST = _provenance_free_digest
 
 
-class ReportComposeGateRejected(ValueError):
-    """An agent draft introduced facts the deterministic fragments do not hold.
-
-    ADR-0036 报告合成门 rejection. It stays a ``ValueError`` so every existing
-    handler (the workbench route's 422, the plugin's ``GATE_REJECTED`` branch)
-    keeps working unchanged, and it carries the structured violation list
-    because :meth:`AnalysisService.workbench_write_report_file` writes the
-    analyst's file regardless and reports the gate outcome as data instead of
-    letting the write look failed.
-    """
-
-    code = "REPORT_COMPOSE_GATE_REJECTED"
-
-    def __init__(self, violations: Iterable[str]) -> None:
-        self.violations: tuple[str, ...] = tuple(violations)
-        super().__init__(
-            "analyst draft failed the report compose gate: "
-            + "; ".join(self.violations[:8])
-        )
+# `ReportComposeGateRejected` USED TO BE DEFINED HERE. It moved to `threat_report_agent.report.revision_writer`
+# (P3.4-2) and is re-exported in this file's import block above with `X as X`, so the object identity the
+# workbench route's 422 handler and the plugin's GATE_REJECTED branch rely on is preserved.
 
 
 SPECIALIST_STATIC_TOOLS = frozenset(
@@ -14496,12 +14471,14 @@ class AnalysisService:
         referenced_ids: set[str],
         limit: int,
     ) -> list[object]:
+        """Select a bounded report view without deleting ledger evidence."""
         return _revision_writer._select_report_evidence_rows(rows, referenced_ids=referenced_ids, limit=limit)
 
     @classmethod
     def _migrate_snapshot_payload(
         cls, snapshot_id: str, payload: dict[str, object]
     ) -> dict[str, object]:
+        """Read-only migration registry for immutable Analysis Snapshot payloads."""
         return _revision_writer._migrate_snapshot_payload(cls, snapshot_id, payload)
 
     def _report_inputs(self, session: Session, task_id: str) -> dict[str, list[Any]]:
@@ -15064,152 +15041,15 @@ class AnalysisService:
         parent_revision_id: str | None = None,
         author: str = "system",
     ) -> ReportRevision:
-        document = build_report_document(
-            selected_modules=modules,
-            **self._snapshot_report_context(snapshot),
-        )
-        document = self._postgres_safe_value(document)
-        if not isinstance(document, dict):
-            raise TypeError("report document must be an object")
-        document = self._overlay_analyst_report_plan(task, document)
-        document = self._postgres_safe_value(document)
-        if not isinstance(document, dict):
-            raise TypeError("report document must be an object")
-        self._apply_honest_analysis_outcome(task, document)
-        document = stamp_official_report_chrome(document)
-        document = self._postgres_safe_value(document)
-        if not isinstance(document, dict):
-            raise TypeError("report document must be an object")
-        # ADR-0036 / plan §8.3: the official GET is published through the report
-        # composition entry point, so a model-polished draft (when one exists) is
-        # admitted only if it passes the 报告合成门; otherwise the deterministic
-        # fragments are published. Routing the live path here is what puts the gate
-        # on the user-visible surface instead of leaving it test-only.
-        draft = document.get("analyst_report_draft")
-        markdown = self._postgres_safe_text(
-            compose_official_markdown(
-                document,
-                draft=str(draft) if isinstance(draft, str) else "",
-            )
-        )
-        violations = report_bloat_violations(markdown)
-        violations.extend(report_analytical_violations(document))
-        violations.extend(report_v3_quality_violations(document))
-        if violations:
-            self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="report.anti_bloat_rejected",
-                actor=author,
-                object_type="AnalysisSnapshot",
-                object_id=snapshot.id,
-                payload={"violations": violations, "markdown_bytes": len(markdown.encode("utf-8"))},
-            )
-            raise ValueError("report anti-bloat gate rejected document: " + "; ".join(violations))
-        parent_markdown = ""
-        parent_document: dict[str, object] | None = None
-        if parent_revision_id:
-            parent = session.get(ReportRevision, parent_revision_id)
-            if parent is not None:
-                parent_markdown = str(parent.markdown or "")
-                if isinstance(parent.document, dict):
-                    parent_document = parent.document
-        document["t6_revision_diff"] = self._t6_revision_diff_payload(
-            parent_markdown or None,
-            markdown,
-            parent_document,
-            document,
-        )
-        # Correctness verification, at the point the body is built.
-        #
-        # The gates above answer "may this text be published" (ADR-0036, anti-bloat, analytical and v3
-        # quality) and the acceptance instrument answers "are the benchmark facts present". Neither
-        # answers "is what it says TRUE", and the difference is measurable: the published revision of
-        # task `ce7e310e` passed 24/24 existence assertions while its YARA rule declared two `sha256`
-        # indicators that could not identify the sample - one was the digest the rule NAME was derived
-        # from, the other the digest of PE resource payload `RT_ICON[5]`.
-        #
-        # Verification here is recorded, not fatal. A report states its own limitations and a
-        # correctness finding is a fact about the artefact a reviewer must see, so the findings ride
-        # along in the document and the audit trail rather than blocking publication - the same
-        # treatment the investigation ledger gives a rejected action. `error_count` is the number a
-        # reviewer should treat as "do not deploy this artefact yet".
-        try:
-            correctness = correctness_summary(
-                verify_report_correctness(markdown, document)
-            )
-        except Exception as exc:  # noqa: BLE001 - verification must never break publication
-            correctness = {
-                "findings": [],
-                "by_class": {},
-                "error_count": 0,
-                "verification_failed": f"{type(exc).__name__}: {exc}"[:240],
-                "skill": "analysis-verification",
-            }
-        document["report_correctness"] = correctness
-        # Which body-visible renderer corrections this revision carries.
-        #
-        # `markdown` is written once, so a fix changes only future revisions: measured on this deployment,
-        # 342 of 345 tasks have a newest published revision that predates a section added since round 77, and
-        # 20 revisions still carry a detection rule named after a digest. Recording the markers with the
-        # artefact is what lets a consumer tell that a stored report is stale - and WHICH correction is
-        # missing - instead of re-rendering every document to find out.
-        try:
-            document["report_corrections"] = corrections_summary(markdown)
-        except Exception as exc:  # noqa: BLE001 - marker recording must never break publication
-            document["report_corrections"] = {
-                "markers": {},
-                "missing": [],
-                "current": False,
-                "recording_failed": f"{type(exc).__name__}: {exc}"[:240],
-            }
-        if correctness.get("error_count"):
-            self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="report.correctness_findings",
-                actor=author,
-                object_type="AnalysisSnapshot",
-                object_id=snapshot.id,
-                payload={
-                    "error_count": correctness.get("error_count"),
-                    "by_class": correctness.get("by_class"),
-                    "first": (correctness.get("findings") or [{}])[0].get("title", "")[:200],
-                },
-            )
-        revision = ReportRevision(
-            task_id=task.id,
-            snapshot_id=snapshot.id,
+        return _revision_writer._create_report_revision(
+            self,
+            session,
+            task,
+            snapshot,
+            modules,
             parent_revision_id=parent_revision_id,
-            selected_modules=modules,
-            document=document,
-            markdown=markdown,
             author=author,
         )
-        session.add(revision)
-        session.flush()
-        self._audit(
-            session,
-            case_id=task.case_id,
-            task_id=task.id,
-            event_type="report.generated",
-            actor=author,
-            object_type="ReportRevision",
-            object_id=revision.id,
-            payload={
-                "snapshot_id": snapshot.id,
-                "selected_modules": modules,
-                "edit_kind": revision.edit_kind,
-                "t6_substantive": bool(
-                    (document.get("t6_revision_diff") or {}).get("substantive")
-                )
-                if isinstance(document.get("t6_revision_diff"), dict)
-                else False,
-            },
-        )
-        return revision
 
     @staticmethod
     def _canonical_json(value: object) -> str:
@@ -15290,6 +15130,7 @@ class AnalysisService:
 
     @classmethod
     def _canonical_sha256(cls, value: object, *, exclude_keys: Iterable[str] = ()) -> str:
+        """sha256 of the canonical JSON bytes, computed without materialising them."""
         return _revision_writer._canonical_sha256(cls, value, exclude_keys=exclude_keys)
 
     @staticmethod
@@ -17246,23 +17087,7 @@ class AnalysisService:
         newest revision, then defers to :meth:`submit_analyst_draft`, which is
         where 报告合成门 (ADR-0036) is enforced.
         """
-        if not str(markdown or "").strip():
-            raise ValueError("analyst draft cannot be empty")
-        link = self.workbench_task_for_session(dsh_session_id)
-        if not link:
-            raise ValueError("no authoritative task is bound to this session")
-        task_id = str(link.get("task_id") or "")
-        with self.database.session_factory() as session:
-            revision = session.scalar(
-                select(ReportRevision)
-                .where(ReportRevision.task_id == task_id)
-                .order_by(ReportRevision.created_at.desc())
-                .limit(1)
-            )
-            if revision is None:
-                raise ValueError("the bound task has no report revision to revise")
-            revision_id = revision.id
-        return self.submit_analyst_draft(revision_id, markdown, actor=actor)
+        return _revision_writer.workbench_submit_analyst_draft(self, dsh_session_id, markdown, actor=actor)
 
     def workbench_write_report_file(
         self,
@@ -19815,33 +19640,7 @@ class AnalysisService:
             }
 
     def get_report_revision(self, revision_id: str) -> dict[str, object]:
-        with self.database.session_factory() as session:
-            revision = session.get(ReportRevision, revision_id)
-            if revision is None:
-                raise LookupError(revision_id)
-            disposed = session.scalar(
-                select(Artifact.id).where(
-                    Artifact.task_id == revision.task_id, Artifact.disposed_at.is_not(None)
-                )
-            )
-            document = revision.document
-            markdown = revision.markdown
-            if disposed:
-                document = {"content_access": "REDACTED", "snapshot_id": revision.snapshot_id}
-                markdown = "[REDACTED: evidence content has been disposed; audit metadata retained]"
-            return {
-                "id": revision.id,
-                "task_id": revision.task_id,
-                "snapshot_id": revision.snapshot_id,
-                "parent_revision_id": revision.parent_revision_id,
-                "status": revision.status,
-                "author": revision.author,
-                "selected_modules": revision.selected_modules,
-                "document": document,
-                "markdown": markdown,
-                "edit_kind": revision.edit_kind,
-                "created_at": revision.created_at.isoformat(),
-            }
+        return _revision_writer.get_report_revision(self, revision_id)
 
     def recompose_report(
         self,
@@ -19849,44 +19648,7 @@ class AnalysisService:
         selected_modules: list[str],
         actor: str = "demo-analyst",
     ) -> dict[str, object]:
-        modules = normalize_modules(selected_modules)
-        with self.database.session_factory.begin() as session:
-            task = session.get(AnalysisTask, task_id)
-            if task is None or task.lifecycle != "SUCCEEDED":
-                raise LookupError(f"Completed task {task_id} does not exist")
-            case = session.get(CaseRecord, task.case_id)
-            snapshot = session.scalar(
-                select(AnalysisSnapshot)
-                .where(AnalysisSnapshot.task_id == task_id)
-                .order_by(AnalysisSnapshot.created_at.desc())
-            )
-            parent = session.scalar(
-                select(ReportRevision)
-                .where(ReportRevision.task_id == task_id)
-                .order_by(ReportRevision.created_at.desc())
-            )
-            if case is None or snapshot is None:
-                raise LookupError(task_id)
-            revision = self._create_report_revision(
-                session,
-                task,
-                snapshot,
-                modules,
-                parent_revision_id=parent.id if parent else None,
-                author=actor,
-            )
-            self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="report.recomposed",
-                actor=actor,
-                object_type="ReportRevision",
-                object_id=revision.id,
-                payload={"selected_modules": modules, "snapshot_id": snapshot.id},
-            )
-            revision_id = revision.id
-        return self.get_report_revision(revision_id)
+        return _revision_writer.recompose_report(self, task_id, selected_modules, actor)
 
     def edit_report(
         self,
@@ -19894,52 +19656,7 @@ class AnalysisService:
         markdown: str,
         actor: str = "demo-analyst",
     ) -> dict[str, object]:
-        if not markdown.strip():
-            raise ValueError("Edited report cannot be empty")
-        with self.database.session_factory.begin() as session:
-            parent = session.get(ReportRevision, revision_id)
-            if parent is None:
-                raise LookupError(revision_id)
-            task = session.get(AnalysisTask, parent.task_id)
-            if task is None:
-                raise LookupError(parent.task_id)
-            document = dict(parent.document)
-            document["manual_edit"] = {
-                "base_revision_id": parent.id,
-                "author": actor,
-                "claim_or_evidence_created": False,
-            }
-            document = self._postgres_safe_value(document)
-            if not isinstance(document, dict):
-                raise TypeError("report document must be an object")
-            revision = ReportRevision(
-                task_id=parent.task_id,
-                snapshot_id=parent.snapshot_id,
-                parent_revision_id=parent.id,
-                status="DRAFT",
-                author=actor,
-                selected_modules=parent.selected_modules,
-                document=document,
-                markdown=self._postgres_safe_text(markdown),
-                edit_kind="MANUAL_EDIT",
-            )
-            session.add(revision)
-            session.flush()
-            self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="report.manually_edited",
-                actor=actor,
-                object_type="ReportRevision",
-                object_id=revision.id,
-                payload={
-                    "base_revision_id": parent.id,
-                    "requires_external_publish_gate": True,
-                },
-            )
-            new_revision_id = revision.id
-        return self.get_report_revision(new_revision_id)
+        return _revision_writer.edit_report(self, revision_id, markdown, actor)
 
     def submit_analyst_draft(
         self,
@@ -19969,74 +19686,7 @@ class AnalysisService:
         :meth:`workbench_write_report_file` keeps its file write authoritative
         and reports the rejection as data.
         """
-        from threat_report_agent.report.analyst_report import (
-            compose_gate_violations,
-            compose_official_markdown,
-            unprovenanced_fact_tokens,
-        )
-
-        draft = str(markdown or "")
-        if not draft.strip():
-            raise ValueError("analyst draft cannot be empty")
-        with self.database.session_factory.begin() as session:
-            parent = session.get(ReportRevision, revision_id)
-            if parent is None:
-                raise LookupError(revision_id)
-            task = session.get(AnalysisTask, parent.task_id)
-            if task is None:
-                raise LookupError(parent.task_id)
-            document = dict(parent.document)
-            fragments = compose_official_markdown(document)
-            violations = compose_gate_violations(draft, fragments)
-            if violations:
-                raise ReportComposeGateRejected(violations)
-            # A draft can pass the gate and still carry a fact this analysis never
-            # produced: the gate's four classes are endpoint-shaped, so a scheduled-task
-            # name, registry key, path or digest lifted from another document passes
-            # unchanged.  Measured on the published Resume body this check is quiet (only
-            # a trailing `;` tripped it), so recording it costs no false alarms and closes
-            # the "nothing detects it" gap - an unprovenanced fact is now auditable
-            # evidence rather than an argument.
-            unprovenanced = unprovenanced_fact_tokens(draft, fragments)
-            gated = self._postgres_safe_text(
-                compose_official_markdown(document, draft=draft)
-            )
-            document["analyst_report_draft"] = self._postgres_safe_text(draft)
-            document["analyst_report_draft_gate"] = "PASSED"
-            document = self._postgres_safe_value(document)
-            if not isinstance(document, dict):
-                raise TypeError("report document must be an object")
-            revision = ReportRevision(
-                task_id=parent.task_id,
-                snapshot_id=parent.snapshot_id,
-                parent_revision_id=parent.id,
-                status="DRAFT",
-                author=actor,
-                selected_modules=parent.selected_modules,
-                document=document,
-                markdown=gated,
-                edit_kind="AGENT_GENERATED",
-            )
-            session.add(revision)
-            session.flush()
-            self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="report.analyst_draft_admitted",
-                actor=actor,
-                object_type="ReportRevision",
-                object_id=revision.id,
-                payload={
-                    "base_revision_id": parent.id,
-                    "gate": "report-compose-gate",
-                    "gate_status": "PASSED",
-                    "unprovenanced_fact_count": len(unprovenanced),
-                    "unprovenanced_facts": unprovenanced[:20],
-                },
-            )
-            new_revision_id = revision.id
-        return self.get_report_revision(new_revision_id)
+        return _revision_writer.submit_analyst_draft(self, revision_id, markdown, actor=actor)
 
     def approve_report(self, revision_id: str, *, actor: str, note: str = "") -> dict[str, object]:
         """Gate 5 approval; facts remain frozen in the referenced snapshot."""
@@ -20078,30 +19728,7 @@ class AnalysisService:
         return self.get_report_revision(revision_id)
 
     def publish_report(self, revision_id: str, *, actor: str) -> dict[str, object]:
-        with self.database.session_factory.begin() as session:
-            revision = session.get(ReportRevision, revision_id)
-            if revision is None:
-                raise LookupError(revision_id)
-            if revision.status != "APPROVED":
-                raise ValueError("only an APPROVED report can be published")
-            task = session.get(AnalysisTask, revision.task_id)
-            if task is None:
-                raise LookupError(revision.task_id)
-            integrity = self.audit_integrity(task.id)
-            if not integrity.get("valid") or not integrity.get("seals"):
-                raise ValueError("publishing requires a valid sealed audit chain")
-            revision.status = "PUBLISHED"
-            self._audit(
-                session,
-                case_id=task.case_id,
-                task_id=task.id,
-                event_type="report.published",
-                actor=actor,
-                object_type="ReportRevision",
-                object_id=revision.id,
-                payload={"snapshot_id": revision.snapshot_id},
-            )
-        return self.get_report_revision(revision_id)
+        return _revision_writer.publish_report(self, revision_id, actor=actor)
 
     def analysis_package(self, task_id: str) -> dict[str, object]:
         with self.database.session_factory() as session:

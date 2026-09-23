@@ -46,6 +46,20 @@ P3_4_1_MEMBERS = (
 )
 
 
+P3_4_2_MEMBERS = (
+    "_create_report_revision",
+    "edit_report",
+    "get_report_revision",
+    "recompose_report",
+    "publish_report",
+    "submit_analyst_draft",
+    "workbench_submit_analyst_draft",
+)
+#: EVERY member the whole P3.4 slice moved. The gates below iterate THIS, and P3.4-2 is the reason: a pin that grew to
+#: eleven members while the delegation gates still checked four would have left the seven new delegations uncovered.
+MOVED_MEMBERS = P3_4_1_MEMBERS + P3_4_2_MEMBERS
+
+
 def _module_functions() -> dict[str, ast.AST]:
     return {
         node.name: node
@@ -114,7 +128,7 @@ def test_module_never_imports_service() -> None:
 
 
 def test_moved_names_exist_in_both_homes() -> None:
-    for name in P3_4_1_MEMBERS:
+    for name in MOVED_MEMBERS:
         assert hasattr(revision_writer, name), f"{name} is not defined in report/revision_writer.py"
         assert hasattr(service.AnalysisService, name), f"service.AnalysisService lost its {name} delegation"
 
@@ -209,7 +223,7 @@ def test_every_delegation_forwards_every_parameter(monkeypatch) -> None:
     order positionally, by name for keyword-only. Source text cannot see a substituted literal, a reordered argument or
     a swapped pair; a sentinel can.
     """
-    for name in P3_4_1_MEMBERS:
+    for name in MOVED_MEMBERS:
         original = getattr(revision_writer, name)
         static = inspect.getattr_static(service.AnalysisService, name)
         raw = static.__func__ if isinstance(static, (classmethod, staticmethod)) else static
@@ -265,3 +279,52 @@ def test_every_delegation_forwards_every_parameter(monkeypatch) -> None:
         monkeypatch.undo()
 
 
+def test_compose_gate_exception_is_the_same_object() -> None:
+    """The exception is the compose gate's PUBLIC contract, so the move had to preserve IDENTITY, not just the name.
+
+    `service.ReportComposeGateRejected` is caught by the workbench route's 422 handler and the plugin's
+    `GATE_REJECTED` branch. A second definition in the new module would import cleanly, pass every structural gate, and
+    silently stop catching the exception the module actually raises - so the assertion is `is`, not `==`, plus the
+    attributes handlers read (`code`, `violations`) and the `ValueError` base the existing handlers rely on.
+    """
+    assert service.ReportComposeGateRejected is revision_writer.ReportComposeGateRejected, (
+        "the compose-gate exception exists twice; `except service.ReportComposeGateRejected` would stop catching"
+    )
+    rejected = revision_writer.ReportComposeGateRejected(["first", "second"])
+    assert rejected.code == "REPORT_COMPOSE_GATE_REJECTED"
+    assert rejected.violations == ("first", "second")
+    assert isinstance(rejected, ValueError)
+    assert "analyst draft failed the report compose gate: first; second" in str(rejected)
+
+
+def test_lifecycle_delegations_are_plain_instance_methods() -> None:
+    """The seven P3.4-2 delegations are ordinary methods - and saying so separates them from the P3.4-1 four.
+
+    `_select_report_evidence_rows`, `_migrate_snapshot_payload` and `_canonical_sha256` are `@classmethod`s that TEN
+    test sites call BY CLASS NAME (`AnalysisService._canonical_sha256(value)`), so their decorators must survive; these
+    seven are reached through an instance. A slice that flattened one into the other would still import cleanly, which is
+    why the expectation is written down per member instead of assumed from the previous slice.
+    """
+    for name in P3_4_2_MEMBERS:
+        attribute = inspect.getattr_static(service.AnalysisService, name)
+        assert not isinstance(attribute, (classmethod, staticmethod)), (
+            f"{name} gained a {type(attribute).__name__}; callers reach it through an instance"
+        )
+        assert name in _module_functions(), f"{name}'s implementation did not move into report/revision_writer.py"
+
+
+def test_delegations_keep_the_implementations_docstring() -> None:
+    """`service.<name>.__doc__` must equal the implementation's - the mover dropped it for eleven of eleven members.
+
+    MEASURED: `tests/test_analyst_draft_submission.py::test_service_method_exists_with_gate_semantics` reads
+    `AnalysisService.submit_analyst_draft.__doc__` and asserts it mentions the compose gate. It failed because the
+    delegated method's `__doc__` was `""` - the tool emitted signature + return only. One reader caught it; equality
+    across every member is what stops the next slice from reintroducing it.
+    """
+    for name in MOVED_MEMBERS:
+        implementation_doc = getattr(revision_writer, name).__doc__
+        delegation_doc = getattr(service.AnalysisService, name).__doc__
+        assert delegation_doc == implementation_doc, (
+            f"{name}: the delegation and the implementation document themselves differently "
+            f"({delegation_doc!r} vs {implementation_doc!r})"
+        )
