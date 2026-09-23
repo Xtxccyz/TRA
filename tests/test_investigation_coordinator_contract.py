@@ -1,8 +1,8 @@
 """P3.3 contract: the investigation slices' port, the slices behind it, and the members that had to STAY.
 
 Plan 7.1 step 2 is "stand up the minimal interface and its contract test before moving any implementation"; P3.3's
-slices follow P3.2's recipe (`docs/p33-investigation-coordinator-design-20260922.md`), and this file pins the two that
-have moved: P3.3b (frontier helpers) and P3.3a (the ledger).
+slices follow P3.2's recipe (`docs/p33-investigation-coordinator-design-20260922.md`), and this file pins the four that
+have moved: P3.3b (frontier helpers), P3.3a (the ledger), P3.3c (action proposal) and P3.3d (convergence).
 
 MEASURED, and it is why P3.3b's slice is smaller than the fragment scan suggested: four members that the scan grouped
 with it stay on the host. `_is_unique_thread_seed_row`, `_unique_thread_start_keys` and
@@ -15,8 +15,8 @@ the repository contains exactly ONE `investigation -> report` import, `investiga
 one recorded in `docs/import-policy.json`'s `known_violations` - so the first attempt would have made a known
 violation worse.)
 
-The port is TWO members: `database` (P3.3b, what the design measured) and `_audit` (P3.3a, which the ledger slice
-measured for itself).
+The port is SIX members: `database` and `_audit` (P3.3b/P3.3a), `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` (P3.3c), and the
+convergence slice's three (P3.3d: `_canonical_json` plus two annotated class constants).
 
     python -m pytest -q tests/test_investigation_coordinator_contract.py
 """
@@ -62,6 +62,12 @@ MOVED_MEMBERS = (
     "_deterministic_action_plan",
     "_planner_user_action",
     "_bound_completed_actions",
+    # P3.3d (the convergence slice; MEASURED host needs: the shared `_canonical_json` helper and two CLASS constants)
+    "_convergence_failure_contract",
+    "_build_convergence_alternate",
+    "_convergence_completed_fields",
+    "_convergence_alternate_type",
+    "_convergence_method_id",
 )
 MOVED_MODULE_FUNCS = ("frontier_status_is_open", "deferred_keeps_planner_open")
 #: Stayed on the host: moving them would need `report.reporting`, which plan 3.2 does not allow `investigation/` to
@@ -88,7 +94,22 @@ ORIGINAL_DECORATORS = {
     "_deterministic_action_plan": ["staticmethod"],
     "_planner_user_action": [],
     "_bound_completed_actions": ["classmethod"],
+    "_convergence_failure_contract": ["classmethod"],
+    "_build_convergence_alternate": ["classmethod"],
+    "_convergence_completed_fields": ["classmethod"],
+    "_convergence_alternate_type": ["classmethod"],
+    "_convergence_method_id": ["classmethod"],
 }
+#: Stayed on the host from the methodology half of the P3.3d slice. TWO measured blockers, either of which is enough:
+#:   * `_run_methodology_action` needs `threat_report_agent.methodology` (`DIMENSIONS`, `build_profile`), and that
+#:     module is imported by ONE layer only (service.py) - MEASURED against the established shared primitives, which
+#:     span several layers (`models` 5, `config` 5, `runtime_contracts` 3, `contracts` 2). So
+#:     `investigation -> methodology` is an unlisted edge with no precedent;
+#:   * it reads the MODULE-LEVEL `REFERENCE_ISOLATED_FACT_LIBRARY`, which is also read by `_freeze_blind_run_snapshot`
+#:     (an un-moved method), so it cannot travel with the slice and this module may not import it.
+#: It would also need five more port members (three shared helpers plus `_METHODOLOGY_EVIDENCE_LIMIT` and the
+#: `methodology_library` attribute), which is recorded rather than acted on.
+STAYED_FROM_P3_3D = ("_run_methodology_action",)
 #: Stayed on the host from the action-proposal slice, each for a MEASURED reason (this is P3.3c(2)):
 #: `_model_action_plan` and `_action_is_model_or_human` need a RUNTIME import (`isinstance` / a call) from a layer the
 #: matrix does not allow `investigation/` to import - and in `action_is_model_or_human`'s case that layer
@@ -163,10 +184,17 @@ def test_the_coordinator_module_defines_exactly_the_port_and_the_moved_slice() -
 
 def test_the_port_matches_the_pin_and_is_fully_used() -> None:
     assert len(set(INVESTIGATION_HOST_MEMBERS)) == len(INVESTIGATION_HOST_MEMBERS), "the pin has a duplicate"
-    assert INVESTIGATION_HOST_MEMBERS == ("database", "_audit", "_MAX_COMPLETED_ACTION_EVIDENCE_IDS"), (
-        "the port is `database` (P3.3b) plus `_audit` (P3.3a's ledger) plus `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` "
-        "(P3.3c's `_bound_completed_actions`, a class constant that `tests/test_ghidra_performance.py` pins on "
-        "AnalysisService so it cannot move); widening it further needs a measured reason in the step's findings"
+    assert INVESTIGATION_HOST_MEMBERS == (
+        "database",
+        "_audit",
+        "_MAX_COMPLETED_ACTION_EVIDENCE_IDS",
+        "_CONVERGENCE_ALTERNATES",
+        "_CONVERGENCE_EXPECTED_KINDS",
+        "_canonical_json",
+    ), (
+        "the port is `database` (P3.3b) + `_audit` (P3.3a's ledger) + `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` (P3.3c) + "
+        "the convergence slice's three (P3.3d: two class constants and the shared `_canonical_json` helper); widening "
+        "it further needs a measured reason in the step's findings"
     )
     assert _protocol_members() == set(INVESTIGATION_HOST_MEMBERS), (
         f"InvestigationHost declares {sorted(_protocol_members())} but the pin is {sorted(INVESTIGATION_HOST_MEMBERS)}"
@@ -236,6 +264,82 @@ def test_the_moved_members_are_one_statement_delegations_with_their_original_sha
             assert receiver in [a.arg for a in node.args.args[:1]], (
                 f"{name} lost its `{receiver}` parameter, which changes how every existing caller must call it"
             )
+
+
+def test_the_methodology_member_that_could_not_move_stayed_whole_with_measured_reasons() -> None:
+    """P3.3d(2), pinned: `_run_methodology_action` stays because of LAYER and shared-STATE rules, not by oversight."""
+    methods = {
+        node.name: node for node in _service_class().body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name in STAYED_FROM_P3_3D:
+        node = methods[name]
+        assert "_coordinator." not in ast.unparse(node), f"{name} was moved after all; re-measure the layer rule"
+        assert len(node.body) > 1, f"{name} looks like a delegation now, but this slice left it whole"
+    source = ast.unparse(methods["_run_methodology_action"])
+    assert "REFERENCE_ISOLATED_FACT_LIBRARY" in source, (
+        "the module-level fact library is no longer read by `_run_methodology_action`; the second blocker changed, so "
+        "re-measure before moving it"
+    )
+    service_text = SERVICE_MODULE.read_text(encoding="utf-8", errors="replace")
+    assert "from threat_report_agent.methodology import" in service_text
+    for investigation_module in (PACKAGE / "investigation").glob("*.py"):
+        assert "threat_report_agent.methodology" not in investigation_module.read_text(
+            encoding="utf-8", errors="replace"
+        ), (
+            f"{investigation_module.name} imports `methodology`; that edge has no precedent today (only service.py "
+            "imports it), so if it was added deliberately the P3.3d(2) blocker must be re-measured"
+        )
+
+
+def test_no_call_omits_the_host_a_sibling_requires() -> None:
+    """The ARITY pin, added after P3.3d shipped a silent behaviour change nothing else could see.
+
+    MEASURED: the intra-cluster rewrite turned `cls._convergence_alternate_type(action_type, attempted)` into
+    `_convergence_alternate_type(action_type, attempted)` while that function is `(host, action_type, attempted=())`.
+    Every argument shifted by one, the `_CONVERGENCE_ALTERNATES` fallback died, and NO gate noticed: `compileall`
+    passes on a missing argument, the behaviour probe says UNCHANGED, and the delegation pin is arity-blind. So the
+    arity is now checked directly, over the whole module, for every function whose first parameter is `host`.
+    """
+    tree = ast.parse(COORDINATOR_MODULE.read_text(encoding="utf-8", errors="replace"))
+    host_functions = {
+        node.name for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.args.args and node.args.args[0].arg == "host"
+    }
+    assert host_functions, "no function takes a host any more; this pin is stale"
+    offenders = [
+        f"{node.name}:{call.lineno} {ast.unparse(call)}"
+        for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id in host_functions
+        and not (call.args and isinstance(call.args[0], ast.Name) and call.args[0].id == "host")
+    ]
+    assert not offenders, (
+        "these calls omit the host their target requires, which SHIFTS every argument silently: " + "; ".join(offenders)
+    )
+
+
+def test_every_host_taking_function_is_delegated_with_its_own_receiver() -> None:
+    """The other half of the same defect: if a member needs a host, its delegation must forward one."""
+    import inspect
+
+    from threat_report_agent.investigation import coordinator as coordinator_module
+
+    methods = {
+        node.name: node for node in _service_class().body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name in MOVED_MEMBERS:
+        parameters = list(inspect.signature(getattr(coordinator_module, name)).parameters)
+        if not parameters or parameters[0] != "host":
+            continue
+        receiver = methods[name].args.args[0].arg if methods[name].args.args else None
+        assert receiver in {"self", "cls"}, f"{name} takes a host but its delegation has no receiver to forward"
+        body = ast.unparse(methods[name].body[0])
+        assert f"({receiver}," in body or f"({receiver})" in body, (
+            f"{name} needs a host but its delegation does not forward `{receiver}`: {body}"
+        )
 
 
 def test_the_action_proposal_members_that_could_not_move_stayed_whole_with_measured_reasons() -> None:

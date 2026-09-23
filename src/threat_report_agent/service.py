@@ -144,7 +144,6 @@ from threat_report_agent.investigation import (
     derive_static_mechanism_links,
     action_scope_from_plan,
     investigation_frontier_fingerprint,
-    investigation_method_id,
     investigation_next_method,
     investigation_scheduled_keys,
     completed_investigation_methods,
@@ -12582,8 +12581,7 @@ class AnalysisService:
         selector: Mapping[str, object] | None = None,
         plan: Mapping[str, object] | None = None,
     ) -> str:
-        """Return a stable semantic strategy identity for one target probe."""
-        return investigation_method_id(action_type, selector, plan)
+        return _coordinator._convergence_method_id(action_type, selector, plan)
 
     @classmethod
     def _convergence_frontier_fingerprint(cls, rows: object) -> str:
@@ -12595,27 +12593,7 @@ class AnalysisService:
         evidence: object,
         coverage: Mapping[str, object] | None = None,
     ) -> list[str]:
-        """Summarize completed semantic facets without inventing conclusions."""
-        fields: set[str] = set()
-        if isinstance(coverage, Mapping):
-            for target in coverage.get("targets", ()):
-                if not isinstance(target, Mapping):
-                    continue
-                for action_type in target.get("observed_action_types", ()):
-                    if str(action_type).strip():
-                        fields.add(f"evidence:{str(action_type)}")
-        rows = evidence if isinstance(evidence, (list, tuple, set, frozenset)) else ()
-        semantic_keys = {
-            "initiator", "input", "inputs", "state", "config", "transformation",
-            "transformation_or_control", "condition", "conditions", "side_effect",
-            "side_effects", "output", "outputs", "consumer", "consumers", "loop",
-            "failure", "fallback",
-        }
-        for row in rows:
-            value = row.value if isinstance(row, Evidence) else row.get("value") if isinstance(row, Mapping) else None
-            if isinstance(value, Mapping):
-                fields.update(str(key) for key in value if str(key) in semantic_keys)
-        return sorted(fields)[:64]
+        return _coordinator._convergence_completed_fields(evidence, coverage)
 
     @classmethod
     def _convergence_alternate_type(
@@ -12623,21 +12601,7 @@ class AnalysisService:
         action_type: ActionType | str,
         attempted: object = (),
     ) -> ActionType | None:
-        attempted_names = {str(item) for item in attempted} if isinstance(attempted, (list, tuple, set, frozenset)) else set()
-        next_name = investigation_next_method(action_type, attempted_names)
-        if next_name != "STATIC_BOUNDARY":
-            try:
-                return ActionType(next_name)
-            except ValueError:
-                return None
-        try:
-            current = ActionType(action_type)
-        except ValueError:
-            return None
-        for candidate in cls._CONVERGENCE_ALTERNATES.get(current, ()):
-            if candidate.value not in attempted_names:
-                return candidate
-        return None
+        return _coordinator._convergence_alternate_type(cls, action_type, attempted)
 
     @classmethod
     def _convergence_failure_contract(
@@ -12650,14 +12614,8 @@ class AnalysisService:
         existing_method_ids: object = (),
         error_type: str | None = None,
     ) -> dict[str, object]:
-        """Build the durable three-question failure contract for one attempt."""
-        plan = action.plan if isinstance(action.plan, Mapping) else {}
-        convergence_plan = plan.get("convergence", {})
-        is_alternate = (
-            isinstance(convergence_plan, Mapping)
-            and bool(convergence_plan.get("alternate_of"))
-        )
-        contract = DeepMiningPlanner.failure_contract(
+        return _coordinator._convergence_failure_contract(
+            cls,
             action,
             outcome=outcome,
             frontier_before=frontier_before,
@@ -12665,59 +12623,6 @@ class AnalysisService:
             existing_method_ids=existing_method_ids,
             error_type=error_type,
         )
-        planned_next = plan.get("next_method_action_type") or plan.get("next_method")
-        attempted_types = {
-            str(item).split(":", 1)[0]
-            for item in (
-                existing_method_ids
-                if isinstance(existing_method_ids, (list, tuple, set, frozenset))
-                else ()
-            )
-            if str(item).strip()
-        }
-        current_type = str(getattr(action.action_type, "value", action.action_type))
-        attempted_types.add(current_type)
-        # A placeholder CONTROLLED_EMULATE is a dispatch ticket, not a
-        # completed method. STATIC_BOUNDARY waits for the worker result.
-        if (
-            current_type == ActionType.CONTROLLED_EMULATE.value
-            and str(outcome or "").upper()
-            in {"NO_NEW_EVIDENCE", "NEUTRAL", "DEFERRED_TO_WORKER", "WORKER_REQUIRED"}
-        ):
-            attempted_types.discard(ActionType.CONTROLLED_EMULATE.value)
-        if is_alternate:
-            # Two dry static methods are a backtrack, not a boundary, until
-            # isolated emulation has been attempted for this selector.
-            if ActionType.CONTROLLED_EMULATE.value not in attempted_types:
-                if str(contract.get("next_method") or "") in {"", "STATIC_BOUNDARY"}:
-                    next_name = investigation_next_method(action.action_type, attempted_types)
-                    contract["next_method"] = next_name
-                    contract["next_method_action_type"] = (
-                        None if next_name == "STATIC_BOUNDARY" else next_name
-                    )
-                contract["requires_alternate"] = str(contract.get("next_method")) not in {
-                    "",
-                    "STATIC_BOUNDARY",
-                }
-                contract["alternate_of"] = convergence_plan.get("alternate_of")
-                return contract
-            contract["next_method"] = "STATIC_BOUNDARY"
-            contract["next_method_action_type"] = None
-            contract["requires_alternate"] = False
-            contract["alternate_of"] = convergence_plan.get("alternate_of")
-            return contract
-        if planned_next and str(planned_next) not in {"", "STATIC_BOUNDARY"}:
-            contract["next_method"] = str(planned_next)
-            contract["next_method_action_type"] = str(planned_next)
-            contract["requires_alternate"] = True
-        elif not contract.get("next_method_action_type"):
-            alternate_type = cls._convergence_alternate_type(action.action_type, existing_method_ids)
-            if alternate_type is not None:
-                contract["next_method"] = alternate_type.value
-                contract["next_method_action_type"] = alternate_type.value
-                contract["requires_alternate"] = True
-        contract["alternate_of"] = None
-        return contract
 
     @classmethod
     def _build_convergence_alternate(
@@ -12728,108 +12633,12 @@ class AnalysisService:
         hypothesis_id: str,
         artifact_id: str,
     ) -> ActionSpec | None:
-        """Materialize one bounded alternate probe from a failed action row."""
-        params = dict(original.parameters or {})
-        convergence = params.get("_convergence", {})
-        if not isinstance(convergence, Mapping) or not convergence.get("requires_alternate"):
-            return None
-        raw_type = convergence.get("next_method_action_type")
-        try:
-            alternate_type = ActionType(str(raw_type))
-        except (TypeError, ValueError):
-            return None
-        # A second static fallback is still one hop short of HOW closure.
-        # Allow GET_DECOMPILE then CONTROLLED_EMULATE after an alternate
-        # already failed; do not chain arbitrary families forever.
-        if convergence.get("alternate_of"):
-            chained = str(raw_type)
-            if chained not in {
-                ActionType.GET_DECOMPILE.value,
-                ActionType.CONTROLLED_EMULATE.value,
-            }:
-                return None
-            attempted = {
-                str(item).split(":", 1)[0]
-                for item in (convergence.get("attempted_method_ids") or [])
-                if str(item).strip()
-            }
-            attempted.add(str(original.action_type))
-            if chained in attempted:
-                return None
-        selector = dict(original.target_selector or {})
-        if not selector:
-            return None
-        expected = cls._CONVERGENCE_EXPECTED_KINDS.get(
-            alternate_type, ("specialist_observation",)
-        )
-        source_ids = params.get("_source_evidence_ids", [])
-        if not isinstance(source_ids, (list, tuple, set, frozenset)):
-            source_ids = []
-        source_ids = tuple(
-            str(item).strip()
-            for item in source_ids
-            if isinstance(item, (str, int)) and str(item).strip()
-        )[:32]
-        original_plan = params.get("_analysis_plan", {})
-        original_plan = dict(original_plan) if isinstance(original_plan, Mapping) else {}
-        method_id = str(convergence.get("method_id") or investigation_method_id(
-            original.action_type, selector, original_plan
-        ))
-        alternate_convergence = {
-            "alternate_of": method_id,
-            "method_id": investigation_method_id(alternate_type, selector, original_plan),
-            "attempted_method_ids": list(convergence.get("attempted_method_ids", [])),
-            "parent_attempt_id": original.id,
-        }
-        plan = {
-            **original_plan,
-            "convergence": alternate_convergence,
-            "question": (
-                f"Use {alternate_type.value} as a complementary method after "
-                f"{original.action_type} produced no usable evidence."
-            ),
-            "failure_meaning": (
-                "A second method failure is a bounded static limitation; it is not refutation."
-            ),
-            "planner_protocol": "plan-first-static-v1-convergence-v1",
-        }
-        stable_id = hashlib.sha256(
-            cls._canonical_json(
-                {
-                    "task_id": original.task_id,
-                    "thread_id": thread_id,
-                    "artifact_id": artifact_id,
-                    "parent_action": original.id,
-                    "action_type": alternate_type.value,
-                    "selector": selector,
-                }
-            ).encode("utf-8")
-        ).hexdigest()[:24]
-        return ActionSpec(
-            id=f"{thread_id}:convergence:{stable_id}",
-            action_type=alternate_type,
+        return _coordinator._build_convergence_alternate(
+            cls,
+            original=original,
             thread_id=thread_id,
             hypothesis_id=hypothesis_id,
             artifact_id=artifact_id,
-            priority=max(1, int(original.priority or 50) - 1),
-            reason=(
-                f"bounded alternate {alternate_type.value} after "
-                f"{original.action_type} produced no new evidence"
-            ),
-            parameters=selector,
-            target_selector=selector,
-            expected_evidence_kinds=expected,
-            success_condition="new_targeted_evidence",
-            failure_interpretation=FailureInterpretation.STATIC_BOUNDARY,
-            cost_units=ActionCatalog.default().require(alternate_type).cost_units,
-            source_evidence_ids=source_ids,
-            planner_turn_id=params.get("_planner_turn_id"),
-            provenance=(
-                dict(params.get("_model_provenance", {}))
-                if isinstance(params.get("_model_provenance"), Mapping)
-                else {}
-            ),
-            plan=plan,
         )
 
     @classmethod

@@ -1,8 +1,8 @@
 """P3.3 investigation coordinator: the port an investigation slice needs from its host, plus the slice behind it.
 
-STATUS: slices P3.3b (frontier helpers), P3.3a (the ledger) and P3.3c (action-proposal validation) have moved. Plan 7.1
-orders every migration in nine steps - step 2 is "先建立最小公开接口和 contract test" and step 3 is "移动同一份实现" -
-and P3.3 is executed in the six slices its measurement produced
+STATUS: slices P3.3b (frontier helpers), P3.3a (the ledger), P3.3c (action-proposal validation) and P3.3d (the
+convergence contract) have moved. Plan 7.1 orders every migration in nine steps - step 2 is "先建立最小公开接口和
+contract test" and step 3 is "移动同一份实现" - and P3.3 is executed in the six slices its measurement produced
 (`docs/p33-investigation-coordinator-design-20260922.md`), smallest port cost first.
 
 WHAT MOVED IN P3.3b: `_build_investigation_frontier`, `_convergence_frontier_fingerprint`, `_frontier_value_present`,
@@ -36,7 +36,8 @@ with this one stayed on the host:
   import (facts/ or static/), exactly the shape of the `facts -> investigation` decision recorded in
   `docs/plan-conflict-resolutions-20260922.md`: move the thing first, then the edge, never one alone.
 
-THE PORT (three members, each measured): `database`, `_audit` and `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`.
+THE PORT (six members, each measured): `database`, `_audit`, `_MAX_COMPLETED_ACTION_EVIDENCE_IDS`,
+`_CONVERGENCE_ALTERNATES`, `_CONVERGENCE_EXPECTED_KINDS` and `_canonical_json`.
 
   * `database` came with P3.3b: the design's slice table measured that slice's need as
     "无（切片内自洽，只需 `database`）" and it was right. The FIRST implementation exported two class constants that
@@ -47,6 +48,11 @@ THE PORT (three members, each measured): `database`, `_audit` and `_MAX_COMPLETE
   * `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` came with P3.3c: `_bound_completed_actions` bounds evidence ids with it. It
     is a CLASS constant that `tests/test_ghidra_performance.py` pins on `AnalysisService`, so it cannot move; the
     slice was FIRST reported as needing no host at all, and the contract test - not the measurement - caught that.
+  * the last three came with P3.3d: `_canonical_json` is a `@staticmethod` shared by eight call sites, seven of them
+    outside the moved cluster, and `_CONVERGENCE_ALTERNATES` / `_CONVERGENCE_EXPECTED_KINDS` are ANNOTATED class
+    attributes. A probe had reported those two as module-level (it looked only for `ast.Assign`), which would have
+    moved two class attributes out of the class; the class/module split is now read through one helper that handles
+    both assignment forms.
 
 WHY THE MOVE SPLITS HOST STATE FROM CLOSURE STATE, as a rule rather than case by case:
 
@@ -62,6 +68,7 @@ WHY THE MOVE SPLITS HOST STATE FROM CLOSURE STATE, as a rule rather than case by
 """
 from __future__ import annotations
 
+import hashlib
 import re
 
 from typing import Mapping, Protocol
@@ -70,10 +77,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from threat_report_agent.investigation.investigation import (
+    ActionCatalog,
+    ActionSpec,
     ActionType,
     DeepMiningPlanner,
     InvestigationThreadState,
     investigation_frontier_fingerprint,
+    investigation_method_id,
+    investigation_next_method,
 )
 from threat_report_agent.investigation.investigation_ledger import (
     LEDGER_UNKNOWN,
@@ -92,7 +103,11 @@ from threat_report_agent.models import (
     InvestigationHypothesisRecord,
     InvestigationThreadRecord,
 )
-from threat_report_agent.static.evidence_recovery import EvidenceDeliveryLedger, EvidenceStage
+from threat_report_agent.static.evidence_recovery import (
+    EvidenceDeliveryLedger,
+    EvidenceStage,
+    FailureInterpretation,
+)
 
 #: The measured host needs of the slices moved so far - the ONLY things an investigation slice may require of its host.
 #: Pinned by `tests/test_investigation_coordinator_contract.py`, which re-derives it from `service.py` and fails if it
@@ -109,23 +124,33 @@ from threat_report_agent.static.evidence_recovery import EvidenceDeliveryLedger,
 #: reference is `cls._MAX_COMPLETED_ACTION_EVIDENCE_IDS` (a classmethod). The CONTRACT TEST caught it, not the tool -
 #: the host-reference pin exists for exactly this. The tool now scans `self.` AND `cls.`, and takes `--from <rev>` so
 #: it cannot silently measure a post-move tree.
+#:
+#: WIDENED AGAIN IN P3.3d (three -> six): the convergence slice reaches the shared helper `_canonical_json` and reads
+#: two CLASS constants, `_CONVERGENCE_ALTERNATES` / `_CONVERGENCE_EXPECTED_KINDS`. A probe first reported those two as
+#: "class-level=no" and therefore as module-level state that would TRAVEL - it was looking only for `ast.Assign` while
+#: both are ANNOTATED class attributes. Had that reading been trusted, the extractor would have tried to move two class
+#: attributes into this module. The class/module split is now read through one helper that handles both forms.
 INVESTIGATION_HOST_MEMBERS: tuple[str, ...] = (
     "database",
     # --- added by P3.3a (the ledger slice) ---
     "_audit",
     # --- added by P3.3c (the action-proposal slice) ---
     "_MAX_COMPLETED_ACTION_EVIDENCE_IDS",
+    # --- added by P3.3d (the convergence slice) ---
+    "_CONVERGENCE_ALTERNATES",
+    "_CONVERGENCE_EXPECTED_KINDS",
+    "_canonical_json",
 )
 
 
 class InvestigationHost(Protocol):
     """What an investigation slice may use on the object that owns it.
 
-    Three members, each measured. `database` is annotated loosely ON PURPOSE: plan 3.2's matrix does not list
+    Six members, each measured. `database` is annotated loosely ON PURPOSE: plan 3.2's matrix does not list
     `database` among the modules `investigation/` may import ("未列出的边默认禁止"), and no module under
     `investigation/` imports it today, so naming the concrete type here would create a new edge just to describe an
-    attribute this code only ever calls methods on at runtime. `_audit` and `_MAX_COMPLETED_ACTION_EVIDENCE_IDS` are
-    declared with the shapes the host really has them in: a method and a class constant.
+    attribute this code only ever calls methods on at runtime. The rest are declared with the shapes the host really
+    has them in: two methods (`_audit`, `_canonical_json`) and three class constants.
 
     WHY THE CLASS CONSTANT IS ON THE PORT RATHER THAN MOVED WITH ITS READER: MEASURED, its only reader inside
     service.py moved in P3.3c, but it is a CLASS ATTRIBUTE and `tests/test_ghidra_performance.py:116,118` pins
@@ -136,6 +161,11 @@ class InvestigationHost(Protocol):
 
     database: object
     _MAX_COMPLETED_ACTION_EVIDENCE_IDS: int
+    _CONVERGENCE_ALTERNATES: dict[ActionType, tuple[ActionType, ...]]
+    _CONVERGENCE_EXPECTED_KINDS: dict[ActionType, tuple[str, ...]]
+
+    @staticmethod
+    def _canonical_json(value: object) -> str: ...
 
     def _audit(
         self,
@@ -976,3 +1006,262 @@ def _bound_completed_actions(
                 )
         bounded.append(item)
     return bounded
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.3 slices): identical to its old home in service.py. The receiver it used to reach
+# through `self`/`cls` is now an explicit `host: InvestigationHost` parameter, and ONLY where the body still
+# needs one. This banner is deliberately SLICE-AGNOSTIC: it used to name the first slice, so the second slice's
+# code was appended under a label that lied about which step moved it.
+# ---------------------------------------------------------------------------
+
+
+def _convergence_failure_contract(
+    host: InvestigationHost,
+    action: ActionSpec,
+    *,
+    outcome: str,
+    frontier_before: str,
+    frontier_after: str,
+    existing_method_ids: object = (),
+    error_type: str | None = None,
+) -> dict[str, object]:
+    """Build the durable three-question failure contract for one attempt."""
+    plan = action.plan if isinstance(action.plan, Mapping) else {}
+    convergence_plan = plan.get("convergence", {})
+    is_alternate = (
+        isinstance(convergence_plan, Mapping)
+        and bool(convergence_plan.get("alternate_of"))
+    )
+    contract = DeepMiningPlanner.failure_contract(
+        action,
+        outcome=outcome,
+        frontier_before=frontier_before,
+        frontier_after=frontier_after,
+        existing_method_ids=existing_method_ids,
+        error_type=error_type,
+    )
+    planned_next = plan.get("next_method_action_type") or plan.get("next_method")
+    attempted_types = {
+        str(item).split(":", 1)[0]
+        for item in (
+            existing_method_ids
+            if isinstance(existing_method_ids, (list, tuple, set, frozenset))
+            else ()
+        )
+        if str(item).strip()
+    }
+    current_type = str(getattr(action.action_type, "value", action.action_type))
+    attempted_types.add(current_type)
+    # A placeholder CONTROLLED_EMULATE is a dispatch ticket, not a
+    # completed method. STATIC_BOUNDARY waits for the worker result.
+    if (
+        current_type == ActionType.CONTROLLED_EMULATE.value
+        and str(outcome or "").upper()
+        in {"NO_NEW_EVIDENCE", "NEUTRAL", "DEFERRED_TO_WORKER", "WORKER_REQUIRED"}
+    ):
+        attempted_types.discard(ActionType.CONTROLLED_EMULATE.value)
+    if is_alternate:
+        # Two dry static methods are a backtrack, not a boundary, until
+        # isolated emulation has been attempted for this selector.
+        if ActionType.CONTROLLED_EMULATE.value not in attempted_types:
+            if str(contract.get("next_method") or "") in {"", "STATIC_BOUNDARY"}:
+                next_name = investigation_next_method(action.action_type, attempted_types)
+                contract["next_method"] = next_name
+                contract["next_method_action_type"] = (
+                    None if next_name == "STATIC_BOUNDARY" else next_name
+                )
+            contract["requires_alternate"] = str(contract.get("next_method")) not in {
+                "",
+                "STATIC_BOUNDARY",
+            }
+            contract["alternate_of"] = convergence_plan.get("alternate_of")
+            return contract
+        contract["next_method"] = "STATIC_BOUNDARY"
+        contract["next_method_action_type"] = None
+        contract["requires_alternate"] = False
+        contract["alternate_of"] = convergence_plan.get("alternate_of")
+        return contract
+    if planned_next and str(planned_next) not in {"", "STATIC_BOUNDARY"}:
+        contract["next_method"] = str(planned_next)
+        contract["next_method_action_type"] = str(planned_next)
+        contract["requires_alternate"] = True
+    elif not contract.get("next_method_action_type"):
+        alternate_type = _convergence_alternate_type(host, action.action_type, existing_method_ids)
+        if alternate_type is not None:
+            contract["next_method"] = alternate_type.value
+            contract["next_method_action_type"] = alternate_type.value
+            contract["requires_alternate"] = True
+    contract["alternate_of"] = None
+    return contract
+
+
+def _build_convergence_alternate(
+    host: InvestigationHost,
+    *,
+    original: InvestigationActionRecord,
+    thread_id: str,
+    hypothesis_id: str,
+    artifact_id: str,
+) -> ActionSpec | None:
+    """Materialize one bounded alternate probe from a failed action row."""
+    params = dict(original.parameters or {})
+    convergence = params.get("_convergence", {})
+    if not isinstance(convergence, Mapping) or not convergence.get("requires_alternate"):
+        return None
+    raw_type = convergence.get("next_method_action_type")
+    try:
+        alternate_type = ActionType(str(raw_type))
+    except (TypeError, ValueError):
+        return None
+    # A second static fallback is still one hop short of HOW closure.
+    # Allow GET_DECOMPILE then CONTROLLED_EMULATE after an alternate
+    # already failed; do not chain arbitrary families forever.
+    if convergence.get("alternate_of"):
+        chained = str(raw_type)
+        if chained not in {
+            ActionType.GET_DECOMPILE.value,
+            ActionType.CONTROLLED_EMULATE.value,
+        }:
+            return None
+        attempted = {
+            str(item).split(":", 1)[0]
+            for item in (convergence.get("attempted_method_ids") or [])
+            if str(item).strip()
+        }
+        attempted.add(str(original.action_type))
+        if chained in attempted:
+            return None
+    selector = dict(original.target_selector or {})
+    if not selector:
+        return None
+    expected = host._CONVERGENCE_EXPECTED_KINDS.get(
+        alternate_type, ("specialist_observation",)
+    )
+    source_ids = params.get("_source_evidence_ids", [])
+    if not isinstance(source_ids, (list, tuple, set, frozenset)):
+        source_ids = []
+    source_ids = tuple(
+        str(item).strip()
+        for item in source_ids
+        if isinstance(item, (str, int)) and str(item).strip()
+    )[:32]
+    original_plan = params.get("_analysis_plan", {})
+    original_plan = dict(original_plan) if isinstance(original_plan, Mapping) else {}
+    method_id = str(convergence.get("method_id") or investigation_method_id(
+        original.action_type, selector, original_plan
+    ))
+    alternate_convergence = {
+        "alternate_of": method_id,
+        "method_id": investigation_method_id(alternate_type, selector, original_plan),
+        "attempted_method_ids": list(convergence.get("attempted_method_ids", [])),
+        "parent_attempt_id": original.id,
+    }
+    plan = {
+        **original_plan,
+        "convergence": alternate_convergence,
+        "question": (
+            f"Use {alternate_type.value} as a complementary method after "
+            f"{original.action_type} produced no usable evidence."
+        ),
+        "failure_meaning": (
+            "A second method failure is a bounded static limitation; it is not refutation."
+        ),
+        "planner_protocol": "plan-first-static-v1-convergence-v1",
+    }
+    stable_id = hashlib.sha256(
+        host._canonical_json(
+            {
+                "task_id": original.task_id,
+                "thread_id": thread_id,
+                "artifact_id": artifact_id,
+                "parent_action": original.id,
+                "action_type": alternate_type.value,
+                "selector": selector,
+            }
+        ).encode("utf-8")
+    ).hexdigest()[:24]
+    return ActionSpec(
+        id=f"{thread_id}:convergence:{stable_id}",
+        action_type=alternate_type,
+        thread_id=thread_id,
+        hypothesis_id=hypothesis_id,
+        artifact_id=artifact_id,
+        priority=max(1, int(original.priority or 50) - 1),
+        reason=(
+            f"bounded alternate {alternate_type.value} after "
+            f"{original.action_type} produced no new evidence"
+        ),
+        parameters=selector,
+        target_selector=selector,
+        expected_evidence_kinds=expected,
+        success_condition="new_targeted_evidence",
+        failure_interpretation=FailureInterpretation.STATIC_BOUNDARY,
+        cost_units=ActionCatalog.default().require(alternate_type).cost_units,
+        source_evidence_ids=source_ids,
+        planner_turn_id=params.get("_planner_turn_id"),
+        provenance=(
+            dict(params.get("_model_provenance", {}))
+            if isinstance(params.get("_model_provenance"), Mapping)
+            else {}
+        ),
+        plan=plan,
+    )
+
+
+def _convergence_completed_fields(
+    evidence: object,
+    coverage: Mapping[str, object] | None = None,
+) -> list[str]:
+    """Summarize completed semantic facets without inventing conclusions."""
+    fields: set[str] = set()
+    if isinstance(coverage, Mapping):
+        for target in coverage.get("targets", ()):
+            if not isinstance(target, Mapping):
+                continue
+            for action_type in target.get("observed_action_types", ()):
+                if str(action_type).strip():
+                    fields.add(f"evidence:{str(action_type)}")
+    rows = evidence if isinstance(evidence, (list, tuple, set, frozenset)) else ()
+    semantic_keys = {
+        "initiator", "input", "inputs", "state", "config", "transformation",
+        "transformation_or_control", "condition", "conditions", "side_effect",
+        "side_effects", "output", "outputs", "consumer", "consumers", "loop",
+        "failure", "fallback",
+    }
+    for row in rows:
+        value = row.value if isinstance(row, Evidence) else row.get("value") if isinstance(row, Mapping) else None
+        if isinstance(value, Mapping):
+            fields.update(str(key) for key in value if str(key) in semantic_keys)
+    return sorted(fields)[:64]
+
+
+def _convergence_alternate_type(
+    host: InvestigationHost,
+    action_type: ActionType | str,
+    attempted: object = (),
+) -> ActionType | None:
+    attempted_names = {str(item) for item in attempted} if isinstance(attempted, (list, tuple, set, frozenset)) else set()
+    next_name = investigation_next_method(action_type, attempted_names)
+    if next_name != "STATIC_BOUNDARY":
+        try:
+            return ActionType(next_name)
+        except ValueError:
+            return None
+    try:
+        current = ActionType(action_type)
+    except ValueError:
+        return None
+    for candidate in host._CONVERGENCE_ALTERNATES.get(current, ()):
+        if candidate.value not in attempted_names:
+            return candidate
+    return None
+
+
+def _convergence_method_id(
+    action_type: ActionType | str,
+    selector: Mapping[str, object] | None = None,
+    plan: Mapping[str, object] | None = None,
+) -> str:
+    """Return a stable semantic strategy identity for one target probe."""
+    return investigation_method_id(action_type, selector, plan)

@@ -49,10 +49,16 @@ SERVICE_MODULE = PACKAGE / "service.py"
 RUNNER_MODULE = PACKAGE / "task" / "task_runner.py"
 
 #: FROZEN, from `.scratch/p32design-candidates.py`. Every `AnalysisService` member that belongs to plan P3.2's task
-#: responsibilities (creation / lifecycle / budget / cancellation / the limitation and outcome projections) and is
-#: still a real implementation, i.e. excluding the five the plan moved in P3.2a/P3.2b. The list is spelled out rather
-#: than matched by substring so the derivation below cannot drift when an unrelated method happens to be named
-#: `...lifecycle...`.
+#: responsibilities (creation / lifecycle / budget / cancellation / the limitation and outcome projections), EXCLUDING
+#: the five the plan moved in P3.2a/P3.2b. The list is spelled out rather than matched by substring so the derivation
+#: below cannot drift when an unrelated method happens to be named `...lifecycle...`.
+#:
+#: SOME OF THESE HAVE SINCE MOVED, and that is expected rather than stale: P3.2c-P3.2g moved most of them, and other
+#: P3.3 slices moved a few more (`_convergence_failure_contract`, for instance, went to `investigation/coordinator.py`
+#: in P3.3d). The derivation tolerates it BY DESIGN - P3.2f changed the assertion from "the port equals the candidate
+#: spine" to two-sided ones precisely because a moved member stops contributing port surface - so a name here may be a
+#: delegation. What the pin still guarantees is that no candidate needs anything OFF the port and that no port member
+#: is unused.
 CANDIDATES: tuple[str, ...] = (
     "_actual_depth",
     "_apply_honest_analysis_outcome",
