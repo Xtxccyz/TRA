@@ -1,4 +1,18 @@
-"""Bounded lifecycle for long-running analysis turns.
+"""
+
+STATUS - READ THIS BEFORE ASSUMING THE HAND-OFF IS ENFORCED (measured round 96):
+
+    NO production module imports this module. It is a COMPLETE state machine (IDLE -> ANALYSIS_RUNNING ->
+    AWAITING_EVENT -> SYNTHESIZING -> COMPLETED/FAILED/CANCELLED, with `branch()` allowed only from a terminal turn),
+    and its only test is `tests/test_final_runtime_closure.py`. There is no ADR and no `CONTEXT.md` entry for the
+    long-turn hand-off, and no equivalent implementation anywhere else in production.
+
+    So the requirement this docstring states - that a DSH conversation must not hold one model turn open while a static
+    task runs - is SPECIFIED HERE AND ENFORCED NOWHERE. That is a capability-axis gap, recorded deliberately:
+    `tests/test_task_package_contract.py` freezes the "no production importer" state so that wiring it (a DSH-side
+    behaviour change) or retiring it must be a recorded decision. Deleting it to "remove dead code" would drop a stated
+    requirement silently.
+Bounded lifecycle for long-running analysis turns.
 
 The DSH conversation must not hold one model turn open while a static task is
 running. This control-plane state machine models the hand-off: the requesting

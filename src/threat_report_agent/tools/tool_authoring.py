@@ -1,4 +1,20 @@
-"""Tool authoring spec and policy gate (ADR-0037).
+"""
+
+STATUS - READ THIS BEFORE ASSUMING AUTHORED TOOLS ARE GATED (measured round 96):
+
+    NO production module imports this module, and none of its concepts (`host_write`, `nondeterminism`,
+    `launch_intent`, `authored_tool`) appears anywhere else in production. It is a COMPLETE and TESTED implementation
+    (`tests/test_tool_authoring.py`, 51 cases) whose door is simply not wired to anything yet.
+
+    That makes it an implemented-but-unwired capability, not dead code: ADR-0037 (accepted) decides the product gains
+    tool authoring, and this module is its non-negotiable admission gate. `tests/test_model_package_contract.py`-style
+    frozen pins in `tests/test_tools_package_contract.py` keep it that way, so wiring it up OR retiring it must be a
+    deliberate, recorded act rather than a quiet side effect.
+
+    DO NOT delete it to "remove dead code": that would drop an accepted ADR's admission gate silently. DO NOT assume a
+    live gate either - if you are reading this because authored tools appear to run unguarded, the cause is that this
+    module has no caller, and the fix belongs to the capability axis (wire the gate), not to a structural step.
+Tool authoring spec and policy gate (ADR-0037).
 
 ADR-0037 lets the analysis system create tools for gaps that no existing
 ``ActionType`` can answer, under one non-negotiable boundary: **the submitted

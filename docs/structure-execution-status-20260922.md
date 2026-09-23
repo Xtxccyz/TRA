@@ -1,8 +1,8 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 45 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 46 条，本文件只汇总。
 
-- 本文档描述的树经核验于 HEAD `1b13ae8d1685c6372436ed2ca2b115de01d87b4c`（本轮改动在该提交之上，与本文件一并提交）
+- 本文档描述的树经核验于 HEAD `d42767c406bcc9b5350e2d05f017067963f08130`（本轮改动在该提交之上，与本文件一并提交）
 - **structure_status：`IN_PROGRESS`**
 - **capability_status：`UNVERIFIED`**
 
@@ -31,6 +31,7 @@ Plan section P5 grants `structure_status=READY` only after P2-P4 are complete. P
 
 ## 四、已完成的步骤
 
+- DECISIONS-a-b-c
 - P0.1
 - P0.2
 - P0.3
