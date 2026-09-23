@@ -28,7 +28,16 @@ from collections.abc import Iterable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from threat_report_agent.models import AnalysisFailureRecord, Artifact, ToolRun
+from threat_report_agent.database import Database
+from threat_report_agent.models import (
+    AnalysisFailureRecord,
+    AnalysisTask,
+    Artifact,
+    AuditEvent,
+    ToolRun,
+)
+from threat_report_agent.runtime_contracts import classify_failure, retry_decision
+from threat_report_agent.task.status import TaskLifecycle, ToolRunStatus
 
 
 
@@ -175,3 +184,171 @@ def merge_operational_limitations(document: dict[str, object], task: object) -> 
         if labelled not in merged:
             merged.append(labelled)
     document["analyst_report_limitations"] = merged
+
+
+def record_analysis_failure(
+    session: Session,
+    task: AnalysisTask,
+    exc: BaseException,
+    *,
+    stage: str = "ANALYSIS",
+    event_id: str | None = None,
+) -> dict[str, object]:
+    """Persist a sanitized failure contract for every failed attempt."""
+    latest_tool = session.scalar(
+        select(ToolRun)
+        .where(ToolRun.task_id == task.id, ToolRun.status == ToolRunStatus.FAILED.value)
+        .order_by(ToolRun.finished_at.desc(), ToolRun.id.desc())
+    )
+    latest_events = list(
+        session.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.task_id == task.id)
+            .order_by(AuditEvent.chain_sequence.desc(), AuditEvent.id.desc())
+            .limit(64)
+        )
+    )
+    failure_event_types = {
+        "analysis_task.failed",
+        "analysis_task.cancelled",
+        "analysis_task.cancel_requested",
+        "gate.approval_failed",
+    }
+    latest_event = next(
+        (
+            item
+            for item in latest_events
+            if item.event_type not in failure_event_types
+            and not item.event_type.endswith(".failed")
+        ),
+        None,
+    )
+    last_successful_stage = str(latest_event.event_type)[:160] if latest_event else "UNKNOWN"
+    contract = classify_failure(
+        exc,
+        stage=stage,
+        failed_component=(latest_tool.tool_name if latest_tool else None),
+        failed_activity=(latest_tool.tool_name if latest_tool else None),
+        last_successful_stage=last_successful_stage,
+    )
+    existing = session.scalar(
+        select(AnalysisFailureRecord).where(AnalysisFailureRecord.task_id == task.id)
+    )
+    detail = {key: value for key, value in contract.items() if key != "message"}
+    detail["message"] = str(contract.get("message", ""))[:500]
+    workflow_id = None
+    if latest_tool is not None and isinstance(latest_tool.environment, dict):
+        candidate = latest_tool.environment.get("workflow_id")
+        if candidate:
+            workflow_id = str(candidate)[:240]
+    previous_task = session.scalar(
+        select(AnalysisTask)
+        .join(
+            AnalysisFailureRecord,
+            AnalysisFailureRecord.task_id == AnalysisTask.id,
+        )
+        .where(
+            AnalysisTask.case_id == task.case_id,
+            AnalysisTask.id != task.id,
+            AnalysisTask.lifecycle == TaskLifecycle.FAILED.value,
+        )
+        .order_by(AnalysisTask.finished_at.desc(), AnalysisTask.created_at.desc())
+    )
+    # A just-flushed task can be visible through the join before its
+    # failure row is committed. Never allow a failure record to point to
+    # itself, even if a database backend returns an unexpected identity
+    # comparison result during autoflush.
+    if previous_task is not None and str(previous_task.id) == str(task.id):
+        previous_task = None
+    previous_failure = (
+        session.scalar(
+            select(AnalysisFailureRecord).where(
+                AnalysisFailureRecord.task_id == previous_task.id
+            )
+        )
+        if previous_task is not None
+        else None
+    )
+    previous_fingerprint = (
+        existing.failure_fingerprint
+        if existing is not None
+        else (previous_failure.failure_fingerprint if previous_failure is not None else None)
+    )
+    decision = retry_decision(
+        retryable=bool(contract["retryable"]),
+        previous_fingerprint=previous_fingerprint,
+        fingerprint=str(contract["failure_fingerprint"]),
+    )
+    retry_of_task_id = previous_task.id if previous_task is not None else None
+    attempt_number = (
+        (existing.attempt_number + 1)
+        if existing is not None
+        else ((previous_failure.attempt_number + 1) if previous_failure is not None else 1)
+    )
+    values = {
+        "lifecycle": "FAILED",
+        "analysis_class": "FAILED_ANALYSIS",
+        "failure_code": str(contract["failure_code"]),
+        "failure_stage": str(contract["failure_stage"]),
+        "failed_component": str(contract["failed_component"]),
+        "failed_activity": str(contract["failed_activity"]),
+        "retryable": bool(contract["retryable"]),
+        "retry_after_seconds": contract["retry_after_seconds"],
+        "failure_fingerprint": str(contract["failure_fingerprint"]),
+        "last_successful_stage": str(contract["last_successful_stage"]),
+        "last_event_id": event_id or (latest_event.id if latest_event else None),
+        "tool_run_id": latest_tool.id if latest_tool else None,
+        "temporal_workflow_id": workflow_id,
+        "report_available": False,
+        "attempt_number": attempt_number,
+        "retry_of_task_id": retry_of_task_id,
+        "retry_suppressed": bool(decision["retry_suppressed"]),
+        "detail": {
+            **detail,
+            "retry": decision,
+            "retry_reason": decision.get("reason"),
+            "requested_by": "system",
+            "previous_failure_fingerprint": previous_fingerprint,
+        },
+    }
+    if existing is None:
+        session.add(AnalysisFailureRecord(task_id=task.id, **values))
+    else:
+        for key, value in values.items():
+            setattr(existing, key, value)
+    return {**values, "task_id": task.id, "retry": decision}
+
+
+def is_task_cancelled(
+    database: Database,
+    task_id: str,
+    *,
+    observing: Session | None = None,
+) -> bool:
+    """Answer "has this task been cancelled" without disturbing a caller's transaction.
+
+        Reading the lifecycle is a pure probe, but a probe is not free when the engine hands out a single
+        shared connection (sqlite in-memory uses ``StaticPool``; a nested ``sessionmaker`` call then borrows
+        the very connection that owns the caller's open transaction).  Closing such a borrowed session makes
+        SQLAlchemy roll that connection back, which silently discards the caller's uncommitted work.  The
+        observable consequence was a report synthesis that flushed its ``analysis_snapshots`` row and then
+        failed the ``report_revisions.snapshot_id`` foreign key because the row had been rolled back by this
+        probe.
+
+        ``observing`` lets a caller that already holds a session -- and therefore already owns the
+        transaction -- answer the question inside that transaction instead.  A read-only sibling session is
+        used only when the bound session can no longer be used, and the fallback keeps the previous
+        behaviour for callers with no session to share.
+        """
+    session = observing
+    if session is not None:
+        try:
+            task = session.get(AnalysisTask, task_id)
+        except Exception:
+            # A failed or closed session must not turn a cancellation probe into a hard error.
+            session = None
+        else:
+            return task is None or task.lifecycle == TaskLifecycle.CANCELLED.value
+    with database.session_factory() as fallback:
+        task = fallback.get(AnalysisTask, task_id)
+        return task is None or task.lifecycle == TaskLifecycle.CANCELLED.value
