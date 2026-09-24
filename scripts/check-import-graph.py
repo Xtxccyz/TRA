@@ -265,6 +265,35 @@ def main() -> int:
         if tuple(item.split(" -> ")) not in known_violations
     )
 
+    # --- KNOWN-MODULE REGISTRY (round 135) ------------------------------------------------------------------
+    # MEASURED HOLE: a module created AFTER this policy was written appears in no policy entry, so no forbidden pair
+    # can ever match it and the strict gate passes it whatever it imports. `emulation/coordinator.py` (the module plan
+    # P3.5 creates) could import `report.reporting` and still print "no new cycles and no new reverse edges".
+    # A module must therefore be REGISTERED: by any policy entry, or in `known_modules`. This mirrors what
+    # `moved_paths` already does for RENAMED modules, extended to NEW ones.
+    registered: set[str] = set(policy.get("known_modules", []))
+    for pair in policy.get("forbidden_edges", []):
+        registered.update(str(item) for item in pair)
+    for pair in policy.get("known_violations", []):
+        registered.update(str(item) for item in pair)
+    for pair in policy.get("known_cycles", []):
+        registered.update(str(item) for item in pair)
+    for pair in policy.get("recorded_allowed_edges", []):
+        registered.update(str(item) for item in pair)
+    for entry in policy.get("moved_paths", []):
+        registered.add(str(entry.get("old", "")))
+        registered.add(str(entry.get("new", "")))
+    unregistered = sorted(
+        short(node) for node in nodes
+        if short(node) not in registered
+        and not any(short(node) == part or short(node).startswith(part + ".") for part in registered if part)
+    )
+    if unregistered:
+        print(f"\nUNREGISTERED MODULES ({len(unregistered)}): {', '.join(unregistered)}")
+        print("  A module absent from every policy entry cannot be policed: the deny-list is applied to the names it")
+        print("  knows, so a direct forbidden import from here would pass GREEN. Register it in `known_modules`")
+        print("  (with its layer) in the same commit that adds it.")
+
     if args.json:
         print(json.dumps({
             "modules": len(known),
@@ -287,7 +316,7 @@ def main() -> int:
             tag = "NEW" if item in new_violations else "known"
             print(f"  [{tag}] {item}")
 
-    if args.strict and (new_cycles or new_violations):
+    if args.strict and (new_cycles or new_violations or unregistered):
         print("\nSTRICT: import policy violated")
         return 1
     if args.strict:

@@ -392,5 +392,38 @@
       "models"
     ]
   ],
-  "_recorded_allowed_edges_note": "Edges that section 3.2's matrix does not list but that a recorded DECISION accepts. The gate does NOT read this key today: `forbidden_edges` is a deny-list and the matrix is not machine-encoded, so an unlisted edge cannot be machine-checked at all - that blind spot is stated here rather than hidden. The decision and its measurements are in `docs/plan-conflict-resolutions-20260922.md` decision (d). MEASURED round 106: `model.model_gateway -> contracts` exists because `DynamicPlanAction` moved into the pure contract layer so that (a) `investigation/` may import it (matrix line 132) and (b) the model port can expose it WITHOUT importing httpx (the gateway imports httpx; `ports.py` documents itself as free of transport/SDK imports). Cycle count stayed 0 and no forbidden edge was hit. To machine-check this class of decision, encode the matrix as an allow-list and make check-import-graph.py --strict fail on any unregistered edge."
+  "_recorded_allowed_edges_note": "Edges that section 3.2's matrix does not list but that a recorded DECISION accepts. The gate does NOT read this key today: `forbidden_edges` is a deny-list and the matrix is not machine-encoded, so an unlisted edge cannot be machine-checked at all - that blind spot is stated here rather than hidden. The decision and its measurements are in `docs/plan-conflict-resolutions-20260922.md` decision (d). MEASURED round 106: `model.model_gateway -> contracts` exists because `DynamicPlanAction` moved into the pure contract layer so that (a) `investigation/` may import it (matrix line 132) and (b) the model port can expose it WITHOUT importing httpx (the gateway imports httpx; `ports.py` documents itself as free of transport/SDK imports). Cycle count stayed 0 and no forbidden edge was hit. To machine-check this class of decision, encode the matrix as an allow-list and make check-import-graph.py --strict fail on any unregistered edge.",
+  "known_modules": [
+    "analysis_trace",
+    "attack_mapping",
+    "auth",
+    "cli",
+    "config",
+    "control_activities",
+    "database",
+    "deep_analysis_quality",
+    "ghidra_adapter",
+    "main",
+    "methodology",
+    "model",
+    "observability",
+    "orchestration",
+    "package_facade",
+    "policy",
+    "port_adapters",
+    "ports",
+    "product_certification",
+    "projection_protocols",
+    "report",
+    "runtime_contracts",
+    "secret_store",
+    "static",
+    "task",
+    "task.limitations",
+    "task.task_runner",
+    "threat_report_agent",
+    "tools",
+    "validation"
+  ],
+  "_known_modules_note": "Every module must be REGISTERED here (or by another policy entry) or `--strict` fails, because the deny-list can only police names it knows: a module created after this policy was written would otherwise be invisible and could import a forbidden layer GREEN (measured in round 134 with `emulation/coordinator.py -> report.reporting`). Generated in round 135 from the gate's own output; a new module must be added in the same commit that creates it."
 }
