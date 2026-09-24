@@ -1792,6 +1792,133 @@ def test_workbench_domain_view_exposes_snapshot_mechanisms(test_settings) -> Non
     )
 
 
+def test_workbench_domain_view_timeline_carries_a_mechanism_claim(test_settings) -> None:
+    """The `sample_timeline` projection must actually carry the timeline it exists to carry.
+
+    MEASURED COVERAGE HOLE, found by the can-fail proof of the §5.4 key-set pin and closed here. `sample_timeline`
+    appears TWICE in `workbench_query.workbench_domain_view`: as `"sample_timeline": []` in the returned literal and as
+    `result["sample_timeline"] = timeline[:256]` (the projection). Because the literal already provides the key, DELETING
+    the projection leaves the key PRESENT with an EMPTY list - so the key-set pin above still passes (measured: can-fail
+    branch B1 in `.scratch/p36-viewkeys-canfail.py`), and nothing in the suite noticed. A silently emptied analyst
+    timeline would reach the workbench and the report views without a single failing test.
+
+    This pins the CONTENT: a Claim carrying a `mechanism` must produce a `MECHANISM_READY->CLAIM_READY` entry whose
+    `claim_id` is that claim's. Deleting the projection now fails here, which is what makes the key-set pin's blind spot
+    harmless rather than merely documented.
+    """
+    database = Database(test_settings.database_url)
+    service = AnalysisService(test_settings, database, LocalContentStore(test_settings.content_store_path))
+    database.create_schema()
+    case = service.create_case("timeline projection")
+    with database.session_factory.begin() as session:
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        session.add(
+            Claim(
+                task_id=task.id,
+                module="investigation",
+                claim_type="INVESTIGATED_MECHANISM",
+                subject="sample.exe",
+                action="resolve_api_dynamically",
+                object="kernel32.LoadLibraryA",
+                mechanism="hash-based API resolution",
+                condition="static ordering satisfied",
+                statement="the sample resolves an API by walking the export table",
+                nature="STATIC_INFERRED",
+                status="CANDIDATE",
+                confidence="MEDIUM",
+            )
+        )
+        task_id = task.id
+
+    view = service.workbench_domain_view(task_id)
+    timeline = view["sample_timeline"]
+    assert timeline, (
+        "the sample_timeline projection returned nothing for a task that HAS a mechanism-bearing claim; the projection "
+        "line `result['sample_timeline'] = timeline[:256]` is what fills it, and the key-set pin cannot see its removal "
+        "because the returned literal still supplies an empty list"
+    )
+    mechanism_entries = [item for item in timeline if item.get("phase") == "MECHANISM_READY->CLAIM_READY"]
+    assert len(mechanism_entries) == 1, f"expected exactly one mechanism timeline entry, got {timeline}"
+    assert mechanism_entries[0]["module"] == "investigation"
+    assert mechanism_entries[0]["status"] == "CANDIDATE"
+    assert mechanism_entries[0]["claim_id"], (
+        "the timeline entry must carry the claim id, or the workbench cannot link the timeline row back to its claim"
+    )
+
+
+#: The TOP-LEVEL keys `task_view` returned for a MINIMAL task (a case and a RUNNING task, no evidence/tool runs/claims),
+#: MEASURED by running the view once and printing `sorted(view)` - the probe that produced this list is recorded in the
+#: P3.6-1 design's residual half-debt, which noted that the moved read-only query slice had a key-set pin for
+#: `workbench_domain_view` and NONE for `task_view` (0 dict-key comparisons in tests against 65 `task_view(` call sites
+#: across 19 files). The minimal fixture is the STRICTEST case: every key below is present even with no domain data, so
+#: a SUPERSET check (`<=`) fails loudly on a dropped or renamed key while leaving additive keys free - the same semantics
+#: as `REQUIRED_VIEW_KEYS` above, and for the same reason (a change-detector would block every legitimate feature).
+REQUIRED_TASK_VIEW_KEYS = {
+    "actual_granularity",
+    "analysis_class",
+    "analysis_coverage",
+    "analysis_turn_results",
+    "analysis_turns",
+    "artifacts",
+    "authoritative_report_revision_id",
+    "blind_runs",
+    "case_id",
+    "case_title",
+    "claim_evidence",
+    "claims",
+    "created_at",
+    "evidence",
+    "evidence_delivery",
+    "failure",
+    "finished_at",
+    "gates",
+    "id",
+    "investigation",
+    "latest_report_revision_id",
+    "lifecycle",
+    "limitations",
+    "mechanism_effectiveness_traces",
+    "model_calls",
+    "outcome",
+    "relations",
+    "request_snapshot",
+    "selected_report_modules",
+    "strategy_snapshot",
+    "target_granularity",
+    "tool_runs",
+    "trace_id",
+}
+
+
+def test_task_view_keeps_its_top_level_key_set(test_settings) -> None:
+    """The export projection's field set must not silently shrink.
+
+    WHY THIS EXISTS (measured): the P3.6-1 design asked for a dict-key-set assertion on BOTH views it moved. Only
+    `workbench_domain_view` got one; `task_view` - the OTHER view the same slice owns, and the one DSH and the report
+    views read - had zero key-set coverage, so a move that dropped a projection key would have been caught by nothing.
+    `task_view` is deliberately the expensive, complete projection, which makes a silently missing key exactly the kind
+    of loss that would only surface later as an empty report section.
+    """
+    database = Database(test_settings.database_url)
+    service = AnalysisService(test_settings, database, LocalContentStore(test_settings.content_store_path))
+    database.create_schema()
+    case = service.create_case("task view key set")
+    with database.session_factory.begin() as session:
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        task_id = task.id
+
+    view = service.task_view(task_id)
+    missing = REQUIRED_TASK_VIEW_KEYS - set(view)
+    assert not missing, (
+        f"task_view dropped or renamed top-level key(s) {sorted(missing)}; the measured key set is "
+        f"{sorted(REQUIRED_TASK_VIEW_KEYS)} and the view returned {sorted(view)}"
+    )
+
+
 def test_workbench_domain_view_exposes_unique_execution_threads(test_settings) -> None:
     """DSH task_gaps reads OS-thread rows from the domain view, not a full ledger."""
     database = Database(test_settings.database_url)
