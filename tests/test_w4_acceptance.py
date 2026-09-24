@@ -654,7 +654,7 @@ def test_model_planner_reorders_artifacts_and_records_policy_safe_plan(test_sett
         artifacts = list(session.query(Artifact).filter(Artifact.task_id == task.id))
         deterministic = [item.id for item in artifacts]
 
-    actions, limitations = service._run_model_planning(task.id, artifacts, deterministic, phase="test")
+    actions, limitations = service.run_model_planning(task.id, artifacts, deterministic, phase="test")
     assert not limitations
     assert actions and actions[0].tool_name == "ghidra-headless"
     assert service._merge_planned_actions(deterministic, actions, artifacts)[0] == actions[0].target_artifact_id
@@ -716,7 +716,7 @@ def test_model_planner_normalizes_baseline_action_placeholder(test_settings) -> 
         session.add(artifact)
         session.flush()
 
-    actions, limitations = service._run_model_planning(
+    actions, limitations = service.run_model_planning(
         task.id, [artifact], ["artifact-script"], phase="marker"
     )
 
@@ -776,7 +776,7 @@ def test_model_planner_rejects_uncited_targeted_investigation_action(test_settin
         session.add(artifact)
         session.flush()
 
-    actions, limitations = service._run_model_planning(task.id, [artifact], [artifact.id], phase="test")
+    actions, limitations = service.run_model_planning(task.id, [artifact], [artifact.id], phase="test")
 
     assert actions == []
     assert any("rejected 1" in item for item in limitations)
@@ -865,7 +865,7 @@ def test_model_planner_rejects_selector_not_grounded_in_cited_evidence(test_sett
         )
         session.flush()
 
-    actions, _ = service._run_model_planning(
+    actions, _ = service.run_model_planning(
         task.id, [artifact], [artifact.id], phase="selector-grounding"
     )
 
@@ -924,7 +924,7 @@ def test_model_planner_drops_extra_parameters_from_baseline_tool_actions(test_se
         session.add(artifact)
         session.flush()
 
-    actions, _ = service._run_model_planning(task.id, [artifact], [artifact.id], phase="parameter-sanitization")
+    actions, _ = service.run_model_planning(task.id, [artifact], [artifact.id], phase="parameter-sanitization")
     assert actions and actions[0].parameters == {}
     assert actions[0].target_selector == {}
 
@@ -1000,7 +1000,7 @@ def test_reference_isolated_blind_planner_hides_knowledge_fact_matcher(test_sett
         session.add(artifact)
         session.flush()
 
-    actions, limitations = service._run_model_planning(
+    actions, limitations = service.run_model_planning(
         task.id,
         [artifact],
         [artifact.id],
@@ -1185,8 +1185,8 @@ def test_replanning_request_contains_completed_actions(test_settings) -> None:
         session.add(artifact)
         session.flush()
 
-    service._run_model_planning(task.id, [artifact], [artifact.id], phase="initial")
-    service._run_model_planning(
+    service.run_model_planning(task.id, [artifact], [artifact.id], phase="initial")
+    service.run_model_planning(
         task.id,
         [artifact],
         [artifact.id],

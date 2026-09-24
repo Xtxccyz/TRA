@@ -171,7 +171,7 @@ def test_static_mechanism_link_identity_is_stable_when_evidence_order_changes() 
         planner_turn_id="dsh-turn-1",
         expected_evidence_kinds=("function_call",),
     )
-    derived = service._derive_investigation_observations(
+    derived = service.derive_investigation_observations(
         [SimpleNamespace(**item) for item in rows], action
     )
     assert any(item["kind"] == "mechanism_dynamic_api_link" for item in derived)

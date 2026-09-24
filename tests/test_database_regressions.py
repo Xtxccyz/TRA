@@ -271,7 +271,7 @@ def _legacy_failed_task(service: AnalysisService, database: Database, case_id: s
         task = AnalysisTask(case_id=case_id, lifecycle="FAILED")
         session.add(task)
         session.flush()
-        service._audit(
+        service.audit(
             session,
             case_id=case_id,
             task_id=task.id,
@@ -281,7 +281,7 @@ def _legacy_failed_task(service: AnalysisService, database: Database, case_id: s
             object_id=task.id,
             payload={"status": "SUCCEEDED"},
         )
-        service._audit(
+        service.audit(
             session,
             case_id=case_id,
             task_id=task.id,
@@ -303,11 +303,11 @@ def test_audit_head_is_reused_within_transaction_and_chain_remains_valid(test_se
         task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
         session.add(task)
         session.flush()
-        first = service._audit(
+        first = service.audit(
             session, case_id=case.id, task_id=task.id, event_type="test.first",
             actor="test", object_type="Evidence", object_id="e1", payload={},
         )
-        second = service._audit(
+        second = service.audit(
             session, case_id=case.id, task_id=task.id, event_type="test.second",
             actor="test", object_type="Evidence", object_id="e2", payload={},
         )
@@ -623,8 +623,8 @@ def test_report_revision_strips_nul_bytes_before_persist(test_settings) -> None:
             )
         )
         session.flush()
-        snapshot = service._freeze_snapshot(session, task)
-        revision = service._create_report_revision(
+        snapshot = service.freeze_snapshot(session, task)
+        revision = service.create_report_revision(
             session, task, snapshot, list(REPORT_MODULES)
         )
         assert "\x00" not in revision.markdown

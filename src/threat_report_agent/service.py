@@ -3319,6 +3319,16 @@ class AnalysisService:
     ) -> tuple[dict[str, object], ...]:
         return _derivation._global_accesses_from_rows(rows)
 
+    def derive_investigation_observations(self, source_rows: list[Evidence], action: ActionSpec, *, artifact_content: bytes | None = None, pe_summary: dict[str, object] | None = None) -> list[dict[str, object]]:
+        """Public behaviour entry point for `_derive_investigation_observations` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private method stays the implementation, and the facade delegates to it so a test that still
+        replaces the private attribute keeps working.
+        """
+        return self._derive_investigation_observations(source_rows, action, artifact_content=artifact_content, pe_summary=pe_summary)
+
+
     def _derive_investigation_observations(
         self,
         source_rows: list[Evidence],
@@ -5099,6 +5109,16 @@ class AnalysisService:
             artifacts=artifacts,
             completed_actions=completed_actions,
         )
+
+    def run_model_planning(self, task_id: str, artifacts: list[Artifact], deterministic_actions: list[str], *, phase: str, completed_actions: list[dict[str, object]] | None = None) -> tuple[list[DynamicPlanAction], list[str]]:
+        """Public behaviour entry point for `_run_model_planning` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private method stays the implementation, and the facade delegates to it so a test that still
+        replaces the private attribute keeps working.
+        """
+        return self._run_model_planning(task_id, artifacts, deterministic_actions, phase=phase, completed_actions=completed_actions)
+
 
     def _run_model_planning(
         self,
@@ -9300,6 +9320,16 @@ class AnalysisService:
                 return True
         return False
 
+    def materialize_recovered_bytes_child(self, session: Session, task: AnalysisTask, parent: Artifact, tool_run: ToolRun, payload: bytes, *, source: str, anchor: dict[str, object]) -> str | None:
+        """Public behaviour entry point for `_materialize_recovered_bytes_child` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private method stays the implementation, and the facade delegates to it so a test that still
+        replaces the private attribute keeps working.
+        """
+        return self._materialize_recovered_bytes_child(session, task, parent, tool_run, payload, source=source, anchor=anchor)
+
+
     def _materialize_recovered_bytes_child(
         self,
         session: Session,
@@ -9927,6 +9957,16 @@ class AnalysisService:
         return matching_simulation_results(
             rows, selector, require_success=require_success
         )
+
+    def run_simulation_window(self, policy: SimulationExecutionPolicy, window: Mapping[str, object]) -> SimulationWindowOutcome:
+        """Public behaviour entry point for `_run_simulation_window` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private method stays the implementation, and the facade delegates to it so a test that still
+        replaces the private attribute keeps working.
+        """
+        return self._run_simulation_window(policy, window)
+
 
     def _run_simulation_window(
         self, policy: SimulationExecutionPolicy, window: Mapping[str, object]
@@ -14087,6 +14127,16 @@ class AnalysisService:
                     )
         return disposed
 
+    def freeze_snapshot(self, session: Session, task: AnalysisTask) -> AnalysisSnapshot:
+        """Public behaviour entry point for `_freeze_snapshot` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private method stays the implementation, and the facade delegates to it so a test that still
+        replaces the private attribute keeps working.
+        """
+        return self._freeze_snapshot(session, task)
+
+
     def _freeze_snapshot(self, session: Session, task: AnalysisTask) -> AnalysisSnapshot:
         case = session.get(CaseRecord, task.case_id)
         if case is None:
@@ -15052,6 +15102,16 @@ class AnalysisService:
             "action_count_delta_is_not_gain": True,
         }
 
+    def create_report_revision(self, session: Session, task: AnalysisTask, snapshot: AnalysisSnapshot, modules: list[str], *, parent_revision_id: str | None = None, author: str = 'system') -> ReportRevision:
+        """Public behaviour entry point for `_create_report_revision` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private method stays the implementation, and the facade delegates to it so a test that still
+        replaces the private attribute keeps working.
+        """
+        return self._create_report_revision(session, task, snapshot, modules, parent_revision_id=parent_revision_id, author=author)
+
+
     def _create_report_revision(
         self,
         session: Session,
@@ -15234,6 +15294,16 @@ class AnalysisService:
                 for index in range(0, len(level), 2)
             ]
         return level[0].hex()
+
+    def audit(self, session: Session, *, case_id: str | None, event_type: str, actor: str, object_type: str, object_id: str, payload: dict[str, object], task_id: str | None = None) -> AuditEvent:
+        """Public behaviour entry point for `_audit` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private method stays the implementation, and the facade delegates to it so a test that still
+        replaces the private attribute keeps working.
+        """
+        return self._audit(session, case_id=case_id, event_type=event_type, actor=actor, object_type=object_type, object_id=object_id, payload=payload, task_id=task_id)
+
 
     def _audit(
         self,
@@ -16373,6 +16443,16 @@ class AnalysisService:
             if path in wanted or path.rsplit("/", 1)[-1] in wanted:
                 return True
         return False
+
+    def analysis_progress(self, task_id: str, *, after_seq: int = 0) -> dict[str, object]:
+        """Public behaviour entry point for `_analysis_progress` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private method stays the implementation, and the facade delegates to it so a test that still
+        replaces the private attribute keeps working.
+        """
+        return self._analysis_progress(task_id, after_seq=after_seq)
+
 
     def _analysis_progress(self, task_id: str, *, after_seq: int = 0) -> dict[str, object]:
         with self.database.session_factory() as session:

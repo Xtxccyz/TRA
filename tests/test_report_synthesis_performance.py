@@ -134,7 +134,7 @@ def _sealed_snapshot(service: AnalysisService, *, evidence_value: dict[str, obje
             )
         )
         session.flush()
-        snapshot = service._freeze_snapshot(session, task)
+        snapshot = service.freeze_snapshot(session, task)
         return snapshot.id, task.id
 
 
@@ -249,7 +249,7 @@ def test_report_not_mutating_snapshot_keeps_the_ledger_digest_valid(test_setting
         task = session.get(AnalysisTask, task_id)
         snapshot = session.get(AnalysisSnapshot, snapshot_id)
         sealed_digest = snapshot.object_versions["content_sha256"]
-        revision = service._create_report_revision(session, task, snapshot, list(REPORT_MODULES))
+        revision = service.create_report_revision(session, task, snapshot, list(REPORT_MODULES))
         stored = json.loads(json.dumps(snapshot.object_versions))["content_sha256"]
 
     assert stored == sealed_digest
@@ -269,7 +269,7 @@ def test_report_document_stays_json_serialisable_when_strings_carry_nul(test_set
     with service.database.session_factory.begin() as session:
         task = session.get(AnalysisTask, task_id)
         snapshot = session.get(AnalysisSnapshot, snapshot_id)
-        revision = service._create_report_revision(session, task, snapshot, list(REPORT_MODULES))
+        revision = service.create_report_revision(session, task, snapshot, list(REPORT_MODULES))
 
         def walk(value: object) -> list[str]:
             if isinstance(value, str):

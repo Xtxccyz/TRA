@@ -1213,7 +1213,7 @@ def test_service_pcode_action_recovers_context_level_pointer_link(test_settings)
         artifact_id="artifact-1",
         target_selector={"target": "resolve_table_dispatch"},
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     links = [item for item in observations if item["kind"] == "indirect_function_pointer_link"]
     assert links
     assert links[0]["value"]["storage"] == "PTR_RESOLVED_API"

@@ -121,7 +121,7 @@ def test_overlong_alternatives_are_named_in_planning_limitations(test_settings) 
 
     with service.database.session_factory() as session:
         artifact = session.get(Artifact, artifact_id)
-    _actions, limitations = service._run_model_planning(
+    _actions, limitations = service.run_model_planning(
         task_id,
         [artifact],
         [artifact_id],

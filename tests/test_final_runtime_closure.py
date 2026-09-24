@@ -43,17 +43,17 @@ def test_progress_reports_event_and_evidence_delta(test_settings) -> None:
         run = ToolRun(task_id=task.id, artifact_id=None, tool_name="test", tool_version="1", status="SUCCEEDED")
         session.add(run)
         session.flush()
-        service._audit(session, case_id=case.id, task_id=task.id, event_type="evidence.created", actor="test", object_type="Evidence", object_id="e1", payload={})
+        service.audit(session, case_id=case.id, task_id=task.id, event_type="evidence.created", actor="test", object_type="Evidence", object_id="e1", payload={})
         # The progress contract uses the append-only Evidence audit event as
         # its authoritative delta signal.  No Evidence row is needed here;
         # keeping the fixture at that public seam also avoids introducing a
         # deliberately invalid foreign-key row.
         task_id = task.id
-    progress = service._analysis_progress(task_id, after_seq=0)
+    progress = service.analysis_progress(task_id, after_seq=0)
     assert progress["progress_revision"] >= 1
     assert progress["new_evidence_since_last"] == 1
     assert progress["changed"] is True
-    current = service._analysis_progress(task_id, after_seq=int(progress["progress_revision"]))
+    current = service.analysis_progress(task_id, after_seq=int(progress["progress_revision"]))
     assert current["new_evidence_since_last"] == 0
     assert current["changed"] is False
     assert current["server_time"]
@@ -76,7 +76,7 @@ def test_elapsed_time_is_server_authoritative_and_stable_after_completion(test_s
         session.add(task)
         session.flush()
         task_id = task.id
-    progress = service._analysis_progress(task_id, after_seq=0)
+    progress = service.analysis_progress(task_id, after_seq=0)
     assert progress["created_at"].startswith("2026-01-01T00:00:00")
     assert progress["started_at"].startswith("2026-01-01T00:00:02")
     assert progress["finished_at"].startswith("2026-01-01T00:00:09")

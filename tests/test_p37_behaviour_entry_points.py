@@ -39,6 +39,14 @@ FACADE = {
     "_run_controlled_emulator": "run_controlled_emulator",
     "_record_ghidra_evidence": "record_ghidra_evidence",
     "_record_function_similarity": "record_function_similarity",
+    "_derive_investigation_observations": "derive_investigation_observations",
+    "_run_model_planning": "run_model_planning",
+    "_run_simulation_window": "run_simulation_window",
+    "_audit": "audit",
+    "_analysis_progress": "analysis_progress",
+    "_create_report_revision": "create_report_revision",
+    "_freeze_snapshot": "freeze_snapshot",
+    "_materialize_recovered_bytes_child": "materialize_recovered_bytes_child",
 }
 
 

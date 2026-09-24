@@ -421,7 +421,7 @@ def test_targeted_static_action_returns_only_the_requested_anchor(test_settings)
         parameters={"target": "GetProcAddress"},
     )
 
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
 
     assert observations
     assert all("getprocaddress" in str(item["value"]).lower() for item in observations)
@@ -483,13 +483,13 @@ def test_targeted_static_actions_preserve_graph_direction_and_verified_decode_re
             success_condition="targeted static edge recovered",
         )
 
-    callers = service._derive_investigation_observations(
+    callers = service.derive_investigation_observations(
         source_rows, action(ActionType.GET_CALLERS, "resolve_api")
     )
-    callees = service._derive_investigation_observations(
+    callees = service.derive_investigation_observations(
         source_rows, action(ActionType.GET_CALLEES, "resolve_api")
     )
-    decoded = service._derive_investigation_observations(
+    decoded = service.derive_investigation_observations(
         source_rows, action(ActionType.DECODE_CANDIDATE, "xor")
     )
 
@@ -540,7 +540,7 @@ def test_pcode_action_emits_semantic_source_sink_slice(test_settings) -> None:
         parameters={"target": "decode_and_load"},
         expected_evidence_kinds=("pcode_slice",),
     )
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
     slices = [item for item in observations if item["kind"] == "pcode_slice"]
     assert slices
     value = slices[0]["value"]
@@ -580,7 +580,7 @@ def test_derived_function_call_preserves_entry_anchor_from_parser_context(test_s
         expected_evidence_kinds=("function_call",),
     )
 
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
 
     derived = next(item for item in observations if item["kind"] == "function_call")
     assert derived["anchor"]["function_entry"] == "0x140001000"
@@ -629,7 +629,7 @@ def test_decode_result_does_not_link_api_cooccurrence(
         parameters={"target": "xor"},
         expected_evidence_kinds=("decode_result",),
     )
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         source_rows,
         action,
         artifact_content=ciphertext,
@@ -698,7 +698,7 @@ def test_decode_result_links_only_a_traced_decoded_output_buffer(test_settings) 
         expected_evidence_kinds=("decode_result",),
     )
 
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
 
     result = next(item for item in observations if item["kind"] == "decode_result")
     assert result["value"]["consumer_status"] == "LINKED_STATIC"
@@ -754,7 +754,7 @@ def test_decode_result_rejects_trace_for_a_different_buffer(test_settings) -> No
         expected_evidence_kinds=("decode_result",),
     )
 
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
 
     result = next(item for item in observations if item["kind"] == "decode_result")
     assert result["value"]["consumer_status"] == "NOT_IDENTIFIED"
@@ -837,7 +837,7 @@ def test_decode_candidate_does_not_give_the_first_xor_config_to_a_second_buffer(
         target_selector={"target": "xor"},
         expected_evidence_kinds=("decode_result",),
     )
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         source_rows,
         action,
         artifact_content=payload,
@@ -926,7 +926,7 @@ def test_trace_api_argument_stamps_decoded_output_when_operand_is_output_buffer(
         expected_evidence_kinds=("api_argument_trace",),
         source_evidence_ids=("decode-producer", "ctx-1", "ins-1", "call-1"),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     linked = [
         item["value"]
         for item in observations
@@ -1020,7 +1020,7 @@ def test_trace_createprocess_command_buffer_emits_decode_process_join(test_setti
         expected_evidence_kinds=("api_argument_trace",),
         source_evidence_ids=("decode-producer", "ctx-1", "ins-1", "call-1"),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     joined = [
         item["value"]
         for item in observations
@@ -1103,7 +1103,7 @@ def test_trace_virtualalloc_emits_decode_output_consumer(test_settings) -> None:
         expected_evidence_kinds=("api_argument_trace",),
         source_evidence_ids=("decode-producer", "ctx-1", "ins-1", "call-1"),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     joined = [
         item["value"]
         for item in observations
@@ -1172,7 +1172,7 @@ def test_trace_api_argument_does_not_treat_ciphertext_va_as_decoded_output(test_
         expected_evidence_kinds=("api_argument_trace",),
         source_evidence_ids=("cipher-only", "ctx-1", "ins-1", "call-1"),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     assert not any(
         item["kind"] == "api_argument_trace" and item["value"].get("source_role") == "decoded_output"
         for item in observations
@@ -1230,7 +1230,7 @@ def test_decode_result_links_nested_argument_window_to_output_buffer(test_settin
         target_selector={"target": "xor"},
         expected_evidence_kinds=("decode_result",),
     )
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
     result = next(item for item in observations if item["kind"] == "decode_result")
     assert result["value"]["consumer_status"] == "LINKED_STATIC"
     assert result["value"]["consumer_candidates"][0]["api"] == "LoadLibraryW"
@@ -1287,7 +1287,7 @@ def test_decode_candidate_emits_process_join_when_command_buffer_matches(test_se
         target_selector={"target": "xor"},
         expected_evidence_kinds=("decode_result",),
     )
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
     joined = [
         item["value"]
         for item in observations
@@ -1360,7 +1360,7 @@ def test_decode_candidate_links_output_pointer_loaded_into_a_call(test_settings)
         target_selector={"target": "xor"},
         expected_evidence_kinds=("decode_result",),
     )
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
     result = next(
         item
         for item in observations
@@ -1469,7 +1469,7 @@ def test_decode_candidate_links_rdata_xref_without_argument_register(test_settin
         target_selector={"target": "xor"},
         expected_evidence_kinds=("decode_result",),
     )
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
     result = next(
         item
         for item in observations
@@ -1546,7 +1546,7 @@ def test_trace_api_argument_skips_ghidra_string_labels(test_settings) -> None:
         expected_evidence_kinds=("api_argument_trace",),
         source_evidence_ids=("ins-1", "call-1"),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     traces = [
         item
         for item in observations
@@ -1590,7 +1590,7 @@ def test_return_value_action_recovers_caller_argument_flow(test_settings) -> Non
         parameters={"target": "decode_config"}, expected_evidence_kinds=("value_flow",),
         source_evidence_ids=("producer-context",),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     flow = next(row["value"] for row in observations if row["kind"] == "value_flow")
     assert flow["consumers"] == ["LoadLibraryW"]
     assert flow["links"][0]["producer_callsite"] == "0x1000"
@@ -1628,7 +1628,7 @@ def test_global_string_action_returns_artifact_local_string_observations(test_se
         expected_evidence_kinds=("string",),
     )
 
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
 
     assert len(observations) == 2
     assert {item["kind"] for item in observations} == {"string_reference"}
@@ -1683,7 +1683,7 @@ def test_cited_xref_expands_to_matching_function_context_for_decompile(test_sett
         source_evidence_ids=("xref-1",),
     )
 
-    observations = service._derive_investigation_observations(source_rows, action)
+    observations = service.derive_investigation_observations(source_rows, action)
 
     trace = next(item for item in observations if item["kind"] == "abstract_execution_trace")
     assert set(trace["value"]["source_evidence_ids"]) >= {"context-1", "instructions-1"}

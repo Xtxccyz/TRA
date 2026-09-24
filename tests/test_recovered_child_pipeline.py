@@ -46,7 +46,7 @@ def test_recovered_child_gets_drops_and_static_facts(test_settings) -> None:
         )
         session.add(run)
         session.flush()
-        child_id = service._materialize_recovered_bytes_child(
+        child_id = service.materialize_recovered_bytes_child(
             session,
             task,
             parent,
@@ -145,7 +145,7 @@ def test_emulation_recovered_child_is_emulation_observed_not_runtime(test_settin
         )
         session.add(run)
         session.flush()
-        child_id = service._materialize_recovered_bytes_child(
+        child_id = service.materialize_recovered_bytes_child(
             session,
             task,
             parent,
@@ -222,7 +222,7 @@ def test_short_xor_output_does_not_materialize_child(test_settings) -> None:
         )
         session.add(run)
         session.flush()
-        child_id = service._materialize_recovered_bytes_child(
+        child_id = service.materialize_recovered_bytes_child(
             session,
             task,
             parent,

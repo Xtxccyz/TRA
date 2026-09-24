@@ -81,7 +81,7 @@ def test_decompile_action_emits_ordered_semantic_summary(test_settings) -> None:
         expected_evidence_kinds=("abstract_execution_trace", "function_context"),
     )
 
-    observations = service._derive_investigation_observations(_function_rows(), action)
+    observations = service.derive_investigation_observations(_function_rows(), action)
 
     summary_row = next(
         item for item in observations if item["kind"] == "function_semantic_summary"
@@ -165,7 +165,7 @@ def test_qualified_api_xref_is_productive_after_symbol_normalization(test_settin
         expected_evidence_kinds=("xref", "function_call"),
     )
 
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     assert any(item["kind"] == "function_call" for item in observations)
 
     result = InvestigationLoopDriver(max_steps=2, max_consecutive_no_gain=1).run(
@@ -205,7 +205,7 @@ def test_qualified_api_argument_trace_is_productive_after_symbol_normalization(t
         expected_evidence_kinds=("api_argument_trace",),
     )
 
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
 
     assert any(item["kind"] == "api_argument_trace" for item in observations)
 
@@ -228,7 +228,7 @@ def test_function_scoped_argument_trace_does_not_filter_out_calls_by_rva(test_se
         expected_evidence_kinds=("api_argument_trace",),
     )
 
-    observations = service._derive_investigation_observations(_function_rows(), action)
+    observations = service.derive_investigation_observations(_function_rows(), action)
 
     assert any(item["kind"] == "api_argument_trace" for item in observations)
 

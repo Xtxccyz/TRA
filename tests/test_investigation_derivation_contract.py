@@ -157,6 +157,6 @@ def test_the_delegation_and_the_moved_function_agree_on_a_real_call(facade: Anal
         hypothesis_id="hyp-1",
         artifact_id="artifact-1",
     )
-    through_class = facade._derive_investigation_observations([], action)
+    through_class = facade.derive_investigation_observations([], action)
     through_module = _derive_investigation_observations(facade, [], action)
     assert through_class == through_module

@@ -301,7 +301,7 @@ def test_trace_global_usage_executor_recovers_producer_without_consumer(test_set
             anchor={"function_entry": worker_entry},
         ),
     ]
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         rows,
         ActionSpec(
             id="t3-trace-global",
@@ -385,7 +385,7 @@ def test_trace_global_usage_recovers_unnamed_ghidra_data_store(test_settings) ->
             anchor={"function_entry": worker_entry},
         ),
     ]
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         rows,
         ActionSpec(
             id="t3-trace-global-data",
@@ -453,7 +453,7 @@ def test_trace_api_argument_recovers_pe32_createthread_from_ghidra_pushes(
             anchor={"function_entry": spawn_entry},
         ),
     ]
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         rows,
         ActionSpec(
             id="t3-trace-createthread",

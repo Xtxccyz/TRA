@@ -43,7 +43,7 @@ def test_trace_api_argument_recovers_x64_call_arguments_and_consumer(test_settin
         source_evidence_ids=("ctx-1", "ins-1", "call-1"),
     )
 
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
 
     trace = next(item for item in observations if item["kind"] == "api_argument_trace")
     value = trace["value"]
@@ -93,7 +93,7 @@ def test_trace_api_argument_projects_catalog_facts_off_unresolved_slots(test_set
         target_selector={"target": "CreateProcessW"},
         source_evidence_ids=("ctx-1", "ins-1", "call-1"),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     nested = next(
         item["value"]
         for item in observations
@@ -176,7 +176,7 @@ def test_trace_api_argument_projects_creation_flags_and_return_branch(test_setti
         target_selector={"target": "CreateProcessW"},
         source_evidence_ids=("ctx-1", "ins-1", "call-1"),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     projected = next(
         item["value"]
         for item in observations
@@ -295,7 +295,7 @@ def test_resource_payload_frontier_and_static_format_probe_are_deep_mined(test_s
         )
 
     content = b"xxMZpayload-child-pe"
-    byte_rows = service._derive_investigation_observations(
+    byte_rows = service.derive_investigation_observations(
         rows,
         make_action(ActionType.READ_BYTES),
         artifact_content=content,
@@ -304,7 +304,7 @@ def test_resource_payload_frontier_and_static_format_probe_are_deep_mined(test_s
     assert read["value"]["offset"] == 2
     assert read["value"]["preview_hex"].startswith("4d5a")
 
-    decode_rows = service._derive_investigation_observations(
+    decode_rows = service.derive_investigation_observations(
         rows,
         make_action(ActionType.DECODE_CANDIDATE),
         artifact_content=content,
@@ -313,13 +313,13 @@ def test_resource_payload_frontier_and_static_format_probe_are_deep_mined(test_s
     assert decoded["value"]["format_candidate"] == "pe"
     assert decoded["value"]["runtime_execution"] == "not_performed"
 
-    data_rows = service._derive_investigation_observations(
+    data_rows = service.derive_investigation_observations(
         rows,
         make_action(ActionType.GET_DATA_REFERENCES),
     )
     assert any(item["kind"] == "data_reference" for item in data_rows)
 
-    consumer_rows = service._derive_investigation_observations(
+    consumer_rows = service.derive_investigation_observations(
         rows,
         make_action(ActionType.GET_CALLEES),
     )
@@ -450,7 +450,7 @@ def test_evaluate_constant_recovers_gettickcount_comparison_threshold(test_setti
         target_selector={"target": "GetTickCount64"},
         source_evidence_ids=("ins-tick",),
     )
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
     threshold = next(
         item["value"]
         for item in observations

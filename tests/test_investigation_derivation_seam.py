@@ -117,19 +117,19 @@ def test_the_member_forwards_the_callers_policy_and_not_a_default_one(facade: An
     ARGUMENT, not just self-consistency: the isolated policy defers to the worker, `None` would be disabled by policy,
     and a simulator outside `allowed_simulators` is rejected.
     """
-    worker_required = facade._run_simulation_window(ISOLATED_POLICY, WINDOW)
+    worker_required = facade.run_simulation_window(ISOLATED_POLICY, WINDOW)
     assert worker_required.status == "WORKER_REQUIRED"
     assert worker_required.stop_reason == "WORKER_REQUIRED"
 
-    denied = facade._run_simulation_window(ISOLATED_POLICY, {**WINDOW, "simulator": "speakeasy"})
+    denied = facade.run_simulation_window(ISOLATED_POLICY, {**WINDOW, "simulator": "speakeasy"})
     assert denied.status == "REJECTED", "the policy's allowed-simulators list did not reach the runner"
     assert denied.stop_reason == "POLICY_DENIED"
 
 
 def test_two_freshly_constructed_runners_agree_on_the_same_window(facade: AnalysisService) -> None:
     """The property the seam's shape depends on: the runner carries nothing between constructions."""
-    first = facade._run_simulation_window(ISOLATED_POLICY, WINDOW)
-    second = facade._run_simulation_window(ISOLATED_POLICY, WINDOW)
+    first = facade.run_simulation_window(ISOLATED_POLICY, WINDOW)
+    second = facade.run_simulation_window(ISOLATED_POLICY, WINDOW)
     assert first.as_dict() == second.as_dict()
     assert first.status == second.status
     assert first.stop_reason == second.stop_reason
@@ -138,7 +138,7 @@ def test_two_freshly_constructed_runners_agree_on_the_same_window(facade: Analys
 
 def test_the_window_contents_reach_the_outcome(facade: AnalysisService) -> None:
     """A member that dropped or reordered the window argument would still return a plausible row; this pins the value."""
-    granted = facade._run_simulation_window(ISOLATED_POLICY, {**WINDOW, "simulator": "unicorn"})
+    granted = facade.run_simulation_window(ISOLATED_POLICY, {**WINDOW, "simulator": "unicorn"})
     payload = granted.as_dict()
     assert isinstance(payload, dict) and payload, "the outcome must carry the runner's payload"
     assert payload.get("simulator") == "unicorn"
@@ -146,12 +146,12 @@ def test_the_window_contents_reach_the_outcome(facade: AnalysisService) -> None:
 
 def test_constructing_a_runner_does_not_mutate_the_policy(facade: AnalysisService) -> None:
     before = dataclasses.asdict(ISOLATED_POLICY)
-    facade._run_simulation_window(ISOLATED_POLICY, WINDOW)
+    facade.run_simulation_window(ISOLATED_POLICY, WINDOW)
     assert dataclasses.asdict(ISOLATED_POLICY) == before
 
 
 def test_the_outcome_matches_the_protocol_the_moved_code_will_use(facade: AnalysisService) -> None:
-    outcome = facade._run_simulation_window(ISOLATED_POLICY, WINDOW)
+    outcome = facade.run_simulation_window(ISOLATED_POLICY, WINDOW)
     assert isinstance(outcome.status, str)
     assert outcome.stop_reason is None or isinstance(outcome.stop_reason, str)
     assert isinstance(outcome.output_bytes, bytes)

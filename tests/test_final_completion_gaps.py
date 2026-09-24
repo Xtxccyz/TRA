@@ -127,7 +127,7 @@ def test_mechanism_effectiveness_trace_is_persisted_and_snapshotted(test_setting
             session.query(MechanismEffectivenessTraceRecord)
             .filter(MechanismEffectivenessTraceRecord.task_id == task_id)
         )
-        snapshot = service._freeze_snapshot(session, task)
+        snapshot = service.freeze_snapshot(session, task)
         assert len(traces) == 1
         assert traces[0].mechanism_id == "mechanism-1"
         assert traces[0].trace_sha256
@@ -300,7 +300,7 @@ def test_model_action_has_action_level_provenance(test_settings):
 
     with service.database.session_factory() as session:
         artifact = session.get(Artifact, artifact_id)
-    actions, limitations = service._run_model_planning(
+    actions, limitations = service.run_model_planning(
         task_id,
         [artifact],
         [artifact_id],

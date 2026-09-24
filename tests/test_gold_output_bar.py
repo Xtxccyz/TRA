@@ -667,7 +667,7 @@ def test_ghidra_shaped_pipeline_meets_simulated_gold_bar(test_settings) -> None:
         "0x14000b000",
     ):
         observations.extend(
-            service._derive_investigation_observations(
+            service.derive_investigation_observations(
                 static_rows,
                 ActionSpec(
                     id=f"decompile-{entry}",
@@ -682,7 +682,7 @@ def test_ghidra_shaped_pipeline_meets_simulated_gold_bar(test_settings) -> None:
             )
         )
     observations.extend(
-        service._derive_investigation_observations(
+        service.derive_investigation_observations(
             static_rows,
             ActionSpec(
                 id="emu-start",
@@ -795,7 +795,7 @@ def test_docker_controlled_emulate_persists_visible_simulation_result(test_setti
         artifact_id="artifact-1",
         target_selector={"function_entry": "0x401000"},
     )
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         rows,
         action,
         artifact_content=b"MZ" + b"\x00" * 64,

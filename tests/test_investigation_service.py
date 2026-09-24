@@ -3263,7 +3263,7 @@ def test_model_plan_accepts_legacy_expected_evidence_field(test_settings) -> Non
         session.flush()
         task_id = task.id
 
-    actions, limitations = service._run_model_planning(task_id, [artifact], [artifact.id], phase="test")
+    actions, limitations = service.run_model_planning(task_id, [artifact], [artifact.id], phase="test")
 
     assert not limitations
     assert actions and actions[0].expected_evidence == ["xref"]
@@ -3393,7 +3393,7 @@ def test_model_planner_repairs_an_empty_plan_using_only_concrete_candidates(test
         )
         task_id = task.id
 
-    actions, limitations = service._run_model_planning(
+    actions, limitations = service.run_model_planning(
         task_id, [artifact], [artifact.id], phase="empty-plan-repair"
     )
 
@@ -3510,7 +3510,7 @@ def test_model_planner_uses_portable_text_after_two_empty_json_envelopes(test_se
         )
         task_id = task.id
 
-    actions, limitations = service._run_model_planning(
+    actions, limitations = service.run_model_planning(
         task_id, [artifact], [artifact.id], phase="portable-empty-plan-repair"
     )
 
@@ -3593,7 +3593,7 @@ def test_model_investigation_action_is_replayed_by_static_executor(test_settings
         task_id = task.id
         artifact_id = artifact.id
 
-    actions, _ = service._run_model_planning(task_id, [artifact], [artifact_id], phase="action-replay")
+    actions, _ = service.run_model_planning(task_id, [artifact], [artifact_id], phase="action-replay")
     assert actions and actions[0].action_type == "GET_XREFS_TO"
     with database.session_factory.begin() as session:
         task = session.get(AnalysisTask, task_id)
@@ -3838,7 +3838,7 @@ def test_entry_selector_resolves_to_pe_entry_rva(test_settings) -> None:
         id="entry-action", action_type=ActionType.GET_CALLEES, thread_id="thread-entry",
         hypothesis_id="hyp-entry", artifact_id="artifact-entry", target_selector={"target": "entry"},
     )
-    rows = service._derive_investigation_observations([context], action, pe_summary={"entry_rva": 5152})
+    rows = service.derive_investigation_observations([context], action, pe_summary={"entry_rva": 5152})
     assert rows
     assert rows[0]["value"]["callee"] == "CreateProcessW"
 
@@ -3864,7 +3864,7 @@ def test_entry_selector_resolves_image_base_plus_rva_without_entry_rva_field(tes
         id="entry-va-action", action_type=ActionType.GET_CALLEES, thread_id="thread-entry-va",
         hypothesis_id="hyp-entry-va", artifact_id="artifact-entry-va", target_selector={"target": "entrypoint"},
     )
-    rows = service._derive_investigation_observations(
+    rows = service.derive_investigation_observations(
         [decoy, context],
         action,
         pe_summary={"entry_rva": 5152, "image_base": 0x140000000},
@@ -3934,7 +3934,7 @@ def test_get_decompile_numeric_export_does_not_absorb_pe_entry(test_settings) ->
         artifact_id=run.artifact_id,
         target_selector={"target": "0x1800012c0"},
     )
-    rows = service._derive_investigation_observations(
+    rows = service.derive_investigation_observations(
         [entry, export],
         action,
         pe_summary={"entry_rva": 0x74D0, "image_base": 0x180000000},
@@ -3998,7 +3998,7 @@ def test_get_decompile_named_export_does_not_use_caller_that_mentions_it(test_se
         artifact_id=run.artifact_id,
         target_selector={"target": "dll_u"},
     )
-    rows = service._derive_investigation_observations([entry, export], action)
+    rows = service.derive_investigation_observations([entry, export], action)
     function = next(item for item in rows if item["kind"] == "decompile_slice")["value"]["function"]
     assert function["name"] == "dll_u"
     assert "LoadLibraryW" in [str(item.get("target_name") or "") for item in function.get("call_targets") or []]
@@ -4062,7 +4062,7 @@ def test_get_decompile_follows_unconditional_local_jmp(test_settings) -> None:
         artifact_id=run.artifact_id,
         target_selector={"target": "entry"},
     )
-    rows = service._derive_investigation_observations(
+    rows = service.derive_investigation_observations(
         [thunk, body],
         action,
         pe_summary={"entry_rva": 0x74D0, "image_base": 0x180000000},
@@ -4126,7 +4126,7 @@ def test_decompile_action_projects_legacy_call_targets_into_abstract_execution(t
         target_selector={"target": "0x401000"},
     )
 
-    observations = service._derive_investigation_observations([context, window], action)
+    observations = service.derive_investigation_observations([context, window], action)
 
     trace = next(item["value"] for item in observations if item["kind"] == "abstract_execution_trace")
     assert [step["api"] for step in trace["steps"] if step["api"]] == [
@@ -4178,7 +4178,7 @@ def test_get_callers_matches_ghidra_function_symbol_to_rva_selector(test_setting
         target_selector={"target": "14000a2c0"},
     )
 
-    rows = service._derive_investigation_observations([caller], action)
+    rows = service.derive_investigation_observations([caller], action)
 
     assert rows
     assert rows[0]["kind"] == "function_call"
@@ -4236,7 +4236,7 @@ def test_get_callers_expands_from_cited_target_to_sibling_caller_context(test_se
         source_evidence_ids=(target.id,),
     )
 
-    rows = service._derive_investigation_observations([target, caller], action)
+    rows = service.derive_investigation_observations([target, caller], action)
 
     assert rows
     assert rows[0]["value"]["callee"] == "FUN_14000a2c0"
@@ -4281,7 +4281,7 @@ def test_trace_return_value_handles_target_row_pairs(test_settings) -> None:
         target_selector={"target": "0x1000"},
     )
 
-    rows = service._derive_investigation_observations([context], action)
+    rows = service.derive_investigation_observations([context], action)
 
     value_flow = [item for item in rows if item["kind"] == "value_flow"]
     assert value_flow
@@ -4312,7 +4312,7 @@ def test_investigation_executor_scopes_model_action_to_cited_evidence(test_setti
         id="e-unrelated", task_id="task-scope", artifact_id="artifact-scope", tool_run_id=run.id,
         module="static", kind="function_call", nature="STATIC_OBSERVED", value={"api": "CreateProcessA"}, anchor={},
     )
-    rows = service._derive_investigation_observations([cited], action)
+    rows = service.derive_investigation_observations([cited], action)
     assert rows
     assert all(item["value"]["source_evidence_ids"] == ["e-cited"] for item in rows)
     assert unrelated.id not in {source for item in rows for source in item["value"]["source_evidence_ids"]}
@@ -4345,7 +4345,7 @@ def test_xref_action_derives_static_evidence_from_an_import_indicator(test_setti
         source_evidence_ids=("import-getproc",),
     )
 
-    rows = service._derive_investigation_observations([imported], action)
+    rows = service.derive_investigation_observations([imported], action)
 
     assert len(rows) == 1
     assert rows[0]["kind"] == "function_call"
@@ -4409,7 +4409,7 @@ def test_investigation_observations_collapse_equivalent_rows_and_union_provenanc
         target_selector={"target": "0x1000"},
     )
 
-    observations = service._derive_investigation_observations(rows, action)
+    observations = service.derive_investigation_observations(rows, action)
 
     calls = [item for item in observations if item["kind"] == "function_call"]
     assert len(calls) == 1
@@ -4462,7 +4462,7 @@ def test_investigation_observation_dedupe_keeps_distinct_edges_on_one_anchor(tes
         target_selector={"target": "0x1000"},
     )
 
-    observations = service._derive_investigation_observations([context], action)
+    observations = service.derive_investigation_observations([context], action)
 
     calls = [item for item in observations if item["kind"] == "function_call"]
     assert len(calls) == 2
@@ -4638,7 +4638,7 @@ def test_model_planner_rejects_investigation_action_without_plan_first_contract(
         ))
         task_id = task.id
 
-    actions, _ = service._run_model_planning(
+    actions, _ = service.run_model_planning(
         task_id, [artifact], [artifact.id], phase="plan-contract"
     )
 

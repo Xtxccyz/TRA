@@ -1798,7 +1798,7 @@ def test_docker_controlled_emulate_does_not_record_in_process_worker_required(
         artifact_id="artifact-1",
         target_selector={"function_entry": "0x401000"},
     )
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         rows,
         action,
         artifact_content=b"MZ" + b"\x00" * 64,
@@ -1860,7 +1860,7 @@ def test_docker_controlled_emulate_cites_existing_worker_unicorn(
         artifact_id="artifact-1",
         target_selector={"function_entry": "0x401000"},
     )
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         rows,
         action,
         artifact_content=b"MZ" + b"\x00" * 64,
@@ -1921,7 +1921,7 @@ def test_docker_controlled_emulate_reuses_failed_worker_result(
         artifact_id="artifact-1",
         target_selector={"function_entry": "0x140001420"},
     )
-    observations = service._derive_investigation_observations(
+    observations = service.derive_investigation_observations(
         rows,
         action,
         artifact_content=b"MZ" + b"\x00" * 64,
@@ -1989,7 +1989,7 @@ def test_local_controlled_emulate_requests_speakeasy_when_policy_allows(
         artifact_id="artifact-1",
         target_selector={"function_entry": "0x401000"},
     )
-    service._derive_investigation_observations(
+    service.derive_investigation_observations(
         rows,
         action,
         artifact_content=b"MZ" + b"\x00" * 64,

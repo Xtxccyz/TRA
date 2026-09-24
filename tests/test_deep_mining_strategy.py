@@ -1120,9 +1120,9 @@ def test_static_executor_keeps_resource_and_embedded_actions_productive(test_set
             target_selector={"target": "resource"},
         )
 
-    data = service._derive_investigation_observations(rows, action(ActionType.GET_DATA_REFERENCES))
-    xrefs = service._derive_investigation_observations(rows, action(ActionType.GET_XREFS_TO))
-    callees = service._derive_investigation_observations(rows, action(ActionType.GET_CALLEES))
+    data = service.derive_investigation_observations(rows, action(ActionType.GET_DATA_REFERENCES))
+    xrefs = service.derive_investigation_observations(rows, action(ActionType.GET_XREFS_TO))
+    callees = service.derive_investigation_observations(rows, action(ActionType.GET_CALLEES))
 
     assert data and any(item["kind"] == "data_reference" for item in data)
     assert xrefs and any(item["kind"] == "embedded_object" for item in xrefs)
