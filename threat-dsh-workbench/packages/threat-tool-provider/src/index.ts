@@ -303,7 +303,12 @@ function citationInstructionForRevision(taskId: string, revisionId: string | und
   if (!revisionId) {
     return `Do not cite a report revision from memory. After the bound task is SUCCEEDED, FAILED, or CANCELLED, or wait returns CONVERGED, call threat_get_report_summary once to read the recovered facts. ${authoring} Then quote the authoritative_revision_id of the revision that is published after your submission. Then STOP. Do not call threat_propose_static_action. Do not read task_gaps to propose GET_DECOMPILE. Do not write to the desktop.`
   }
-  return `Read the recovered facts from authoritative_revision_id ${revisionId} (GET /api/v1/workbench/tasks/${taskId}/report). ${authoring} The next user-visible reply MUST then quote the authoritative_revision_id published after your submission verbatim, together with the 分析结论 section of that revision's GET content (from '## 分析结论' until '## 调查附录'). Do not quote pipeline scores, Seed Map, Evidence UUIDs, or coverage dictionaries as the analyst conclusion. Do not ask 再深入 for HOW or UNKNOWN already written in this markdown. Do not summarize from memory if these tools were not called. CONVERGED: stop dispatch after the submission. Do not call threat_propose_static_action. Do not read task_gaps to propose GET_DECOMPILE. Do not write to the desktop. Gaps already in this revision stay UNKNOWN.`
+  // Naming the citation anchor is not enough on its own: the reply also has to
+  // say WHICH part of the revision is being quoted and that it is quoted in
+  // full, or a chat can satisfy "cite the revision" with a one-line summary of
+  // it. So the instruction names both: the id, and the full content of the
+  // 分析结论 section rather than a summary of it.
+  return `Read the recovered facts from authoritative_revision_id ${revisionId} (GET /api/v1/workbench/tasks/${taskId}/report). ${authoring} The next user-visible reply MUST then quote the authoritative_revision_id published after your submission verbatim, and MUST quote the full content of that revision's 分析结论 section (from '## 分析结论' until '## 调查附录'), not a summary of it. Memory of a different task's revision is not that content. Do not quote pipeline scores, Seed Map, Evidence UUIDs, or coverage dictionaries as the analyst conclusion. Do not ask 再深入 for HOW or UNKNOWN already written in this markdown. Do not summarize from memory if these tools were not called. CONVERGED: stop dispatch after the submission. Do not call threat_propose_static_action. Do not read task_gaps to propose GET_DECOMPILE. Do not write to the desktop. Gaps already in this revision stay UNKNOWN.`
 }
 
 function officialReportFields(taskId: string, row: Record<string, unknown>): Record<string, unknown> {
