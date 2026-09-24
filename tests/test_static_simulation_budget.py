@@ -233,3 +233,45 @@ def test_live_service_call_sites_use_the_setting(test_settings, monkeypatch) -> 
         "the live call site does not use the configured `static_abstract_execution_max_steps`: it passed "
         f"{sorted(set(seen))} instead of {configured_budget}"
     )
+
+
+def test_derivation_call_site_still_reads_the_configured_budget() -> None:
+    """The SECOND call site the pre-P3.7 guard covered, pinned by ARGUMENT SHAPE because behaviour is out of reach.
+
+    `_derive_investigation_observations` (2,787 lines) constructs `StaticAbstractExecutor(max_steps=...)` at its line
+    1117, and this test asserts - by AST, not by substring - that the argument still reads the configured setting and is
+    not a literal. A behavioural assertion would need a host fixture for that function, which does not exist; that gap is
+    recorded here rather than hidden, and this assertion is strictly stronger than the substring guard it replaces (a
+    mention of the setting name anywhere in the body satisfied that one).
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path(__file__).resolve().parents[1] / "src" / "threat_report_agent" / "investigation" / "derivation.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+
+    owner = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_derive_investigation_observations"
+    )
+    calls = [
+        node for node in ast.walk(owner)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "StaticAbstractExecutor"
+    ]
+    assert calls, (
+        "the derivation call site no longer constructs StaticAbstractExecutor; re-measure before deleting this guard"
+    )
+    for call in calls:
+        keyword = next((item for item in call.keywords if item.arg == "max_steps"), None)
+        assert keyword is not None, (
+            "the derivation call site stopped passing `max_steps` as a keyword; the budget it uses is now unknown"
+        )
+        rendered = ast.unparse(keyword.value)
+        assert not isinstance(keyword.value, ast.Constant), (
+            f"the derivation call site hard-codes its budget (`max_steps={rendered}`); it must read "
+            "`settings.static_abstract_execution_max_steps`"
+        )
+        assert "static_abstract_execution_max_steps" in rendered, (
+            f"the derivation call site's budget no longer comes from the configured setting: `max_steps={rendered}`"
+        )
