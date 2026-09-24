@@ -3415,6 +3415,16 @@ class AnalysisService:
         return PersistHow._http_endpoints(*args, **kwargs)
 
     @classmethod
+    def is_http_transport_seed_row(cls, *args, **kwargs):
+        """Public behaviour entry point for `_is_http_transport_seed_row` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._is_http_transport_seed_row(*args, **kwargs)
+
+
+    @classmethod
     def _is_http_transport_seed_row(cls, *args, **kwargs):
         return PersistHow._is_http_transport_seed_row(*args, **kwargs)
 
@@ -3554,6 +3564,16 @@ class AnalysisService:
         return _derivation._select_dynamic_api_seed_rows(cls, rows, limit=limit)
 
     @classmethod
+    def select_config_consumer_seed_rows(cls, rows: Iterable[object], *, limit: int = 128) -> list[object]:
+        """Public behaviour entry point for `_select_config_consumer_seed_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._select_config_consumer_seed_rows(rows, limit=limit)
+
+
+    @classmethod
     def _select_config_consumer_seed_rows(
         cls,
         rows: Iterable[object],
@@ -3589,6 +3609,16 @@ class AnalysisService:
         for kind in caps:
             found.extend(grouped[kind])
         return found
+
+    @classmethod
+    def pin_config_consumer_seed_rows(cls, seed_rows: Iterable[object], pinned_rows: Iterable[object]) -> list[object]:
+        """Public behaviour entry point for `_pin_config_consumer_seed_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._pin_config_consumer_seed_rows(seed_rows, pinned_rows)
+
 
     @classmethod
     def _pin_config_consumer_seed_rows(
@@ -4011,6 +4041,16 @@ class AnalysisService:
         return tuple(entries)
 
     @classmethod
+    def persist_ready_emulation_actions(cls, *, evidence: Iterable[object], thread_id: str, hypothesis_id: str, artifact_id: str, scheduled_keys: Iterable[str] = ()) -> tuple[ActionSpec, ...]:
+        """Public behaviour entry point for `_persist_ready_emulation_actions` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._persist_ready_emulation_actions(evidence=evidence, thread_id=thread_id, hypothesis_id=hypothesis_id, artifact_id=artifact_id, scheduled_keys=scheduled_keys)
+
+
+    @classmethod
     def _persist_ready_emulation_actions(
         cls,
         *,
@@ -4061,6 +4101,16 @@ class AnalysisService:
 
     _PERSIST_SKIP_TRACE_ERROR = PERSIST_SKIP_TRACE_ERROR
     _PERSIST_KEEP_ACTION_TYPES = PERSIST_KEEP_ACTION_TYPES
+
+    @classmethod
+    def action_is_model_or_human(cls, item: object) -> bool:
+        """Public behaviour entry point for `_action_is_model_or_human` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._action_is_model_or_human(item)
+
 
     @classmethod
     def _action_is_model_or_human(cls, item: object) -> bool:
@@ -9091,6 +9141,16 @@ class AnalysisService:
                 rest.append(row)
         remaining = max(0, limit - len(pinned))
         return pinned + rest[:remaining]
+
+    @classmethod
+    def instruction_indices_referencing_addresses(cls, instructions: object, addresses: Iterable[object], xrefs: Iterable[Mapping[str, object]] = (), *, image_base: int = 0, context: int = 3, lookback: int = 0) -> set[int]:
+        """Public behaviour entry point for `_instruction_indices_referencing_addresses` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._instruction_indices_referencing_addresses(instructions, addresses, xrefs, image_base=image_base, context=context, lookback=lookback)
+
 
     @classmethod
     def _instruction_indices_referencing_addresses(
@@ -15280,6 +15340,16 @@ class AnalysisService:
             yield encoded[start : start + budget]
 
     @classmethod
+    def canonical_json_chunks(cls, value: object, *, exclude_keys: Iterable[str] = (), chunk_bytes: int | None = None) -> Iterable[bytes]:
+        """Public behaviour entry point for `_canonical_json_chunks` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._canonical_json_chunks(value, exclude_keys=exclude_keys, chunk_bytes=chunk_bytes)
+
+
+    @classmethod
     def _canonical_json_chunks(
         cls,
         value: object,
@@ -15331,6 +15401,16 @@ class AnalysisService:
             yield b"]"
             return
         yield from cls._canonical_slices(cls._canonical_encode(value), budget)
+
+    @classmethod
+    def canonical_sha256(cls, value: object, *, exclude_keys: Iterable[str] = ()) -> str:
+        """Public behaviour entry point for `_canonical_sha256` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._canonical_sha256(value, exclude_keys=exclude_keys)
+
 
     @classmethod
     def _canonical_sha256(cls, value: object, *, exclude_keys: Iterable[str] = ()) -> str:

@@ -157,14 +157,14 @@ def test_both_call_paths_agree_on_canonical_sha256() -> None:
 
         @staticmethod
         def _canonical_json_chunks(value, *, exclude_keys=(), chunk_bytes=None):
-            return service.AnalysisService._canonical_json_chunks(
+            return service.AnalysisService.canonical_json_chunks(
                 value, exclude_keys=exclude_keys, chunk_bytes=chunk_bytes
             )
 
     host = Host()
     for value in ({"b": 1, "a": [1, 2, {"c": None}]}, {"a": 1, "secret": "x"}, [1, "two", None]):
         from_module = revision_writer._canonical_sha256(host, value)
-        from_service = service.AnalysisService._canonical_sha256(value)
+        from_service = service.AnalysisService.canonical_sha256(value)
         assert from_module == from_service, f"the two homes disagree for {value!r}"
         assert isinstance(from_module, str) and len(from_module) == 64
 

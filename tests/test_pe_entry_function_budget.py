@@ -419,7 +419,7 @@ def test_instruction_window_keeps_late_xor_lea_inside_the_256_op_budget() -> Non
         "mnemonic": "LEA",
         "text": "LEA R14,[0x14004c8e1]",
     }
-    selected = AnalysisService._instruction_indices_referencing_addresses(
+    selected = AnalysisService.instruction_indices_referencing_addresses(
         instructions,
         (0x14004C8E1,),
         ({"from": "14000783a", "to": "14004c8e1"},),
@@ -440,7 +440,7 @@ def test_instruction_window_keeps_late_createprocess_callsite() -> None:
         "mnemonic": "CALL",
         "text": "CALL 0x140046948",
     }
-    selected = AnalysisService._instruction_indices_referencing_addresses(
+    selected = AnalysisService.instruction_indices_referencing_addresses(
         instructions,
         (),
         ({"from": "140008dce", "to": "140046948", "target_name": "CreateProcessW"},),
@@ -470,7 +470,7 @@ def test_instruction_window_keeps_createprocess_flag_and_command_lookback() -> N
         "mnemonic": "CALL",
         "text": "CALL 0x140046948",
     }
-    nearby = AnalysisService._instruction_indices_referencing_addresses(
+    nearby = AnalysisService.instruction_indices_referencing_addresses(
         instructions,
         (0x140046948,),
         ({"from": "140008dce", "to": "140046948", "target_name": "CreateProcessW"},),
@@ -478,7 +478,7 @@ def test_instruction_window_keeps_createprocess_flag_and_command_lookback() -> N
     )
     assert 270 in nearby
     assert 150 not in nearby
-    selected = AnalysisService._instruction_indices_referencing_addresses(
+    selected = AnalysisService.instruction_indices_referencing_addresses(
         instructions,
         (0x140046948,),
         ({"from": "140008dce", "to": "140046948", "target_name": "CreateProcessW"},),
@@ -600,7 +600,7 @@ def test_config_consumer_seed_rows_survive_export_symbol_window() -> None:
             anchor={},
         ),
     ]
-    selected = AnalysisService._select_config_consumer_seed_rows([*noise, *keep], limit=128)
+    selected = AnalysisService.select_config_consumer_seed_rows([*noise, *keep], limit=128)
     ids = {item.id for item in selected}
     assert ids == {"decode-linked", "flow-linked", "xref-linked"}
 
@@ -647,11 +647,11 @@ def test_config_consumer_candidates_keep_early_links_when_later_data_refs_flood(
         key=lambda row: (row.created_at, row.id),
         reverse=True,
     )[:256]
-    mixed_ids = {item.id for item in AnalysisService._select_config_consumer_seed_rows(mixed_newest_256)}
+    mixed_ids = {item.id for item in AnalysisService.select_config_consumer_seed_rows(mixed_newest_256)}
     assert "xref-linked" not in mixed_ids
 
     per_kind = AnalysisService._newest_config_consumer_candidates([*early, *later_refs])
-    ids = {item.id for item in AnalysisService._select_config_consumer_seed_rows(per_kind)}
+    ids = {item.id for item in AnalysisService.select_config_consumer_seed_rows(per_kind)}
     assert ids == {"decode-linked", "flow-linked", "xref-linked"}
     assert AnalysisService._CONFIG_CONSUMER_SEED_KIND_LIMITS["data_reference"] >= 512
     assert AnalysisService._CONFIG_CONSUMER_SEED_KIND_LIMITS["process_creation_flags"] >= 8
@@ -707,9 +707,9 @@ def test_config_consumer_rows_are_pinned_after_unrelated_seed_cluster_filter() -
     # decoder, not at the WinHttp seed cluster.
     assert flow.id not in clustered_ids
 
-    pinned = AnalysisService._pin_config_consumer_seed_rows(
+    pinned = AnalysisService.pin_config_consumer_seed_rows(
         clustered,
-        AnalysisService._select_config_consumer_seed_rows([decode, flow]),
+        AnalysisService.select_config_consumer_seed_rows([decode, flow]),
     )
     assert {row.id for row in pinned} >= {seed.id, decode.id, flow.id}
 
@@ -1010,7 +1010,7 @@ def test_process_creation_seed_rows_survive_cluster_filter_and_export_symbol_win
         limit=16,
     )
     assert call.id in {row.id for row in clustered}
-    pinned = AnalysisService._pin_config_consumer_seed_rows(
+    pinned = AnalysisService.pin_config_consumer_seed_rows(
         clustered,
         AnalysisService._select_process_creation_seed_rows([call, trace, flow]),
     )
@@ -1268,7 +1268,7 @@ def test_resolved_api_seed_rows_are_pinned_with_catalog_identity() -> None:
         {"category": "dynamic_api", "playbook_id": "dynamic-api-resolution", "evidence_ids": []},
         limit=8,
     )
-    pinned = AnalysisService._pin_config_consumer_seed_rows(
+    pinned = AnalysisService.pin_config_consumer_seed_rows(
         clustered,
         AnalysisService._select_dynamic_api_seed_rows([resolved, flow]),
     )
@@ -1376,7 +1376,7 @@ def test_parent_attribute_seed_rows_are_pinned_and_process_playbook_stays_bound(
         {"category": "ppid", "playbook_id": "ppid-process-chain", "evidence_ids": ["trace-ppid"]},
         limit=8,
     )
-    pinned = AnalysisService._pin_config_consumer_seed_rows(
+    pinned = AnalysisService.pin_config_consumer_seed_rows(
         clustered,
         AnalysisService._select_parent_attribute_seed_rows([trace, flow]),
     )
@@ -2898,10 +2898,10 @@ def test_http_how_seed_claim_ready_from_decoded_winhttp_and_url() -> None:
             "status": "VERIFIED_STATIC_DATA",
         },
     }
-    assert not AnalysisService._is_http_transport_seed_row(dos)
-    assert not AnalysisService._is_http_transport_seed_row(missing)
-    assert AnalysisService._is_http_transport_seed_row(send)
-    assert AnalysisService._is_http_transport_seed_row(url)
+    assert not AnalysisService.is_http_transport_seed_row(dos)
+    assert not AnalysisService.is_http_transport_seed_row(missing)
+    assert AnalysisService.is_http_transport_seed_row(send)
+    assert AnalysisService.is_http_transport_seed_row(url)
     playbook = MechanismPlaybookRegistry().by_id("http-download")
     evidence = [dos, missing, send, open_request, url]
     result = AnalysisService.persist_time_seed_result(
@@ -2978,7 +2978,7 @@ def test_process_execution_seed_claim_ready_from_flags_and_image_string() -> Non
 
 
 def test_persist_ready_emulation_actions_target_how_function_entry() -> None:
-    actions = AnalysisService._persist_ready_emulation_actions(
+    actions = AnalysisService.persist_ready_emulation_actions(
         evidence=[
             {
                 "id": "trace-1",
@@ -3000,7 +3000,7 @@ def test_persist_ready_emulation_actions_target_how_function_entry() -> None:
     assert len(actions) == 1
     assert actions[0].action_type == ActionType.CONTROLLED_EMULATE
     assert actions[0].target_selector["function_entry"] == "0x140004605"
-    skipped = AnalysisService._persist_ready_emulation_actions(
+    skipped = AnalysisService.persist_ready_emulation_actions(
         evidence=[
             {
                 "id": "trace-1",
@@ -3026,7 +3026,7 @@ def test_persist_ready_emulation_actions_target_how_function_entry() -> None:
 
 def test_persist_ready_emulation_skips_prologue_without_recovered_how() -> None:
     """Kunglao leftover remainder must corroborate recovered HOW, not seed flood."""
-    actions = AnalysisService._persist_ready_emulation_actions(
+    actions = AnalysisService.persist_ready_emulation_actions(
         evidence=[
             {
                 "id": "prologue",
@@ -3212,7 +3212,7 @@ def test_process_seed_stamp_and_emu_from_flags_and_foxit_string() -> None:
     assert row["status"] == "CANDIDATE"
     assert "FoxitPDFReader.exe" in blob
     assert "0x00080000" in blob
-    actions = AnalysisService._persist_ready_emulation_actions(
+    actions = AnalysisService.persist_ready_emulation_actions(
         evidence=[flags, image],
         thread_id="thread-process",
         hypothesis_id="hyp-process",

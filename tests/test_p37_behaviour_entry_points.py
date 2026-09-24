@@ -53,6 +53,14 @@ FACADE = {
 #: The same contract for CLASS/STATIC private members: the facade is a classmethod/staticmethod, so the
 #: delegation proof patches the CLASS rather than an instance (a class-level lookup ignores instances).
 CLASS_FACADE = {
+    "_instruction_indices_referencing_addresses": "instruction_indices_referencing_addresses",
+    "_is_http_transport_seed_row": "is_http_transport_seed_row",
+    "_persist_ready_emulation_actions": "persist_ready_emulation_actions",
+    "_pin_config_consumer_seed_rows": "pin_config_consumer_seed_rows",
+    "_select_config_consumer_seed_rows": "select_config_consumer_seed_rows",
+    "_action_is_model_or_human": "action_is_model_or_human",
+    "_canonical_json_chunks": "canonical_json_chunks",
+    "_canonical_sha256": "canonical_sha256",
     "_matching_simulation_results": "matching_simulation_results",
     "_recovered_http_how_fields": "recovered_http_how_fields",
     "_baseline_specialist_tools": "baseline_specialist_tools",

@@ -160,8 +160,8 @@ def _sealed_snapshot(service: AnalysisService, *, evidence_value: dict[str, obje
 def test_streaming_canonical_digest_is_byte_identical_to_the_materialised_form(value) -> None:
     expected = hashlib.sha256(AnalysisService.canonical_json(value).encode("utf-8")).hexdigest()
 
-    assert AnalysisService._canonical_sha256(value) == expected
-    assert b"".join(AnalysisService._canonical_json_chunks(value)) == (
+    assert AnalysisService.canonical_sha256(value) == expected
+    assert b"".join(AnalysisService.canonical_json_chunks(value)) == (
         AnalysisService.canonical_json(value).encode("utf-8")
     )
 
@@ -169,7 +169,7 @@ def test_streaming_canonical_digest_is_byte_identical_to_the_materialised_form(v
 def test_streaming_canonical_digest_excludes_content_sha256_at_top_level_only() -> None:
     payload = {"content_sha256": "sealed", "nested": {"content_sha256": "kept"}}
     streamed = b"".join(
-        AnalysisService._canonical_json_chunks(payload, exclude_keys=("content_sha256",))
+        AnalysisService.canonical_json_chunks(payload, exclude_keys=("content_sha256",))
     )
 
     assert b'"content_sha256":"sealed"' not in streamed
