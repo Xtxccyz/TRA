@@ -292,6 +292,9 @@ from threat_report_agent.methodology import (
     FactLibrary,
     build_profile,
 )
+# P3.5-0/D-2: the HOST supplies the tool-execution PORT to the modules it delegates to. The import is only the
+# Protocol (a pure type); the adapter is still constructed here, because transport belongs to the composition root.
+from threat_report_agent.ports import ToolExecutionPort
 from threat_report_agent.tools.tool_execution import (
     ToolRunRequest,
     ToolRunResult,
@@ -1067,6 +1070,28 @@ class AnalysisService:
             or self.settings.gate_secret_key
             or self.settings.audit_seal_secret
         )
+
+    @property
+    def tool_executor(self) -> ToolExecutionPort:
+        """The tool-execution PORT this service hands to the modules it delegates to (P3.5-0/D-2).
+
+        WHO READS IT: `task/task_runner.py`'s cancellation cluster, through its host pin (`TASK_HOST_MEMBERS`), as
+        `host.tool_executor.cancel(workflow_id)`. That module must not import `tools/tool_execution.py` - it is the
+        transport adapter, and a P3.5 emulation coordinator inheriting that import would inherit Temporal - so the
+        seam is handed over here instead.
+
+        WHY A PROPERTY AND NOT AN ATTRIBUTE SET IN `__init__`: the pre-D-2 code read `host.settings.temporal_address`
+        at CALL time and built the adapter per cancellation call, and `reload_model_configuration` REPLACES
+        `self.settings` (`service.py:1112`). An attribute captured in `__init__` would therefore keep cancelling
+        against the address that was configured at start-up. The adapter holds nothing but the address, so building
+        it per access costs nothing and preserves the measured behaviour exactly.
+
+        It is deliberately built from the module global `TemporalToolExecutor`, so a test that replaces
+        `service.TemporalToolExecutor` still replaces what this returns (`tests/test_speakeasy_reachability.py:146`
+        relies on that for the execute path). This service's OWN four execute sites keep constructing the adapter
+        directly: the host is where transport is allowed, and D-2 changed only the DELEGATED consumer.
+        """
+        return TemporalToolExecutor(self.settings.temporal_address)
 
     def reload_model_configuration(self) -> None:
         """Load the persisted model routes and atomically replace the gateway."""

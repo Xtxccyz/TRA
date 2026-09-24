@@ -264,28 +264,46 @@ class ToolExecutionPort(Protocol):
     CONTRACT
       input   : an address-only `ToolRunRequestView` - a storage key plus a content hash, never bytes.
       output  : a `ToolRunResultView`. Failure must be EXPRESSIBLE as `status != "SUCCEEDED"`; it may also raise,
-                and MEASURED, three call sites depend on that distinction: a transport exception must reach the
-                intake caller (`service.py:2833` is not wrapped; `tests/test_tool_execution.py:1279` requires it
-                to escape and fail the task), while a non-SUCCEEDED result is handled in place
-                (`service.py:15766`, `:17112`, `:18866`).
-      budget  : `max_cpu_seconds` comes from policy (`service.py:15725`, `:17076`, `:18835`) and the client wait is
-                derived from it (`tool_execution.py:1264-1271`). Retry policy lives INSIDE the workflow
-                (`tool_execution.py:163-226`) and is invisible here.
+                and MEASURED, the call sites depend on that distinction: a transport exception must reach the
+                intake caller (`service.py:1795` is not wrapped - its result is used directly at `:1796` and a
+                missing output raises at `:1809`; `tests/test_tool_execution.py:1279` requires it to escape and
+                fail the task), while the three other execute sites turn the same exception into a
+                `status="FAILED"` result in place (`service.py:7070-7082`, `:8416-8426`, `:10155-10165`).
+      budget  : `max_cpu_seconds` comes from the caller's policy and the client wait is derived from it
+                (`tool_execution.py:1185-1192`). Retry policy lives INSIDE the workflow (the three `RetryPolicy`
+                constructions at `tool_execution.py:152`, `:176`, `:215`) and is invisible here.
       ordering: one call per request and idempotent - the workflow id is derived from content hash, tool name,
-                version, parameters, budgets, queue and environment (`tool_execution.py:123-141`), so a re-run
-                attaches to the existing workflow (`:1289-1290`).
+                version, parameters, budgets, queue and environment (`tool_execution.py:112-130`), so a re-run
+                attaches to the existing workflow (`:1210-1211`).
+      cancel  : `cancel` takes a WORKFLOW ID, not a request view. The asymmetry is MEASURED, and it is this
+                port's one deliberate input asymmetry (decided in P3.5-0, `docs/p35-prep-measurement-20260922.md`
+                section 5's R2 resolution): every real cancellation caller holds an id STRING taken from the
+                persisted row's `environment["workflow_id"]` (`task/task_runner.py:508`, `:625`) and calls
+                `cancel_workflow(workflow_id)` (`task/task_runner.py:531`, `:640`), while `execute` takes the
+                view. The id is DERIVED inside the implementation from ten fields the view already carries
+                (`tool_execution.py:112-130`: canonical JSON, sha256, `toolrun-` prefix), so carrying `workflow_id`
+                as a view field would give the same value a SECOND source of truth - a caller-supplied id could
+                disagree with the id `execute` starts, and the started workflow is the side that must win.
 
     WHY TWO METHODS: cancellation is issued by a DIFFERENT caller from the one awaiting the result
-    (`service.py:28189-28192` and `:28300` cancel by workflow id while the four execute sites await), so folding
+    (`task/task_runner.py:531` and `:640` cancel by workflow id while the four execute sites await), so folding
     it into `execute` would force a return before the outcome, which no call site does. Two is P1.2's cap.
+
+    STALE CITATIONS, recorded rather than quoted: the `service.py:NNNNN` numbers in this docstring that are NOT
+    re-measured above date from a ~29,000-line `service.py` and now point past EOF (`service.py` is 18,752 lines
+    as measured at P3.5-0/D-2), so citations such as `:28189` no longer denote anything. Re-measuring all of them
+    is its own step; the ones this port's change touched (`cancel`, the four execute sites, the budget derivation)
+    WERE re-measured then, and no un-measured citation is added here.
     """
 
     async def execute(self, request: ToolRunRequestView) -> ToolRunResultView:
         """Run the tool once. Failure may be a non-SUCCEEDED status or a raised transport error."""
         ...
 
-    async def cancel(self, request: ToolRunRequestView) -> None:
-        """Best-effort cancellation; tolerates a run that already finished. A late result must not resurrect it."""
+    async def cancel(self, workflow_id: str) -> None:
+        """Best-effort cancellation BY WORKFLOW ID; tolerates a run that already finished. A late result must not
+        resurrect it. The id is the one `ToolRunRequestView` does NOT carry - see the class docstring's `cancel`
+        clause for why the view must not carry it."""
         ...
 
 
@@ -432,7 +450,7 @@ P12_PORTS: dict[str, str] = {
     "ReportRevisionWriter": "written (P3.4)",
     "WorkbenchQueryReader": "written (P3.6)",
     "ModelPlanningPort": "written; one method (32 measured call sites read)",
-    "ToolExecutionPort": "written; two methods, cancellation is a separate caller",
+    "ToolExecutionPort": "written; two methods, cancellation is a separate caller AND takes the workflow id, not the view",
     "EmulationPort": "written; the outcome view has no producer yet - the adapter is P3.5",
     "StaticEvidencePort": "written; two methods, the two absence shapes differ",
 }

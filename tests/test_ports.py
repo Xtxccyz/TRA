@@ -167,8 +167,13 @@ class _FakeToolExecutor:
         self.executed.append(str(getattr(request, "tool_name", "?")))
         return _FakeToolResult(self.status)
 
-    async def cancel(self, request: object) -> None:
-        self.cancelled.append(str(getattr(request, "tool_name", "?")))
+    async def cancel(self, workflow_id: str) -> None:
+        # UPDATED DELIBERATELY at P3.5-0/D-2, with the measured reason at the pin: the port used to declare
+        # `cancel(request: ToolRunRequestView)`, but `ToolRunRequestView` has NO `workflow_id` (18 fields, measured
+        # by `.scratch/p35-0-d2-measure.py`) while every real cancellation caller holds an id string from the
+        # persisted row's `environment["workflow_id"]` (`task/task_runner.py:508`, `:625`). The adapter records the
+        # id it is given, which is what the port now promises. `execute` is untouched.
+        self.cancelled.append(workflow_id)
 
 
 class _FakeToolResult:

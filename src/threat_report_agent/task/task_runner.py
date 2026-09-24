@@ -25,6 +25,25 @@ WHY A PORT AT ALL (MEASURED, `.scratch/p32design-candidates.py` and `.scratch/p3
     one cluster at a time, smallest first - `creation` -> `lifecycle` -> `budget` -> `cancellation` -> workbench
     binding. The last one is the ONLY cluster that widened the port (six members -> nine; see P3.2g below).
 
+WHY `tool_executor` IS A PIN MEMBER AND NOT AN IMPORT (P3.5-0/D-2; plan 3.2's matrix row for `task/` lists ports
+among its allowed dependencies, and this module was the LAST place that reached into the tool implementation):
+
+  The cancellation cluster used to `from threat_report_agent.tools.tool_execution import TemporalToolExecutor` and
+  construct it from `host.settings.temporal_address`. That made this module depend on the Temporal TRANSPORT adapter
+  instead of on the seam - the dependency the P3.5 emulation coordinator must not inherit. The executor now arrives
+  from the host as `host.tool_executor` typed `ToolExecutionPort` (`ports.py`), and this module imports only the port.
+
+  MEASURED CONSEQUENCE FOR THE PIN: a REPLACEMENT, not a widening, so the port is nine members before and after.
+  `settings` had exactly TWO readers in this module - the two `TemporalToolExecutor(host.settings.temporal_address)`
+  constructions deleted here (`task_runner.py:528`, `:640`) - so it left the port when they did, and `tool_executor`
+  took its place. The seam this serves is `ToolExecutionPort.cancel(workflow_id)`: the two real cancellation callers
+  hold an id STRING read from the persisted row's `environment["workflow_id"]` (`:508`, `:625`) and pass it straight
+  through, which is the P3.5-0 R2 resolution (`docs/p35-prep-measurement-20260922.md` section 5).
+
+  `tests/test_tool_execution_port_contract.py` pins the removal, BECAUSE THE IMPORT GATE CANNOT: the deleted
+  `task -> tools.tool_execution` edge was legal (no `forbidden_edges` entry, no cycle), so restoring it keeps
+  `check-import-graph.py --strict` green.
+
 WHY PRIVATE NAMES APPEAR ON A PORT (a deliberate, reviewable choice):
 
   Five of the nine members are host-private (`_audit`, `_seal_task_audit_chain`, `_context_payload_v3`,
@@ -54,7 +73,6 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from threat_report_agent.config import Settings
 from threat_report_agent.content_store import ContentStore
 from threat_report_agent.contracts import (
     BackgroundContextInput,
@@ -81,11 +99,12 @@ from threat_report_agent.models import (
 )
 from threat_report_agent.report.reporting import normalize_modules
 
-# `task -> tools.tool_execution` is a DELIBERATE edge added for P3.2f: `cancel_tool_run` awaits the Temporal tool
-# executor. Plan 3.2 places task/ above every layer, the import policy forbids no such edge, and it was measured
-# cycle-free before the move (no module under tools/ imports task; the only such imports are root shims and
-# service.py).
-from threat_report_agent.tools.tool_execution import TemporalToolExecutor
+# P3.5-0/D-2 REMOVED the `task -> tools.tool_execution` edge that P3.2f added here: the cancellation cluster used
+# to import and construct `TemporalToolExecutor` (a Temporal transport adapter), and it now receives
+# `ToolExecutionPort` from its host as `host.tool_executor`. What replaces it is the PORT - plan section 3.2's
+# matrix row for `task/` lists ports among the allowed dependencies - and the removal is pinned by
+# `tests/test_tool_execution_port_contract.py` rather than by the import gate, which stays GREEN either way.
+from threat_report_agent.ports import ToolExecutionPort
 from threat_report_agent.task.status import TaskLifecycle, ToolRunStatus, transition_task
 
 #: The measured direct spine of the P3.2 candidate set - the ONLY things a task cluster may require of its host.
@@ -97,41 +116,58 @@ from threat_report_agent.task.status import TaskLifecycle, ToolRunStatus, transi
 #: cover, and the measurement that forced it is recorded in `docs/p32-task-runner-design-20260922.md` section 10.
 #: This is why the pin below is a re-derived comparison and not a comment: the widening had to be made where the test
 #: could see it.
+#:
+#: RE-PINNED (not widened) BY P3.5-0/D-2: `settings` left and `tool_executor` joined, leaving the size at NINE.
+#: MEASURED BEFORE THE RE-PIN (`.scratch/p35-0-d2-measure.py`, and the same script enumerates every
+#: `*_HOST_MEMBERS` tuple in the repository): `settings` had exactly two `host.settings` readers in this module -
+#: the two `TemporalToolExecutor(host.settings.temporal_address)` constructions D-2 deletes - and `tool_executor` /
+#: `TemporalToolExecutor` appear in NO existing pin, so the new member is not a value another module reaches through
+#: its own host pin (`_CATALOG_HOW_SEED_SCAN_LIMIT` is the recorded counterexample that broke 37 tests). `settings`
+#: stays on the other two pins that read it (`investigation/derivation.py`, `workbench_query.py`); each pin is
+#: checked against its OWN module, so removing it here does not narrow those.
 TASK_HOST_MEMBERS: tuple[str, ...] = (
     "_audit",
     "_seal_task_audit_chain",
     "content_store",
     "database",
-    "settings",
     "task_view",
     # --- added by P3.2g (the workbench-binding cluster) ---
     "_context_payload_v3",
     "_context_state_for_task_v3",
     "_require_session_id",
+    # --- added by P3.5-0/D-2 (the executor arrives as a PORT instead of being imported) ---
+    "tool_executor",
 )
 
 
 class TaskHost(Protocol):
     """What the task path may use on the object that owns it.
 
-    Three pieces of HOST STATE plus HOST OPERATIONS, and nothing else: state the task path reads (`settings`,
-    `database`, `content_store`), the audit writer it must call (`_audit`), the terminal audit-chain seal that only
-    cancellation needs (`_seal_task_audit_chain`), the public read of a task (`task_view`), and - added in P3.2g for
-    the workbench-binding cluster - the three DSH context helpers it needs to project a session's context
-    (`_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id`).
+    HOST STATE plus HOST OPERATIONS plus ONE PORT, and nothing else: state the task path reads (`database`,
+    `content_store`), the audit writer it must call (`_audit`), the terminal audit-chain seal that only cancellation
+    needs (`_seal_task_audit_chain`), the public read of a task (`task_view`), - added in P3.2g for the
+    workbench-binding cluster - the three DSH context helpers it needs to project a session's context
+    (`_context_payload_v3`, `_context_state_for_task_v3`, `_require_session_id`), and - added in P3.5-0/D-2 - the
+    tool-execution PORT (`tool_executor`).
 
     `task_view` being here is the one member that is a PUBLISHED facade operation (P3.1's "read status" group):
     the budget cluster asks the host for the task view rather than reading task rows itself, which keeps that read
     single-sourced.
+
+    `tool_executor` is the one member that is NOT host state: it is the seam this module may call, and the host
+    supplies an object satisfying `ports.ToolExecutionPort`. The host supplies it as an attribute that resolves AT
+    ACCESS TIME (the host holds a property that builds its adapter from the CURRENT settings), which is why this
+    module must read `host.tool_executor` per call rather than capturing it once at import. `settings` deliberately
+    left this port in the same step: its only readers here were the two constructions of the Temporal adapter.
 
     The three DSH context helpers are declared with the SHAPES the host actually has them in: `_context_payload_v3`
     is an instance method, `_context_state_for_task_v3` a classmethod and `_require_session_id` a staticmethod. All
     three are reached as `host.<name>(...)`, which works for every shape.
     """
 
-    settings: Settings
     database: Database
     content_store: ContentStore
+    tool_executor: ToolExecutionPort
 
     def _context_payload_v3(
         self,
@@ -525,10 +561,12 @@ def cancel_task(
         )
 
     cancellation_errors: list[dict[str, str]] = []
-    executor = TemporalToolExecutor(host.settings.temporal_address)
+    # The executor comes from the HOST (P3.5-0/D-2), resolved at call time: `host.tool_executor` is the port this
+    # module is allowed to use, and the host decides which adapter implements it.
+    executor = host.tool_executor
     for workflow_id in workflow_ids:
         try:
-            asyncio.run(executor.cancel_workflow(workflow_id))
+            asyncio.run(executor.cancel(workflow_id))
         except Exception as exc:
             cancellation_errors.append(
                 {"workflow_id": workflow_id, "error_type": type(exc).__name__}
@@ -637,7 +675,7 @@ def cancel_tool_run(
     cancellation_errors: list[dict[str, str]] = []
     if workflow_id:
         try:
-            asyncio.run(TemporalToolExecutor(host.settings.temporal_address).cancel_workflow(workflow_id))
+            asyncio.run(host.tool_executor.cancel(workflow_id))
         except Exception as exc:
             cancellation_errors.append(
                 {"workflow_id": workflow_id, "error_type": type(exc).__name__}

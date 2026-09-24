@@ -1230,8 +1230,18 @@ class TemporalToolExecutor:
             )
         return ToolRunResult.model_validate(raw)
 
-    async def cancel(self, request: ToolRunRequest) -> None:
-        await self.cancel_workflow(request.workflow_id)
+    async def cancel(self, workflow_id: str) -> None:
+        """`ToolExecutionPort.cancel` - takes the WORKFLOW ID, not a `ToolRunRequest`.
+
+        MEASURED (P3.5-0/D-2, `docs/p35-prep-measurement-20260922.md` section 5 R2): the pre-D-2 form was
+        `cancel(request: ToolRunRequest)` with the body `await self.cancel_workflow(request.workflow_id)`. That
+        closed only for callers holding a FULL request - and no real caller does: the two cancellation callers
+        (`task/task_runner.py:531`, `:640`) hold an id string read from the persisted row's
+        `environment["workflow_id"]`, and the port's own `ToolRunRequestView` carries no `workflow_id` at all, so
+        passing a view through the port raised `AttributeError`. The port signature is therefore the id, and this
+        method DELEGATES to `cancel_workflow`, which stays the name the existing callers already use.
+        """
+        await self.cancel_workflow(workflow_id)
 
     async def cancel_workflow(self, workflow_id: str) -> None:
         client = await Client.connect(self.temporal_address)
