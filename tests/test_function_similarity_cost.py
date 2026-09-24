@@ -202,12 +202,22 @@ def test_matches_are_still_recorded_for_every_reference(test_settings) -> None:
 
     source_ids = {row.value["source_evidence_id"] for row in similarity_rows}
     assert len(source_ids) == 3, "a source fingerprint lost its row entirely"
+    seen_per_row_ids: set[str] = set()
     for row in similarity_rows:
         matches = row.value["matches"]
         assert matches, "an aggregated row carries no matches, so the finding was discarded"
-        assert "source_evidence_id" in row.value, (
-            "the per-source row no longer carries `source_evidence_id`"
+        # REAL PROPERTIES, not a membership check: line 203 already subscripted this key, so
+        # `"source_evidence_id" in row.value` was unreachable-if-false (measured by the Standards axis). A blank or
+        # duplicated id - the shapes that actually break the identity join - fail here.
+        per_row_id = row.value["source_evidence_id"]
+        assert isinstance(per_row_id, str) and per_row_id, (
+            f"the per-source row carries a blank or non-string `source_evidence_id`: {per_row_id!r}"
         )
+        assert per_row_id not in seen_per_row_ids, (
+            f"two per-source rows claim the same `source_evidence_id` ({per_row_id!r}); the identity join would merge "
+            "unrelated sources"
+        )
+        seen_per_row_ids.add(per_row_id)
         references = {str(item["reference_id"]) for item in matches}
         assert references == source_ids - {row.value["source_evidence_id"]}, (
             "the per-source row no longer keeps every other source as a reference: "

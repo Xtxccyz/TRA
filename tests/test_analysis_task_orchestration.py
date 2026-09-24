@@ -457,18 +457,24 @@ def test_investigation_loop_resolves_persist_how_before_budget_or_planner() -> N
     # treated "nothing was proposed" as a zero-cost route to the persist-ready branch. `mine` IS that shape
     # (no mined result at all), so the two properties below are what a reintroduced shortcut breaks: it could
     # never reach the persist-ready branch at any budget, and the budget alone decides DEFER vs PLANNER.
-    reached = {
-        budget: next_investigation_loop_path(mine, budget_exhausted=budget)
-        for budget in (True, False)
-    }
-    assert LOOP_PATH_PERSIST_READY not in reached.values(), (
-        "a decision carrying no mined result was routed to the persist-ready branch: the retired "
-        f"`persist_zero_cost` shortcut is back ({reached!r})"
-    )
-    assert reached == {
-        True: LOOP_PATH_BUDGET_DEFER,
-        False: LOOP_PATH_PLANNER,
-    }, f"the budget no longer decides defer-vs-planner for an unmined seed: {reached!r}"
+    # EVERY "NOTHING WAS PROPOSED" SHAPE, not just `None`: the retired shortcut read an EMPTY payload (`[]`) or a ZERO
+    # (`0`) as "zero cost" just as readily, and those inputs are NOT covered by the two assertions above - which is what
+    # makes this block able to fail while they pass. Written after a Standards-axis review measured that the first
+    # version re-stated the same two calls and therefore had no discriminating power.
+    for payload in (None, [], 0, {}, ""):
+        unmined = PersistHowDecision(PERSIST_HOW_MINE, payload, None)
+        reached = {
+            budget: next_investigation_loop_path(unmined, budget_exhausted=budget)
+            for budget in (True, False)
+        }
+        assert LOOP_PATH_PERSIST_READY not in reached.values(), (
+            "a decision carrying no mined result was routed to the persist-ready branch: the retired "
+            f"`persist_zero_cost` shortcut is back (payload={payload!r}, reached={reached!r})"
+        )
+        assert reached == {
+            True: LOOP_PATH_BUDGET_DEFER,
+            False: LOOP_PATH_PLANNER,
+        }, f"the budget no longer decides defer-vs-planner for an unmined seed: payload={payload!r} {reached!r}"
 
 
 def test_investigation_loop_defers_an_unmined_seed_once_the_budget_is_spent(
