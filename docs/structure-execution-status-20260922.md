@@ -35,7 +35,7 @@ UNCHANGED and untouched by this plan: capability acceptance is measured on the a
 
 ## 三、机械条件（P5.1）
 
-PASS at 8f5dda8456c3: 131 files x 8 services, `ALL DEPLOYED MODULES MATCH src/`, `import smoke OK` for every service, both image routes rebuilt (compose for the seven api-image services plus emu-worker, and the separate `scripts/build-ghidra-worker.ps1` route). Re-owed by any later `src/` change; NOT re-owed by tests or docs, which the manifest does not enumerate.
+PASS at 5a5b2614ec6d: 131 files x 8 services, `ALL DEPLOYED MODULES MATCH src/`, and `import smoke OK` for every service. Both image routes rebuilt from this commit. Re-owed by any later `src/` change.
 
 四道门禁在 HEAD 上全部通过：结构 diff、导入图 `--strict`、行为探针（含 item 8「移动模块同一性」）、部署 `--strict --import-smoke`。全量 pytest 的失败**节点集合**与 P0.2 基线一致。
 
