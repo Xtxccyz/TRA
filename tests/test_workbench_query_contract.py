@@ -446,3 +446,52 @@ def test_lifecycle_delegations_are_plain_instance_methods() -> None:
     for name in MOVED_MEMBERS:
         attribute = inspect.getattr_static(service.AnalysisService, name)
         assert not isinstance(attribute, (classmethod, staticmethod)), f"{name} gained a decorator"
+
+
+#: The capability payload's TOP-LEVEL keys, MEASURED at runtime by `.scratch/p36-2-capability-keys.py` (captured in
+#: `.scratch/p36-2-keys-after.txt`, which also shows the payload byte-identical across the P3.6-2 move). The design's
+#: section 6.4 asked for this assertion and the step left it optional; it is a SUPERSET check for the same reason the
+#: view pins are: an added key must stay free, while a dropped or renamed one fails loudly.
+REQUIRED_CAPABILITY_KEYS = {
+    "action_submission_tool",
+    "actions",
+    "analysis_planner_model",
+    "api_version",
+    "backend_static_action_catalog",
+    "capability_profile",
+    "isolated_emulation",
+    "model_callable_tools",
+    "network_access",
+    "profiles",
+    "sample_execution",
+    "session_context_protocol",
+    "static_only",
+    "tool_contract_version",
+    "unavailable_capabilities",
+    "workspace",
+}
+
+
+def test_the_capability_payload_keeps_its_top_level_key_set(test_settings) -> None:
+    """The capability contract's field set must not silently shrink - the same rule the two view projections follow."""
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.database import Database
+
+    database = Database(test_settings.database_url)
+    database.create_schema()
+    instance = service.AnalysisService(
+        test_settings, database, LocalContentStore(test_settings.content_store_path)
+    )
+    payload = instance.workbench_capabilities()
+    missing = REQUIRED_CAPABILITY_KEYS - set(payload)
+    assert not missing, (
+        f"workbench_capabilities dropped or renamed top-level key(s) {sorted(missing)}; the measured key set is "
+        f"{sorted(REQUIRED_CAPABILITY_KEYS)} and the payload returned {sorted(payload)}"
+    )
+    # The two keys whose CONTENT the design measured alongside the key set, so a payload that kept the keys but emptied
+    # the values is caught here rather than by a reader noticing.
+    assert len(payload["actions"]) == 18, (
+        f"`actions` should carry the full static action catalog (18 names, measured); it carries {len(payload['actions'])}"
+    )
+    assert payload["model_callable_tools"], "`model_callable_tools` is empty"
+    assert payload["analysis_planner_model"], "`analysis_planner_model` is empty"
