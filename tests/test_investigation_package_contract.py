@@ -129,6 +129,14 @@ def test_the_function_call_names_helper_has_exactly_one_implementation() -> None
     `investigation_protocol -> reporting` is a FORBIDDEN edge while `reporting -> investigation_protocol` already
     existed, and nothing was reimplemented - the survivor is byte-identical to both HEAD copies. P2-V.2 then moved
     that module into `investigation/`, so the file lives there now while the canonical identity is unchanged.
+
+    P3.5-0/M-4 CHANGED THE PINNED PATH DELIBERATELY, and the invariant it protects is unchanged: the helper is now
+    DEFINED in `facts/investigation_protocol.py` and re-exported by `investigation/investigation_protocol.py`, because
+    P3.5's `EmulationCoordinator` needs it and `emulation -> investigation` is an upward edge while `emulation -> facts`
+    is matrix-legal. The original reasoning is not weakened by the move but STRENGTHENED: `facts -> reporting` is a
+    forbidden edge too (it is in `docs/import-policy.json`), and `reporting -> facts` is legal, so `facts/` is the lower
+    and therefore better home for a helper that the report layer must import. The identity assertions below still prove
+    there is exactly one implementation and that `reporting` imports it rather than holding a copy.
     """
     import json
 
@@ -140,9 +148,11 @@ def test_the_function_call_names_helper_has_exactly_one_implementation() -> None
         for node in tree.body:
             if isinstance(node, ast.FunctionDef) and node.name in {"function_call_names", "_function_call_names"}:
                 defined_in.append(path.relative_to(PACKAGE).as_posix())
-    assert defined_in == ["investigation/investigation_protocol.py"], (
-        f"the helper is defined in {defined_in}; plan 3.2 allows exactly ONE canonical implementation, and it must "
-        "live in investigation_protocol.py because the reverse direction is a forbidden edge"
+    assert defined_in == ["facts/investigation_protocol.py"], (
+        f"the helper is defined in {defined_in}; plan 3.2 allows exactly ONE canonical implementation, and since "
+        "P3.5-0/M-4 it lives in `facts/investigation_protocol.py` - the lowest layer that can hold it, because both "
+        "`facts -> reporting` and `investigation_protocol -> reporting` are forbidden edges while the report layer "
+        "importing `facts` is legal"
     )
 
     protocol = importlib.import_module("threat_report_agent.investigation.investigation_protocol")
