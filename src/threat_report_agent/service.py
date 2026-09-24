@@ -3888,6 +3888,16 @@ class AnalysisService:
         return PersistHow._persist_how_row_groups(*args, **kwargs)
 
     @classmethod
+    def stage_persist_how_claims(cls, *args, **kwargs):
+        """Public behaviour entry point for `_stage_persist_how_claims` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._stage_persist_how_claims(*args, **kwargs)
+
+
+    @classmethod
     def _stage_persist_how_claims(cls, *args, **kwargs):
         return PersistHow._stage_persist_how_claims(*args, **kwargs)
 
@@ -4183,6 +4193,16 @@ class AnalysisService:
                 .limit(cap)
             )
         )
+
+    @staticmethod
+    def specialized_verifier_context(current_rows: list[Mapping[str, object]], scope_rows: list[Any], *, mechanism_type: str, prior_mechanism: Mapping[str, object] | None = None) -> list[dict[str, object]]:
+        """Public behaviour entry point for `_specialized_verifier_context` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._specialized_verifier_context(current_rows, scope_rows, mechanism_type=mechanism_type, prior_mechanism=prior_mechanism)
+
 
     @staticmethod
     def _specialized_verifier_context(
@@ -4709,6 +4729,16 @@ class AnalysisService:
             ordered.append(selected)
             remaining.remove(selected.key)
         return ordered
+
+    @staticmethod
+    def static_decode_recovery_from_evidence(rows: Iterable[object]) -> str:
+        """Public behaviour entry point for `_static_decode_recovery_from_evidence` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._static_decode_recovery_from_evidence(rows)
+
 
     @staticmethod
     def _static_decode_recovery_from_evidence(rows: Iterable[object]) -> str:
@@ -9194,6 +9224,16 @@ class AnalysisService:
         return selected
 
     @classmethod
+    def recovered_config_consumer_links(cls, xor_hits: Iterable[object], config_xrefs: Iterable[object], *, artifact_id: str, image_base: int = 0) -> list[dict[str, object]]:
+        """Public behaviour entry point for `_recovered_config_consumer_links` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._recovered_config_consumer_links(xor_hits, config_xrefs, artifact_id=artifact_id, image_base=image_base)
+
+
+    @classmethod
     def _recovered_config_consumer_links(
         cls,
         xor_hits: Iterable[object],
@@ -13036,6 +13076,16 @@ class AnalysisService:
         return tuple(dict.fromkeys(anchors))[:32]
 
     @staticmethod
+    def selector_is_anchored_in_evidence(selector: Mapping[str, object], evidence_ids: list[str], context_manifest: list[dict[str, object]], *, target_artifact_id: str | None = None) -> bool:
+        """Public behaviour entry point for `_selector_is_anchored_in_evidence` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._selector_is_anchored_in_evidence(selector, evidence_ids, context_manifest, target_artifact_id=target_artifact_id)
+
+
+    @staticmethod
     def _selector_is_anchored_in_evidence(
         selector: Mapping[str, object],
         evidence_ids: list[str],
@@ -15250,6 +15300,16 @@ class AnalysisService:
         return gains
 
     @staticmethod
+    def t6_revision_diff_payload(parent_markdown: str | None, markdown: str, parent_document: Mapping[str, object] | None = None, document: Mapping[str, object] | None = None) -> dict[str, object]:
+        """Public behaviour entry point for `_t6_revision_diff_payload` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._t6_revision_diff_payload(parent_markdown, markdown, parent_document, document)
+
+
+    @staticmethod
     def _t6_revision_diff_payload(
         parent_markdown: str | None,
         markdown: str,
@@ -16910,6 +16970,16 @@ class AnalysisService:
             cursors[session_id] = (task_id, int(next_seq))
 
     @classmethod
+    def wait_continuation(cls, context: Mapping[str, object] | None, *, timed_out: bool, next_seq: int) -> dict[str, object]:
+        """Public behaviour entry point for `_wait_continuation` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._wait_continuation(context, timed_out=timed_out, next_seq=next_seq)
+
+
+    @classmethod
     def _wait_continuation(
         cls,
         context: Mapping[str, object] | None,
@@ -18195,6 +18265,16 @@ class AnalysisService:
                 row.action_type, evidence_rows
             )
             return payload
+
+    @staticmethod
+    def semantic_action_result(action_type: str, evidence_rows: list[Evidence]) -> dict[str, object]:
+        """Public behaviour entry point for `_semantic_action_result` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._semantic_action_result(action_type, evidence_rows)
+
 
     @staticmethod
     def _semantic_action_result(

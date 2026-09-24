@@ -258,7 +258,7 @@ def test_workbench_decompile_projection_exposes_semantic_summary() -> None:
         value=value,
         anchor={"function_entry": "0x401000"},
     )
-    projection = AnalysisService._semantic_action_result(ActionType.GET_DECOMPILE.value, [row])
+    projection = AnalysisService.semantic_action_result(ActionType.GET_DECOMPILE.value, [row])
     assert projection["kind"] == "function_semantic_summary"
     assert projection["summaries"][0]["call_sequence"][0]["api"] == "CreateProcessW"
     assert projection["summaries"][0]["boundary"] == "runtime execution is unobserved"

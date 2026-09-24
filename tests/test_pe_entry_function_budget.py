@@ -518,7 +518,7 @@ def test_ghidra_xor_xref_emits_decode_config_catalog_contract() -> None:
             "link_kind": "decoded_va_reference",
         }
     ]
-    links = AnalysisService._recovered_config_consumer_links(
+    links = AnalysisService.recovered_config_consumer_links(
         [hit],
         xrefs,
         artifact_id="artifact-resume",
@@ -559,7 +559,7 @@ def test_ghidra_xor_xref_emits_decode_config_catalog_contract() -> None:
     )
     assert evaluation.accepted
     assert evaluation.status == "SUPPORTED_STATIC"
-    assert AnalysisService._recovered_config_consumer_links(
+    assert AnalysisService.recovered_config_consumer_links(
         [hit],
         [{"from": "140001000", "to": "140010000", "type": "DATA"}],
         artifact_id="artifact-resume",
@@ -744,7 +744,7 @@ def test_seed_playbook_claim_gate_keeps_decode_contract_when_imports_dominate() 
             "link_kind": "decoded_va_reference",
         }
     ]
-    links = AnalysisService._recovered_config_consumer_links(
+    links = AnalysisService.recovered_config_consumer_links(
         [hit],
         xrefs,
         artifact_id="artifact-resume",
@@ -828,7 +828,7 @@ def test_recovered_xor_fields_satisfy_decode_config_specialist() -> None:
             "link_kind": "decoded_va_reference",
         }
     ]
-    links = AnalysisService._recovered_config_consumer_links(
+    links = AnalysisService.recovered_config_consumer_links(
         [hit],
         xrefs,
         artifact_id="artifact-resume",
@@ -2088,7 +2088,7 @@ def test_persist_how_claim_specs_mint_process_dynamic_api_and_decode(monkeypatch
             "link_kind": "decoded_va_reference",
         }
     ]
-    links = AnalysisService._recovered_config_consumer_links(
+    links = AnalysisService.recovered_config_consumer_links(
         [hit],
         xrefs,
         artifact_id="artifact-resume",
@@ -2685,7 +2685,7 @@ def test_persist_how_claim_specs_mint_each_named_api() -> None:
     assert any("GetTempPath2W" in item for item in objects)
     assert len(objects) == 2
     pending: list[tuple[object, object, object, object]] = []
-    AnalysisService._stage_persist_how_claims(
+    AnalysisService.stage_persist_how_claims(
         pending,
         specs,
         task_id="task-named-api",

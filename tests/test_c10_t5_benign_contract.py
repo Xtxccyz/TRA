@@ -275,7 +275,7 @@ def test_t6_word_count_and_action_count_are_not_a_gain() -> None:
     after = before + ("额外叙述。" * 40) + "\nactions=12\n"
     assert official_revision_semantic_gains(before, after) == ()
     assert t6_revision_has_substantive_gain(before, after) is False
-    payload = AnalysisService._t6_revision_diff_payload(
+    payload = AnalysisService.t6_revision_diff_payload(
         before,
         after,
         {"trace": {"tool_run_ids": ["t1"], "evidence_ids": ["e1"], "relation_ids": []}},
@@ -289,7 +289,7 @@ def test_t6_word_count_and_action_count_are_not_a_gain() -> None:
 def test_t6_new_relation_is_a_gain_without_word_count() -> None:
     """C10 T6: a new catalog relation is a gain even when GET wording is unchanged."""
     markdown = "## 分析结论\n\nconsumer=`UNKNOWN(consumer)`\n"
-    payload = AnalysisService._t6_revision_diff_payload(
+    payload = AnalysisService.t6_revision_diff_payload(
         markdown,
         markdown,
         {"trace": {"relation_ids": [], "tool_run_ids": ["t1"], "evidence_ids": ["e1"]}},
@@ -331,6 +331,6 @@ def test_t6_new_recovered_bytes_hash_is_a_gain() -> None:
         + "`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n"
     )
     assert t6_revision_has_substantive_gain(before, after) is True
-    payload = AnalysisService._t6_revision_diff_payload(before, after)
+    payload = AnalysisService.t6_revision_diff_payload(before, after)
     assert payload["substantive"] is True
     assert payload["word_count_delta_is_not_gain"] is True

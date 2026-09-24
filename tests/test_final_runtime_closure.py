@@ -500,7 +500,7 @@ def test_dsh_query_tool_schema_is_session_bound() -> None:
 
 
 def test_wait_continuation_converged_is_leftover_dump_not_second_round() -> None:
-    row = AnalysisService._wait_continuation(
+    row = AnalysisService.wait_continuation(
         {"state": "ANALYSIS_READY"},
         timed_out=False,
         next_seq=9,

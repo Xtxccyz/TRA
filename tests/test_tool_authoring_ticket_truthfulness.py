@@ -108,7 +108,7 @@ def _decode_row() -> dict:
 
 
 def test_detector_reads_the_decode_fact_from_value() -> None:
-    out = AnalysisService._static_decode_recovery_from_evidence([_decode_row()])
+    out = AnalysisService.static_decode_recovery_from_evidence([_decode_row()])
 
     assert "DECODED_STATIC" in out
     assert "utf16le-asciihex-record-table" in out
@@ -123,7 +123,7 @@ def test_detector_ignores_rows_that_are_not_decodes() -> None:
         {"id": "e2", "kind": "decode_result", "nature": "STATIC_OBSERVED", "value": {"candidate": {}}},
         {"id": "e3", "value": "not-a-mapping"},
     ]
-    assert AnalysisService._static_decode_recovery_from_evidence(rows) == ""
+    assert AnalysisService.static_decode_recovery_from_evidence(rows) == ""
 
 
 def test_detector_does_not_read_fields_off_the_row_top_level() -> None:
@@ -138,4 +138,4 @@ def test_detector_does_not_read_fields_off_the_row_top_level() -> None:
         "verification_status": "DECODED_STATIC",
         "encoding": "utf16le-asciihex-record-table",
     }
-    assert AnalysisService._static_decode_recovery_from_evidence([flat]) == ""
+    assert AnalysisService.static_decode_recovery_from_evidence([flat]) == ""

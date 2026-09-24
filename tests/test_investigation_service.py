@@ -265,7 +265,7 @@ def test_specialized_verifier_context_recovers_prior_static_link_sources() -> No
         "evidence_ids": ["prior-link", "resolver", "module", "consumer"],
     }
 
-    recovered = AnalysisService._specialized_verifier_context(
+    recovered = AnalysisService.specialized_verifier_context(
         narrow,
         scope,
         mechanism_type="DYNAMIC_API_RESOLUTION",
@@ -319,7 +319,7 @@ def test_specialized_verifier_context_recovers_decode_result_and_consumer_flow()
             "anchor": {"function_entry": "0x140003000"},
         },
     ]
-    recovered = AnalysisService._specialized_verifier_context(
+    recovered = AnalysisService.specialized_verifier_context(
         current,
         scope,
         mechanism_type="DECODE_CONFIG",
@@ -4470,7 +4470,7 @@ def test_investigation_observation_dedupe_keeps_distinct_edges_on_one_anchor(tes
 
 
 def test_selector_anchor_rejects_cross_artifact_citation() -> None:
-    assert not AnalysisService._selector_is_anchored_in_evidence(
+    assert not AnalysisService.selector_is_anchored_in_evidence(
         {"target": "GetProcAddress"},
         ["e-other"],
         [{"evidence_id": "e-other", "artifact_id": "artifact-other", "value": {"target": "GetProcAddress"}, "anchor": {}}],
