@@ -311,7 +311,7 @@ def test_model_context_selection_is_fair_across_artifacts(test_settings) -> None
         for index in range(25)
     ]
 
-    selected = service._select_model_evidence(rows, limit=100)
+    selected = service.select_model_evidence(rows, limit=100)
     assert len(selected) == 100
     assert any(item.artifact_id == "child" for item in selected)
     assert any(item.kind == "function" for item in selected)
@@ -331,7 +331,7 @@ def test_investigation_execution_corpus_is_bounded_and_prioritizes_mechanisms(te
         for index in range(3)
     ]
 
-    selected = service._select_investigation_execution_rows(rows, limit=5)
+    selected = service.select_investigation_execution_rows(rows, limit=5)
 
     assert len(selected) == 5
     assert [item.kind for item in selected[:3]] == ["function_call"] * 3

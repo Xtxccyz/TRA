@@ -3345,6 +3345,16 @@ class AnalysisService:
         )
 
     @classmethod
+    def select_investigation_execution_rows(cls, rows: list[Evidence], *, limit: int | None = None) -> list[Evidence]:
+        """Public behaviour entry point for `_select_investigation_execution_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._select_investigation_execution_rows(rows, limit=limit)
+
+
+    @classmethod
     def _select_investigation_execution_rows(
         cls,
         rows: list[Evidence],
@@ -3438,6 +3448,16 @@ class AnalysisService:
         return _derivation._select_http_transport_seed_rows(cls, rows, limit=limit)
 
     @classmethod
+    def select_process_creation_seed_rows(cls, rows: Iterable[object], *, limit: int = 128) -> list[object]:
+        """Public behaviour entry point for `_select_process_creation_seed_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._select_process_creation_seed_rows(rows, limit=limit)
+
+
+    @classmethod
     def _select_process_creation_seed_rows(
         cls,
         rows: Iterable[object],
@@ -3491,6 +3511,16 @@ class AnalysisService:
         return bool(start_keys & set(_address_lookup_keys(entry)))
 
     @classmethod
+    def select_unique_thread_seed_rows(cls, rows: Iterable[object], *, limit: int = 128) -> list[object]:
+        """Public behaviour entry point for `_select_unique_thread_seed_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._select_unique_thread_seed_rows(rows, limit=limit)
+
+
+    @classmethod
     def _select_unique_thread_seed_rows(
         cls,
         rows: Iterable[object],
@@ -3535,6 +3565,16 @@ class AnalysisService:
         return PersistHow._ppid_parent_image(*args, **kwargs)
 
     @classmethod
+    def select_parent_attribute_seed_rows(cls, rows: Iterable[object], *, limit: int = 128) -> list[object]:
+        """Public behaviour entry point for `_select_parent_attribute_seed_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._select_parent_attribute_seed_rows(rows, limit=limit)
+
+
+    @classmethod
     def _select_parent_attribute_seed_rows(
         cls,
         rows: Iterable[object],
@@ -3553,6 +3593,16 @@ class AnalysisService:
         if kind == "value_flow":
             return str(value.get("relation") or "") == "resolved_pointer_to_call"
         return False
+
+    @classmethod
+    def select_dynamic_api_seed_rows(cls, rows: Iterable[object], *, limit: int = 128) -> list[object]:
+        """Public behaviour entry point for `_select_dynamic_api_seed_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._select_dynamic_api_seed_rows(rows, limit=limit)
+
 
     @classmethod
     def _select_dynamic_api_seed_rows(
@@ -3791,8 +3841,28 @@ class AnalysisService:
         return PersistHow._preferred_process_flags(*args, **kwargs)
 
     @classmethod
+    def recovered_process_how_fields(cls, *args, **kwargs):
+        """Public behaviour entry point for `_recovered_process_how_fields` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._recovered_process_how_fields(*args, **kwargs)
+
+
+    @classmethod
     def _recovered_process_how_fields(cls, *args, **kwargs):
         return PersistHow._recovered_process_how_fields(*args, **kwargs)
+
+    @classmethod
+    def recovered_dynamic_api_how_fields(cls, *args, **kwargs):
+        """Public behaviour entry point for `_recovered_dynamic_api_how_fields` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._recovered_dynamic_api_how_fields(*args, **kwargs)
+
 
     @classmethod
     def _recovered_dynamic_api_how_fields(cls, *args, **kwargs):
@@ -13966,6 +14036,16 @@ class AnalysisService:
                 f"Model gateway rejected {invalid_count} Claim drafts with invalid Evidence support or an unmet Claim Gate."
             )
         return limitations
+
+    @classmethod
+    def select_model_evidence(cls, rows: list[Evidence], *, limit: int) -> list[Evidence]:
+        """Public behaviour entry point for `_select_model_evidence` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._select_model_evidence(rows, limit=limit)
+
 
     @classmethod
     def _select_model_evidence(

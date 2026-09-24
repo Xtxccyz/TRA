@@ -1012,7 +1012,7 @@ def test_process_creation_seed_rows_survive_cluster_filter_and_export_symbol_win
     assert call.id in {row.id for row in clustered}
     pinned = AnalysisService.pin_config_consumer_seed_rows(
         clustered,
-        AnalysisService._select_process_creation_seed_rows([call, trace, flow]),
+        AnalysisService.select_process_creation_seed_rows([call, trace, flow]),
     )
     assert {row.id for row in pinned} >= {call.id, trace.id, flow.id}
 
@@ -1196,10 +1196,10 @@ def test_process_creation_seed_rows_survive_early_empty_trace_flood() -> None:
         value={"relation": "parent_handle_to_attribute"},
         anchor={"type": "parent_handle_to_attribute"},
     )
-    selected = AnalysisService._select_process_creation_seed_rows([*empty, recovered, flow, parent])
+    selected = AnalysisService.select_process_creation_seed_rows([*empty, recovered, flow, parent])
     assert {row.id for row in selected} >= {recovered.id, flow.id}
     assert "empty-0" not in {row.id for row in selected}
-    assert AnalysisService._select_parent_attribute_seed_rows([*empty, parent])[0].id == parent.id
+    assert AnalysisService.select_parent_attribute_seed_rows([*empty, parent])[0].id == parent.id
     assert AnalysisService._CATALOG_HOW_SEED_SCAN_LIMIT >= 2048
 
 
@@ -1270,7 +1270,7 @@ def test_resolved_api_seed_rows_are_pinned_with_catalog_identity() -> None:
     )
     pinned = AnalysisService.pin_config_consumer_seed_rows(
         clustered,
-        AnalysisService._select_dynamic_api_seed_rows([resolved, flow]),
+        AnalysisService.select_dynamic_api_seed_rows([resolved, flow]),
     )
     assert {row.id for row in pinned} >= {resolved.id, flow.id}
 
@@ -1378,7 +1378,7 @@ def test_parent_attribute_seed_rows_are_pinned_and_process_playbook_stays_bound(
     )
     pinned = AnalysisService.pin_config_consumer_seed_rows(
         clustered,
-        AnalysisService._select_parent_attribute_seed_rows([trace, flow]),
+        AnalysisService.select_parent_attribute_seed_rows([trace, flow]),
     )
     assert {row.id for row in pinned} >= {trace.id, flow.id}
 
@@ -1967,7 +1967,7 @@ def test_process_persist_claim_uses_command_flags_not_ppid_keywords() -> None:
             },
         },
     ]
-    how = AnalysisService._recovered_process_how_fields(evidence)
+    how = AnalysisService.recovered_process_how_fields(evidence)
     assert how["command"] == "cmd.exe /c FoxitPDFReader.exe"
     assert how["flags"] == "0x00080000"
     fields = AnalysisService._investigated_mechanism_claim_fields(
@@ -2484,7 +2484,7 @@ def test_unique_thread_seed_rows_exclude_process_how() -> None:
         },
         anchor={"function_entry": "140004605"},
     )
-    selected = AnalysisService._select_unique_thread_seed_rows([process, thread, body])
+    selected = AnalysisService.select_unique_thread_seed_rows([process, thread, body])
     assert {row.id for row in selected} == {"trace-thread", "body-thread"}
     protocol = fill_protocol(
         [
@@ -2772,7 +2772,7 @@ def test_dynamic_api_how_does_not_steal_iat_name_from_mixed_ppid_trace() -> None
             },
         },
     ]
-    how = AnalysisService._recovered_dynamic_api_how_fields(mixed)
+    how = AnalysisService.recovered_dynamic_api_how_fields(mixed)
     assert how["api_name"] == "SetThreadDescription"
     assert how["consumer"] == "JMP R8"
     assert "UpdateProcThreadAttribute" not in how["api_name"]
