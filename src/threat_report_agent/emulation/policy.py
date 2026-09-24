@@ -26,6 +26,7 @@ from typing import (
     Callable,
     Mapping,
 )
+from typing import Protocol
 
 CERTIFIED_PROFILES = frozenset({"controlled-worker-v1", "static-first-controlled-emulation"})
 
@@ -309,3 +310,33 @@ def request_for_granted_window(
         max_output_bytes=policy.max_output_bytes,
         memory_maps=tuple(maps),
     )
+
+
+class SimulationWindowOutcome(Protocol):
+    """What running ONE granted window through the host's isolated runner reports back.
+
+    DECLARED HERE, WHERE IT IS CONSUMED - a deliberate deviation from the P3.3e design document, which places it "in
+    the coordinator". The reason it cannot go there is measurable: `coordinator.py`'s contract test asserts that its
+    `INVESTIGATION_HOST_MEMBERS` pin equals EXACTLY the receiver references its own moved bodies make, so widening that
+    pin for a member the coordinator never calls would fail a gate that exists to keep pins honest. This type is the
+    return of the host member `_run_simulation_window`, and it is what the GIANT's body will consume next step: that
+    body reads `status`, `stop_reason` and `output_bytes` and calls `as_dict()` - which is why all four are declared,
+    even though the seam member itself only forwards the object.
+
+    The four members are exactly what that body touches (MEASURED in the giant's `CONTROLLED_EMULATE` branch), and
+    their types are those of the object the host really returns (`simulation_adapters.SimulationResult`): `status: str`,
+    `stop_reason: str | None`, `output_bytes: bytes`. A narrower or wider shape here would be a lie only a type checker
+    could catch - and `tests/test_investigation_derivation_seam.py` pins the shape against a real outcome.
+
+    THE HOST PIN WAS DECLARED WITH THE GIANT'S BODY, not with this type. When this Protocol was written (the execution
+    seam) the giant was still on the host, and a pin must name exactly what this module's own bodies read - declaring
+    seven host members for a module that read none of them would have been the aspirational-pin defect this phase has
+    already recorded once. The step that moved the giant declared the pin in the same change, and
+    `tests/test_investigation_derivation_contract.py` asserts the equality the coordinator's contract test asserts.
+    """
+
+    status: str
+    stop_reason: str | None
+    output_bytes: bytes
+
+    def as_dict(self) -> dict[str, object]: ...

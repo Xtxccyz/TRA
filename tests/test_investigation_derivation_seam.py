@@ -72,7 +72,20 @@ def facade(test_settings) -> AnalysisService:  # noqa: ANN001 - conftest's Setti
 
 
 def _protocol_members() -> set[str]:
-    tree = ast.parse(DERIVATION_MODULE.read_text(encoding="utf-8", errors="replace"))
+    """The Protocol's four member names, read at its NEW home, with the re-export's identity asserted.
+
+    MIGRATED (P3.5-0 M-5), not weakened: this used to parse `derivation.py` for the `ClassDef`. The class moved to
+    `emulation/policy.py` and `derivation.py` re-exports it as `X as X`, so the guard reads the DECLARATION where it now
+    lives AND asserts that the re-export hands the moved code the identical object - which is the property the original
+    "declared here" check protected.
+    """
+    import threat_report_agent.emulation.policy as policy_module
+    import threat_report_agent.investigation.derivation as derivation_module
+
+    assert derivation_module.SimulationWindowOutcome is policy_module.SimulationWindowOutcome, (
+        "derivation.py no longer re-exports the same Protocol object, so the moved code and this guard could drift"
+    )
+    tree = ast.parse((DERIVATION_MODULE.parent.parent / "emulation" / "policy.py").read_text(encoding="utf-8", errors="replace"))
     protocol = next(
         n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "SimulationWindowOutcome"
     )
