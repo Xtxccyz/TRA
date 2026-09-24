@@ -2144,12 +2144,12 @@ def test_failed_pe_entry_emu_does_not_cover_a_later_thread_start() -> None:
         SimpleNamespace(kind="simulation_result", value=failed_entry),
         SimpleNamespace(kind="simulation_result", value=unlabeled_failed),
     ]
-    matching = AnalysisService._matching_simulation_results(
+    matching = AnalysisService.matching_simulation_results(
         rows, {"function_entry": "0x401040"}
     )
     assert matching == ()
     assert AnalysisService.simulation_covers_request(failed_entry, "0x401000")
-    reused = AnalysisService._matching_simulation_results(
+    reused = AnalysisService.matching_simulation_results(
         rows, {"function_entry": "0x401000"}
     )
     assert reused == ()
@@ -2174,10 +2174,10 @@ def test_target_selector_is_not_covered_by_unlabeled_failed_emu() -> None:
         SimpleNamespace(kind="simulation_result", value=unlabeled_failed),
         SimpleNamespace(kind="simulation_result", value=other_entry),
     ]
-    assert AnalysisService._matching_simulation_results(rows, {"target": "0x140016920"}) == ()
-    assert AnalysisService._matching_simulation_results(rows, {"target": "140016920"}) == ()
+    assert AnalysisService.matching_simulation_results(rows, {"target": "0x140016920"}) == ()
+    assert AnalysisService.matching_simulation_results(rows, {"target": "140016920"}) == ()
     assert AnalysisService.simulation_covers_request(other_entry, "0x140038ae0")
-    assert AnalysisService._matching_simulation_results(rows, {"target": "140038ae0"}) == ()
+    assert AnalysisService.matching_simulation_results(rows, {"target": "140038ae0"}) == ()
 
 
 def test_simulation_covers_fun_label_and_hex_alias() -> None:

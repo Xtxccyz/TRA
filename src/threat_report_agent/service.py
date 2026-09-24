@@ -948,7 +948,6 @@ class AnalysisService:
             return self._run_analysis(case_id, task_id, entries, modules, actor, intake_executions)
 
     @staticmethod
-    @staticmethod
     def _failure_payload(row) -> dict[str, object] | None:
         return _limitations.failure_payload(row)
 
@@ -3774,6 +3773,16 @@ class AnalysisService:
         return PersistHow._recovered_decode_how_fields(*args, **kwargs)
 
     @classmethod
+    def recovered_http_how_fields(cls, *args, **kwargs):
+        """Public behaviour entry point for `_recovered_http_how_fields` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._recovered_http_how_fields(*args, **kwargs)
+
+
+    @classmethod
     def _recovered_http_how_fields(cls, *args, **kwargs):
         return PersistHow._recovered_http_how_fields(*args, **kwargs)
 
@@ -4399,6 +4408,16 @@ class AnalysisService:
         return (parser,)
 
     @staticmethod
+    def baseline_specialist_tools(artifact: Artifact, *, already: set[str]) -> tuple[str, ...]:
+        """Public behaviour entry point for `_baseline_specialist_tools` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._baseline_specialist_tools(artifact, already=already)
+
+
+    @staticmethod
     def _baseline_specialist_tools(
         artifact: Artifact, *, already: set[str]
     ) -> tuple[str, ...]:
@@ -4645,7 +4664,6 @@ class AnalysisService:
     def _static_decode_recovery_from_evidence(rows: Iterable[object]) -> str:
         return _derivation._static_decode_recovery_from_evidence(rows)
 
-    @staticmethod
     @staticmethod
     def _static_decode_recovery_from_limitations(limitations) -> str:
         return _limitations.static_decode_recovery_from_limitations(limitations)
@@ -10013,6 +10031,16 @@ class AnalysisService:
         )
 
     @classmethod
+    def matching_simulation_results(cls, rows: Iterable[Any], selector: Mapping[str, object], *, require_success: bool = True) -> tuple[Any, ...]:
+        """Public behaviour entry point for `_matching_simulation_results` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._matching_simulation_results(rows, selector, require_success=require_success)
+
+
+    @classmethod
     def _matching_simulation_results(
         cls,
         rows: Iterable[Any],
@@ -12451,7 +12479,6 @@ class AnalysisService:
         return _task_runner._actual_depth(session, task_id, artifacts)
 
     @staticmethod
-    @staticmethod
     def _completion_limitations(session, task_id, artifacts) -> list[str]:
         return _limitations.completion_limitations(session, task_id, artifacts)
 
@@ -14881,7 +14908,6 @@ class AnalysisService:
         }
 
     @staticmethod
-    @staticmethod
     def _merge_operational_limitations(document, task) -> None:
         return _limitations.merge_operational_limitations(document, task)
 
@@ -15218,6 +15244,16 @@ class AnalysisService:
             parent_revision_id=parent_revision_id,
             author=author,
         )
+
+    @staticmethod
+    def canonical_json(value: object) -> str:
+        """Public behaviour entry point for `_canonical_json` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._canonical_json(value)
+
 
     @staticmethod
     def _canonical_json(value: object) -> str:

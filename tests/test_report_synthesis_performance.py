@@ -158,11 +158,11 @@ def _sealed_snapshot(service: AnalysisService, *, evidence_value: dict[str, obje
     ],
 )
 def test_streaming_canonical_digest_is_byte_identical_to_the_materialised_form(value) -> None:
-    expected = hashlib.sha256(AnalysisService._canonical_json(value).encode("utf-8")).hexdigest()
+    expected = hashlib.sha256(AnalysisService.canonical_json(value).encode("utf-8")).hexdigest()
 
     assert AnalysisService._canonical_sha256(value) == expected
     assert b"".join(AnalysisService._canonical_json_chunks(value)) == (
-        AnalysisService._canonical_json(value).encode("utf-8")
+        AnalysisService.canonical_json(value).encode("utf-8")
     )
 
 
@@ -176,7 +176,7 @@ def test_streaming_canonical_digest_excludes_content_sha256_at_top_level_only() 
     # The exclusion is the top-level ``content_sha256`` only; a nested key of the
     # same name is payload and must stay in the digest.
     assert b'"nested":{"content_sha256":"kept"}' in streamed
-    assert streamed == AnalysisService._canonical_json(
+    assert streamed == AnalysisService.canonical_json(
         {"nested": {"content_sha256": "kept"}}
     ).encode("utf-8")
 
@@ -192,7 +192,7 @@ def test_frozen_snapshot_digest_matches_the_materialised_canonical_form(
         snapshot = session.get(AnalysisSnapshot, snapshot_id)
         payload = dict(snapshot.object_versions)
         stored = payload.pop("content_sha256")
-        expected = hashlib.sha256(service._canonical_json(payload).encode("utf-8")).hexdigest()
+        expected = hashlib.sha256(service.canonical_json(payload).encode("utf-8")).hexdigest()
 
     assert stored == expected
 

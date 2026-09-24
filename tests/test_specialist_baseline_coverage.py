@@ -41,7 +41,7 @@ def _service() -> AnalysisService:
 def test_baseline_specialists_cover_the_pe_declared_tools() -> None:
     """The three tools that never ran in 474 tasks must be in the deterministic baseline."""
     artifact = _artifact("pe")
-    queued = AnalysisService._baseline_specialist_tools(artifact, already=set())
+    queued = AnalysisService.baseline_specialist_tools(artifact, already=set())
 
     for required in (
         "knowledge-fact-matcher",
@@ -55,7 +55,7 @@ def test_baseline_specialists_are_compatible_tools_only() -> None:
     """Never schedule a tool the compatibility gate would reject."""
     artifact = _artifact("pe")
     compatible = AnalysisService._compatible_static_tools(artifact)
-    queued = AnalysisService._baseline_specialist_tools(artifact, already=set())
+    queued = AnalysisService.baseline_specialist_tools(artifact, already=set())
 
     assert set(queued) <= compatible
     assert "signal-extractor" not in queued, (
@@ -67,7 +67,7 @@ def test_baseline_specialists_are_compatible_tools_only() -> None:
 def test_baseline_specialists_exclude_already_queued() -> None:
     artifact = _artifact("pe")
     already = {"knowledge-fact-matcher"}
-    queued = AnalysisService._baseline_specialist_tools(artifact, already=already)
+    queued = AnalysisService.baseline_specialist_tools(artifact, already=already)
 
     assert "knowledge-fact-matcher" not in queued
 
@@ -75,7 +75,7 @@ def test_baseline_specialists_exclude_already_queued() -> None:
 def test_non_pe_artifacts_get_no_specialists() -> None:
     """A script/zip artifact must not be handed PE-only scanners."""
     artifact = _artifact("script")
-    queued = AnalysisService._baseline_specialist_tools(artifact, already=set())
+    queued = AnalysisService.baseline_specialist_tools(artifact, already=set())
     assert "build-metadata-scanner" not in queued
     assert "crypto-pattern-scanner" not in queued
 
