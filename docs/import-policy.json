@@ -369,13 +369,7 @@
       "note": "MEASURED: AnalysisService reads its OWN private attribute by string name, defensively (the attribute may not exist, hence the getattr default). It is recorded rather than fixed because the fix is to declare the attribute on the class, which is a behaviour-visible edit and belongs to P3's split of AnalysisService. Unlike the plan's named example it does NOT reach across classes."
     }
   ],
-  "legacy_path_imports": [
-    {
-      "old": "dataflow",
-      "new": "facts.dataflow",
-      "importer": "threat_report_agent.service"
-    }
-  ],
+  "legacy_path_imports": [],
   "_legacy_path_imports_note": "MEASURED importers of a path that has already moved. The migration left `sys.modules` shims at the old paths, so these imports still work - which is exactly why they must be enumerated: an unregistered old-path import is how a moved implementation keeps a second access path alive, and plan 7.1 step 5 says production callers move to the new path FIRST. This ONE is the remaining P4.1 work item; any importer NOT listed here fails --strict. (CORRECTED in round 96: this sentence said FOUR while the list held one entry. The count was measured against the data - `len(legacy_path_imports) == 1` - and the prose was the stale part, so it was fixed rather than the entry being padded out.) TWO ENTRIES WERE REMOVED IN ROUND 74, not re-registered: `threat_report_agent.static_analysis` was the last importer of `dataflow` and `decode_primitives` by their old paths, and when it moved into `static/` its imports were migrated to `facts.dataflow` / `facts.decode_primitives` in the same step - so the ledger shrank from 6 to 4 because the code changed, and the gate reported the two entries as stale before they were deleted.",
   "_known_duplicate_note": "EMPTY as of P2-V.1. The ONE recorded duplication was `_function_call_names`, byte-identical in `investigation_protocol.py` and `report/reporting.py` (name-inclusive body hash b2bbbaac53b5835a, body-only hash 0c5ca4fb1ca89f71). It was resolved by keeping the canonical implementation in `investigation_protocol.py` - chosen because `investigation_protocol -> reporting` is a FORBIDDEN edge while `reporting -> investigation_protocol` already existed, so this direction added no edge - renaming it to the PUBLIC `function_call_names` (it is imported across modules now, so a private cross-module reach would be the wrong shape), and deleting the copy. Nothing was reimplemented: the surviving body is byte-identical to both HEAD copies. Note for future readers: `body_sha256` in these records is NAME-INCLUSIVE, so renaming a recorded function changes its hash even when its body does not; compare bodies with the name normalised out.",
   "recorded_allowed_edges": [

@@ -38,7 +38,7 @@ from threat_report_agent.contracts import (
 )
 from threat_report_agent.content_store import ContentStore
 from threat_report_agent.database import Database
-from threat_report_agent.dataflow import (
+from threat_report_agent.facts.dataflow import (
     addresses_alias,
     catalog_fields_from_decode_verification,
     catalog_output_consumer_relation,
