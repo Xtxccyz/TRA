@@ -269,7 +269,24 @@ def private_reach() -> dict[str, int]:
     found: dict[str, int] = defaultdict(int)
     for path in production_files():
         module = module_name(path)
+        # WIDENED at P3.5-0 (round 148) after an adversarial review MEASURED the blind spot: this metric counted only
+        # `getsource(._x)` and `getattr(obj, "_x")`, so it reported a total of 1 while an AST count of
+        # `from <other module> import _name` edges inside the package found 41. It moved by ZERO when two real
+        # violations were fixed, which makes a green reading look like evidence. A static private import is the plainest
+        # form of the defect this rule is about, so it is now counted as its own shape.
+        package = module if path.name == "__init__.py" else module.rsplit(".", 1)[0]
         for node in ast.walk(parse(path)):
+            if isinstance(node, ast.ImportFrom):
+                if node.level:
+                    keep = len(package.split(".")) - (node.level - 1)
+                    target = ".".join([*package.split(".")[:keep], node.module or ""]).rstrip(".")
+                else:
+                    target = node.module or ""
+                if target.startswith(PACKAGE):
+                    for alias in node.names:
+                        if alias.name.startswith("_") and not alias.name.startswith("__"):
+                            found[f"{module}::import({target}.{alias.name})"] += 1
+                continue
             if not isinstance(node, ast.Call):
                 continue
             func = node.func

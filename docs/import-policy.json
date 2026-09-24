@@ -367,6 +367,240 @@
       "expr": "getattr(self, '_wait_cursors')",
       "count": 2,
       "note": "MEASURED: AnalysisService reads its OWN private attribute by string name, defensively (the attribute may not exist, hence the getattr default). It is recorded rather than fixed because the fix is to declare the attribute on the class, which is a behaviour-visible edit and belongs to P3's split of AnalysisService. Unlike the plan's named example it does NOT reach across classes."
+    },
+    {
+      "module": "threat_report_agent.deep_analysis_quality",
+      "expr": "import(threat_report_agent.investigation.evidence_autopsy._AUTOPSY_NEXT_ACTIONS)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.deep_analysis_quality",
+      "expr": "import(threat_report_agent.investigation.evidence_autopsy._first_selector_value)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.deep_analysis_quality",
+      "expr": "import(threat_report_agent.investigation.evidence_autopsy._has_nonempty)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.emulation.controlled_emulation",
+      "expr": "import(threat_report_agent.emulation.emulation_plan._as_int_address)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.emulation.policy",
+      "expr": "import(threat_report_agent.emulation.emulation_plan._as_int_address)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.derivation",
+      "expr": "import(threat_report_agent.investigation.seed_support._HOW_SEED_CATEGORIES)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.derivation",
+      "expr": "import(threat_report_agent.investigation.seed_support._evidence_anchor_keys)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.derivation",
+      "expr": "import(threat_report_agent.investigation.seed_support._evidence_api_symbols)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.derivation",
+      "expr": "import(threat_report_agent.investigation.seed_support._provenance_free_digest)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.derivation",
+      "expr": "import(threat_report_agent.investigation.seed_support._seed_context_rows)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.derivation",
+      "expr": "import(threat_report_agent.investigation.seed_support._seed_playbook)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.investigation",
+      "expr": "import(threat_report_agent.facts.thread_start._THREAD_START_ARG_INDEX)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.investigation",
+      "expr": "import(threat_report_agent.facts.thread_start._thread_api_from_value)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.persist_how",
+      "expr": "import(threat_report_agent.report.reporting._address_lookup_keys)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.investigation.persist_how",
+      "expr": "import(threat_report_agent.report.reporting._thread_body_from_evidence)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.report.analyst_report",
+      "expr": "import(threat_report_agent.report.reporting._STRING_FACT_PATTERNS)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.report.analyst_report",
+      "expr": "import(threat_report_agent.report.reporting._is_file_hash_source)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.report.report_verification",
+      "expr": "import(threat_report_agent.report.reporting._is_file_hash_source)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.emulation.emulation_plan._as_int_address)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.derivation._bind_recovered_xor_verification)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.derivation._decode_output_buffer)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.derivation._investigation_scheduled_keys)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._ARTIFACT_WIDE_SCHEDULER_DIMENSIONS)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._HOW_SEED_CATEGORIES)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._HOW_SLOT_RANK)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._PER_SLOT_TRACE_CAP)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._PLACEHOLDER_EMU_BUDGET_STATUSES)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._PROVENANCE_STRIP_KEYS)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._SEED_CATEGORY_PLAYBOOKS)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._evidence_anchor_keys)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._evidence_api_symbols)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._provenance_free_digest)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._seed_context_rows)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._seed_playbook)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.investigation.seed_support._strip_provenance)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.service",
+      "expr": "import(threat_report_agent.report.reporting._address_lookup_keys)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.simulation_adapters",
+      "expr": "import(threat_report_agent.emulation.policy._NON_WORKER_STOP_REASONS)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.simulation_adapters",
+      "expr": "import(threat_report_agent.emulation.policy._POLICY_OR_PLACEHOLDER_STATUSES)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
+    },
+    {
+      "module": "threat_report_agent.tools.tool_execution",
+      "expr": "import(threat_report_agent.emulation.emulation_plan._as_int_address)",
+      "count": 1,
+      "note": "PRE-EXISTING private import reached across a module boundary, recorded when the P1.4 metric was widened in P3.5-0 round 148 so that the metric could no longer report a total of 1 while 41 such imports existed. Recorded rather than fixed: a structural step must not rewrite behaviour, and the gate compares this record EXACTLY, so a NEW reach fails and deleting this one fails until the record is updated deliberately."
     }
   ],
   "legacy_path_imports": [],
@@ -423,5 +657,6 @@
     "tools",
     "validation"
   ],
-  "_known_modules_note": "Every module must be REGISTERED here (or by another policy entry) or `--strict` fails, because the deny-list can only police names it knows: a module created after this policy was written would otherwise be invisible and could import a forbidden layer GREEN (measured in round 134 with `emulation/coordinator.py -> report.reporting`). Generated in round 135 from the gate's own output; a new module must be added in the same commit that creates it."
+  "_known_modules_note": "Every module must be REGISTERED here (or by another policy entry) or `--strict` fails, because the deny-list can only police names it knows: a module created after this policy was written would otherwise be invisible and could import a forbidden layer GREEN (measured in round 134 with `emulation/coordinator.py -> report.reporting`). Generated in round 135 from the gate's own output; a new module must be added in the same commit that creates it.",
+  "_known_private_reach_note": " WIDENED at P3.5-0 (round 148): the metric used to count only dynamic reaches (`getsource(._x)`, `getattr(obj, \"_x\")`) and therefore reported a total of 1 while an AST count of `from <other module> import _name` edges inside the package found 41. Static private imports are now counted as their own shape and the pre-existing set is recorded here. The record must match the measurement EXACTLY (the gate's own anti-evasion rule), so a new private import fails `--strict` and removing a recorded one fails until this list is updated deliberately."
 }
