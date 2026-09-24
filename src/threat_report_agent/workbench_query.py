@@ -16,8 +16,12 @@ workbench-shaped member and split them by BEHAVIOUR rather than by name:
   `workbench_unbind_analysis` and `workbench_wait_for_analysis_update` - operations that change state or DRIVE the
   analysis. `workbench_wait_for_analysis_update` is the sharp case: its name looks like a query and it advances analysis
   state, so moving it would put a behaviour change inside a structural step.
-* **not yet moved**: `workbench_capabilities`, which needs `ActionCatalog` (an `investigation/` contract that must first
-  be sunk into `contracts.py`, the same preparation step P3.5 needs) and `simulation_policy_from_settings`.
+* **moved here (P3.6-2)**: `workbench_capabilities` (105 lines). It was left behind by P3.6-1 because it reads
+  `ActionCatalog`, and P3.6-2's decision (docs/p36-capability-slice-design-20260922.md section 6.3) is to PASS THE
+  CATALOG IN from the delegation rather than import it: `workbench_query` still imports nothing from
+  `investigation.*`, and the import gate's stated blind spot (an unlisted edge cannot be machine-checked at all -
+  `docs/import-policy.json` `_recorded_allowed_edges_note`) is therefore not triggered. The host owns the
+  `ActionCatalog` import and hands the instance over, exactly as it already hands over `_analysis_planner_payload`.
 
 READ-ONLY IS A PROPERTY TO KEEP, NOT A CLAIM TO MAKE. Every moved body was measured to contain ZERO
 `session.add`/`delete`/`flush`/`commit`/`merge` calls (the `scalars`/`scalar` calls are SELECT reads), and the tracked
@@ -36,11 +40,13 @@ constant reached through `host.` is invisible to a `self.`/`cls.` scan. Both con
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from sqlalchemy import String, case, cast, or_, select
 from sqlalchemy.orm import Session
 
+from .emulation.policy import simulation_policy_from_settings
 from .models import (
     AnalysisFailureRecord,
     AnalysisTask,
@@ -74,6 +80,12 @@ from .report.reporting import build_unique_execution_threads
 #:   `_model_calls_env_enabled`        - read by `__init__` and `reload_model_configuration`
 #:   `_model_status_payload`           - read by `_analysis_planner_payload`
 #:   `_report_inputs`                  - read by `_freeze_snapshot` and `analysis_trace`
+#:   `THREAT_CONTEXT_PROTOCOL`         - read by `_context_payload_v3` (outside the slice) and by the P3.6-2 body
+#:   `THREAT_TOOL_CONTRACT_VERSION`    - read by `_context_payload_v3` (outside the slice) and by the P3.6-2 body
+#:   `_analysis_planner_payload`       - read by `_context_payload_v3` and `workbench_analysis_planner_model_view`
+#:                                       (both outside the slice) and by the P3.6-2 body. Keeping it on the host is what
+#:                                       keeps `_model_status_payload`/`_planner_user_action`/`investigation.coordinator`
+#:                                       OUT of this module: the closure behind it stays behind the pin.
 #:   `_CATALOG_HOW_SEED_SCAN_LIMIT`    - read by `investigation/derivation.py` THROUGH ITS OWN HOST PIN (the defect that
 #:                                       broke 37 tests when it travelled: a host-pin read is invisible to a `self.`/`cls.`
 #:                                       scan of `service.py`)
@@ -86,20 +98,27 @@ from .report.reporting import build_unique_execution_threads
 #:                                       `service.py`), and re-running the move to change one pin member is a
 #:                                       separate, gate-heavy step - recorded as a deviation for P3.6-2, not hidden.
 #:
-#: THREE NAMES THAT LOOKED LIKE PIN MEMBERS ARE NOT, and the contract test's bidirectional assertion is what caught it:
-#: `THREAT_CONTEXT_PROTOCOL`, `THREAT_TOOL_CONTRACT_VERSION` and `_analysis_planner_payload` are referenced only by
-#: `workbench_capabilities` / `_context_payload_v3`, which are NOT in this subset - so pinning them here would have been
-#: dead interface. They stay on the host, and the step that moves `workbench_capabilities` will add them.
+#: THREE NAMES WERE ONCE DELIBERATELY NOT PINNED HERE, and P3.6-2 is the step that moved the reader that made them
+#: real: `THREAT_CONTEXT_PROTOCOL`, `THREAT_TOOL_CONTRACT_VERSION` and `_analysis_planner_payload` are read by
+#: `workbench_capabilities` and by `_context_payload_v3`. While `workbench_capabilities` was still on the host, pinning
+#: them here would have been dead interface (the bidirectional assertion in the contract test caught exactly that);
+#: now the slice's bodies read all three, so all three are pin members. MEASURED BEFORE PINNING (design section 5.4,
+#: re-measured on this tree by `.scratch/p36-2-hostpins-now.py`): neither class constant appears in ANY of the five
+#: `*_HOST_MEMBERS` tuples in the repository, so - unlike `_CATALOG_HOW_SEED_SCAN_LIMIT`, which `derivation.py` reads
+#: through its own pin - they can be pinned WITHOUT being moved.
 WORKBENCH_QUERY_HOST_MEMBERS: tuple[str, ...] = (
     "_CATALOG_HOW_SEED_SCAN_LIMIT",
     "_UNIQUE_THREAD_VIEW_KINDS",
     "_action_payload",
+    "_analysis_planner_payload",
     "_audit_timestamp",
     "_elapsed_ms",
     "_failure_payload",
     "_model_calls_env_enabled",
     "_model_status_payload",
     "_report_inputs",
+    "THREAT_CONTEXT_PROTOCOL",
+    "THREAT_TOOL_CONTRACT_VERSION",
     "database",
     "settings",
 )
@@ -110,8 +129,11 @@ class WorkbenchQueryReaderHost(Protocol):
 
     _CATALOG_HOW_SEED_SCAN_LIMIT: int
     _UNIQUE_THREAD_VIEW_KINDS: tuple
+    THREAT_CONTEXT_PROTOCOL: str  # class constant on AnalysisService
+    THREAT_TOOL_CONTRACT_VERSION: str  # class constant on AnalysisService
     @staticmethod
     def _action_payload(row: InvestigationActionRecord) -> dict[str, object]: ...
+    def _analysis_planner_payload(self, failure: AnalysisFailureRecord | None = None, model_calls: list[ModelCall] | tuple[ModelCall, ...] | None = None) -> dict[str, object]: ...
     @staticmethod
     def _audit_timestamp(value: object) -> str: ...
     @staticmethod
@@ -123,6 +145,22 @@ class WorkbenchQueryReaderHost(Protocol):
     def _report_inputs(self, session: Session, task_id: str) -> dict[str, list[Any]]: ...
     database: object  # instance attribute set in __init__
     settings: object  # instance attribute set in __init__
+
+
+class ActionCatalogProjection(Protocol):
+    """The minimal `ActionCatalog` surface `workbench_capabilities` uses, declared WITHOUT importing the catalog.
+
+    WHY THIS IS A PROTOCOL AND NOT AN IMPORT (P3.6-2 design section 6.3, option (c)): importing `ActionCatalog` from
+    `threat_report_agent.investigation` would add a `workbench_query -> investigation` module edge that
+    `check-import-graph.py --strict` CANNOT police (`workbench_query` is not a source in any `forbidden_edges` pair,
+    and the gate's registration check is per-NODE, not per-edge - `docs/import-policy.json`
+    `_recorded_allowed_edges_note` states the blind spot). The host therefore constructs the catalog and passes it in,
+    and this Protocol describes the shape it must have: `ActionCatalog.default().names()` and
+    `.require(name).cost_units` are the only two things this slice touches.
+    """
+
+    def names(self) -> tuple[str, ...]: ...
+    def require(self, action_type: object) -> object: ...
 
 
 # ---------------------------------------------------------------------------
@@ -1150,3 +1188,132 @@ def _unique_execution_threads_for_view(
             }
         )
     return compact
+
+
+# ---------------------------------------------------------------------------
+# Moved implementation (P3.6-2 slice): `workbench_capabilities`, verbatim from its old home in service.py except for
+# the receiver rename (`self` -> `host`) and the catalog, which the DELEGATION supplies rather than this module
+# importing it. See `ActionCatalogProjection` above for why that is not an import.
+# ---------------------------------------------------------------------------
+
+
+def workbench_capabilities(
+    host: WorkbenchQueryReaderHost, catalog: ActionCatalogProjection
+) -> dict[str, object]:
+    # NO DOCSTRING ON PURPOSE - MEASURED, not an omission. `test_delegations_keep_the_implementations_docstring`
+    # compares this body's `__doc__` with the service delegation's for EXACT string equality, and the delegation
+    # documents the P3.6-2 decision as a COMMENT, so the synchronized value is `None` on both sides. Copying the
+    # text into a docstring here cannot work: `__doc__` is the RAW string, this body is indented 4 spaces and the
+    # delegation 8, and neither the test nor any gate calls `inspect.cleandoc`. Binding
+    # `workbench_capabilities.__doc__` from `service.AnalysisService` at module level was also rejected: it needs
+    # `from threat_report_agent.service import ...` inside this module, the one import
+    # `test_the_module_never_imports_the_service_layer` exists to forbid.
+    #
+    # WHY THIS BODY IS NOT SIMPLY `host`-ONLY: the catalog arrives as a PARAMETER (design section 6.3 option (c)),
+    # which is what keeps `workbench_query` free of any `investigation` import. The pin, the Protocol and the
+    # parameter list are all asserted in `tests/test_workbench_query_contract.py`; the tamper that proves the import
+    # assertion bites is `.scratch/p36-2-canfail.py` T4.
+    actions = []
+    for name in catalog.names():
+        actions.append(
+            {
+                "name": name,
+                "description": f"Bounded read-only static investigation action: {name}",
+                "input_schema": {"type": "object", "additionalProperties": True},
+                "output_schema": {"type": "object", "additionalProperties": True},
+                "security_class": "READ_ONLY_STATIC",
+                "estimated_cost": catalog.require(name).cost_units,
+            }
+        )
+    model_callable_tools = [
+        "threat_get_capabilities",
+        "threat_get_session_analysis_context",
+        "threat_list_session_artifacts",
+        "threat_list_session_workspace_artifacts",
+        "threat_import_workspace_artifact",
+        "threat_start_static_analysis",
+        "threat_get_analysis_status",
+        "threat_wait_for_analysis_update",
+        "threat_propose_static_action",
+        "threat_get_action_result",
+        "threat_query_current_analysis_evidence",
+        "threat_get_thread_summary",
+        "threat_get_mechanism",
+        "threat_get_report_summary",
+        "threat_bind_existing_analysis",
+        "threat_unbind_analysis",
+    ]
+    policy = simulation_policy_from_settings(host.settings)
+    return {
+        "api_version": 1,
+        # ``actions`` is retained for API v1 clients.  New model callers
+        # must use the single policy-gated proposal tool below.
+        "actions": actions,
+        "backend_static_action_catalog": actions,
+        "model_callable_tools": [
+            {"name": name, "security_class": "SESSION_SCOPED_STATIC"}
+            for name in model_callable_tools
+        ],
+        "action_submission_tool": "threat_propose_static_action",
+        "unavailable_capabilities": [
+            "sample_execution",
+            "host_sample_execution",
+            "network_access",
+            "arbitrary_shell",
+        ],
+        "workspace": {
+            "supported": bool(
+                str(getattr(host.settings, "workbench_workspace_root", "") or "").strip()
+            ),
+            "root_token": "configured-read-only-root"
+            if str(getattr(host.settings, "workbench_workspace_root", "") or "").strip()
+            else None,
+            "path_mode": "workspace_relative",
+        },
+        "profiles": ["threat-static"],
+        "tool_contract_version": host.THREAT_TOOL_CONTRACT_VERSION,
+        "session_context_protocol": host.THREAT_CONTEXT_PROTOCOL,
+        "capability_profile": "threat-static",
+        "static_only": not policy.enabled,
+        "sample_execution": False,
+        "network_access": False,
+        "isolated_emulation": {
+            "available": policy.enabled,
+            "profile": policy.profile,
+            "host_sample_execution": False,
+            "speakeasy_real_pe": "emu-worker-only",
+            "qiling": {
+                "status": (
+                    "UNSUPPORTED"
+                    if not (
+                        str(policy.qiling_rootfs or "").strip()
+                        and Path(policy.qiling_rootfs).is_dir()
+                    )
+                    else "CONFIGURED"
+                ),
+                "stop_reason": (
+                    None
+                    if str(policy.qiling_rootfs or "").strip()
+                    and Path(policy.qiling_rootfs).is_dir()
+                    else "ROOTFS_REQUIRED"
+                ),
+                "rootfs_configured": bool(str(policy.qiling_rootfs or "").strip()),
+                "applicable_path": "linux_elf_usermode",
+            },
+            "description": (
+                "Granted-window emulation runs automatically in the isolated "
+                "emu-worker after static recovery stalls. Speakeasy on a real PE "
+                "runs only in that worker. Qiling's applicable path is a pinned "
+                "Linux user-mode rootfs plus a Linux ELF; Windows PE is recorded "
+                "as NOT_LINUX_ELF rather than ROOTFS_REQUIRED. Granted-window "
+                "emulation is static analysis on the isolated worker, not host "
+                "sample execution and not sandbox/dynamic analysis."
+            ),
+        },
+        "analysis_planner_model": {
+            **host._analysis_planner_payload(),
+            "owned_by": "dsh-conversation",
+            "configure_in": "Settings → 模型",
+        },
+    }
+

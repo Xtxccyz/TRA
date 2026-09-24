@@ -17261,111 +17261,32 @@ class AnalysisService:
                 "has_more": len(rows) == limit,
             }
 
-    def workbench_capabilities(self) -> dict[str, object]:
-        actions = []
-        catalog = ActionCatalog.default()
-        for name in catalog.names():
-            actions.append(
-                {
-                    "name": name,
-                    "description": f"Bounded read-only static investigation action: {name}",
-                    "input_schema": {"type": "object", "additionalProperties": True},
-                    "output_schema": {"type": "object", "additionalProperties": True},
-                    "security_class": "READ_ONLY_STATIC",
-                    "estimated_cost": catalog.require(name).cost_units,
-                }
-            )
-        model_callable_tools = [
-            "threat_get_capabilities",
-            "threat_get_session_analysis_context",
-            "threat_list_session_artifacts",
-            "threat_list_session_workspace_artifacts",
-            "threat_import_workspace_artifact",
-            "threat_start_static_analysis",
-            "threat_get_analysis_status",
-            "threat_wait_for_analysis_update",
-            "threat_propose_static_action",
-            "threat_get_action_result",
-            "threat_query_current_analysis_evidence",
-            "threat_get_thread_summary",
-            "threat_get_mechanism",
-            "threat_get_report_summary",
-            "threat_bind_existing_analysis",
-            "threat_unbind_analysis",
-        ]
-        policy = simulation_policy_from_settings(self.settings)
-        return {
-            "api_version": 1,
-            # ``actions`` is retained for API v1 clients.  New model callers
-            # must use the single policy-gated proposal tool below.
-            "actions": actions,
-            "backend_static_action_catalog": actions,
-            "model_callable_tools": [
-                {"name": name, "security_class": "SESSION_SCOPED_STATIC"}
-                for name in model_callable_tools
-            ],
-            "action_submission_tool": "threat_propose_static_action",
-            "unavailable_capabilities": [
-                "sample_execution",
-                "host_sample_execution",
-                "network_access",
-                "arbitrary_shell",
-            ],
-            "workspace": {
-                "supported": bool(
-                    str(getattr(self.settings, "workbench_workspace_root", "") or "").strip()
-                ),
-                "root_token": "configured-read-only-root"
-                if str(getattr(self.settings, "workbench_workspace_root", "") or "").strip()
-                else None,
-                "path_mode": "workspace_relative",
-            },
-            "profiles": ["threat-static"],
-            "tool_contract_version": self.THREAT_TOOL_CONTRACT_VERSION,
-            "session_context_protocol": self.THREAT_CONTEXT_PROTOCOL,
-            "capability_profile": "threat-static",
-            "static_only": not policy.enabled,
-            "sample_execution": False,
-            "network_access": False,
-            "isolated_emulation": {
-                "available": policy.enabled,
-                "profile": policy.profile,
-                "host_sample_execution": False,
-                "speakeasy_real_pe": "emu-worker-only",
-                "qiling": {
-                    "status": (
-                        "UNSUPPORTED"
-                        if not (
-                            str(policy.qiling_rootfs or "").strip()
-                            and Path(policy.qiling_rootfs).is_dir()
-                        )
-                        else "CONFIGURED"
-                    ),
-                    "stop_reason": (
-                        None
-                        if str(policy.qiling_rootfs or "").strip()
-                        and Path(policy.qiling_rootfs).is_dir()
-                        else "ROOTFS_REQUIRED"
-                    ),
-                    "rootfs_configured": bool(str(policy.qiling_rootfs or "").strip()),
-                    "applicable_path": "linux_elf_usermode",
-                },
-                "description": (
-                    "Granted-window emulation runs automatically in the isolated "
-                    "emu-worker after static recovery stalls. Speakeasy on a real PE "
-                    "runs only in that worker. Qiling's applicable path is a pinned "
-                    "Linux user-mode rootfs plus a Linux ELF; Windows PE is recorded "
-                    "as NOT_LINUX_ELF rather than ROOTFS_REQUIRED. Granted-window "
-                    "emulation is static analysis on the isolated worker, not host "
-                    "sample execution and not sandbox/dynamic analysis."
-                ),
-            },
-            "analysis_planner_model": {
-                **self._analysis_planner_payload(),
-                "owned_by": "dsh-conversation",
-                "configure_in": "Settings → 模型",
-            },
-        }
+    def workbench_capabilities(
+        self, catalog: ActionCatalog | None = None
+    ) -> dict[str, object]:
+        # P3.6-2 DECISION (docs/p36-capability-slice-design-20260922.md section 6.3, option (c)): the catalog is
+        # CONSTRUCTED HERE and passed in, not imported by `workbench_query`. Importing `ActionCatalog` from
+        # `threat_report_agent.investigation` inside that module would add a `workbench_query -> investigation` edge
+        # that `check-import-graph.py --strict` cannot police: the gate's registration check is per-NODE and its
+        # deny-list names no pair with `workbench_query` as the source, so the edge would pass every gate green
+        # (`docs/import-policy.json` `_recorded_allowed_edges_note` states that blind spot). This module already owns
+        # the import (`from threat_report_agent.investigation import ActionCatalog`), so handing the instance over
+        # adds ZERO new edges and keeps `workbench_query` free of any `investigation` import.
+        #
+        # WHY THE PARAMETER EXISTS EVEN THOUGH THE SINGLE PRODUCTION CALLER PASSES NOTHING (`main.py:789` calls this
+        # with no arguments, and still does): `test_every_delegation_forwards_every_parameter` DERIVES the delegation's
+        # expected parameter list from the MOVED BODY's signature and calls this method with one sentinel per
+        # non-`host` parameter, so a delegation that dropped `catalog` fails that test with
+        # "takes 1 positional argument but 2 were given" - which is exactly what the first version of this delegation
+        # did. The default keeps every existing caller working unchanged, which is why `main.py` is untouched.
+        #
+        # NO DOCSTRING ON PURPOSE, and the reason is measured: `test_delegations_keep_the_implementations_docstring`
+        # compares this method's `__doc__` with the moved body's for EXACT string equality, and the moved body is
+        # indented 4 spaces while this one would be 8 (the test does NOT `cleandoc`). A module-level `__doc__ = ...`
+        # binding on the other side was rejected because it needs `workbench_query` to import `service`, the one edge
+        # that module must never have. The decision therefore lives in this comment and in
+        # `test_the_capability_delegation_supplies_the_catalog`, which asserts the SHAPE instead of the prose.
+        return _workbench_query.workbench_capabilities(self, catalog or ActionCatalog.default())
 
     def workbench_query_current_evidence(
         self,

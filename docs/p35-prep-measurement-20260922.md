@@ -155,7 +155,12 @@ P3.5-0 的**最小**形态是 **5 个搬动项 + 2 条决定 + 1 次改名**，�
 |---|---|---|
 | M-5 `SimulationWindowOutcome` | ✅ **已落地** | 同包 MOVE 到 `emulation/policy.py`；`derivation.SimulationWindowOutcome is policy.SimulationWindowOutcome`；全量套件节点集 = 基线 + 环境阻断，无新增。 |
 | M-2 `PackageEntry` | ✅ **已落地** | 定义搬到 `contracts.py:251-267`，`intake/intake.py` 用 `X as X` re-export；三条 import 路径同一对象。**这一步动了 2 个"新失败"节点，两个都是 `tests/test_ports.py` 里对 `contracts.py` 的"行号 pin"（`DynamicPlanAction` 141 → 142，因为模块新增了 `from dataclasses import dataclass`）** —— pin 的存在意义就是逼人做这次显式更新，所以按 §7.1 更新 pin 并在 pin 处写下实测原因，全量套件随即回到基线。 |
-| M-1 / M-3 / M-4 / D-1 / D-2 / D-3 | ⏳ **未落地** | 见下节"让 P3.5-0 大于一轮的名字"。 |
+| **M-1** | ✅ **已落地** | 10 名簇 + 闭包强制的 7 个定义（共 17 个）搬入 `contracts.py`，旧路径全部 `X as X`；13 个 public 名在三条路径上同一对象；新增 2 条合法 `-> contracts` 边、0 环。 |
+| **M-3** | ✅ **已落地** | `TaskLifecycle`/`InvalidStateTransition`/`TASK_TRANSITIONS`/`transition_task` 搬入 `contracts.py`，`AnalysisClass` 与另外五个 StrEnum 留原地；`test_ports.py` 的行号 pin 未受影响（集群追加在文件末尾）。 |
+| **M-4** | ✅ **已落地** | `fill_protocol` 簇 12 个定义 / 244 行搬入**新**模块 `facts/investigation_protocol.py`。实测：闭包是 241 行而非本节估计的 ~130 行，且留在原地的 `_slot_from_row` 会读被搬走的私有 helper，故整簇搬；6 个 public 名在旧路径 `X as X`。 |
+| **D-1** | ✅ **已落地** | 决议文档 + `recorded_allowed_edges` 登记。实测依据：`models` 被矩阵**每一行**漏掉，而 11 个模块已在导入它。**登记不等于强制**——见决议文档 §4。 |
+| **D-3** | ⚠️ **部分落地** | 改名公开 + 原地 alias 已做，两个跨模块私有引用已消除（41 → 39，新增 0）。但本行原本要求「先 MOVE 那两个依赖，再改名公开」；M-1 已把 `action_scope_from_plan` 与 `canonical_action_key` 搬进 `contracts.py`，**因此把该函数本身搬进 `contracts.py` 这一步仍然欠着**。 |
+| **D-2** | ⏳ **未落地** | `ToolExecutionPort` + 宿主注入未做；**并且 R2 决策（见下节：`ToolRunRequestView` 带 `workflow_id`，还是 `cancel` 直接收 workflow id）尚未做出、也未记录为欠账**——本节要求这条决定「必须在 P3.5-0 里做」。 |
 
 **方法论留痕（M-2 这一轮最重要的产出）：** 新失败**只报数量**时，2 个未知节点差点被当成"能力回归"并把一个结构上干净、行为不变的搬动回滚掉；把失败段落落盘、用 `compare-failure-nodes.py` 按**节点集合**求差之后，两个节点当场有了名字（`test_ports.py` 的两个行号 pin）。基线现在另外记 `environment_blocked`（Docker 引擎停机的 2 个 `test_detection_rule_indicator_correctness` 节点，报错是 `container ... is not running`），使"引擎没起"不再被打印成某一步的回归。
 
