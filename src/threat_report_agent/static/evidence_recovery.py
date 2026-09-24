@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-import hashlib
-import json
 import re
 from typing import Iterable, Mapping
 
@@ -19,6 +17,16 @@ from sqlalchemy.orm import Session
 
 from threat_report_agent.static.evidence_index import canonical_selector, target_search_keys
 from threat_report_agent.models import Evidence, EvidenceSearchKey
+
+# MOVED to `contracts.py` (P3.5-0 / M-1) and re-exported with the explicit `NAME as NAME` idiom, so every
+# existing importer of `threat_report_agent.static.evidence_recovery` keeps the SAME object.  The direction `static -> contracts` is
+# allowed by the plan's 3.2 layer matrix (contracts is importable from every layer);
+# `contracts -> static` must never appear, and does not.
+from threat_report_agent.contracts import (
+    FailureInterpretation as FailureInterpretation,
+    canonical_action_key as canonical_action_key,
+    canonical_token as canonical_token,
+)
 
 
 class EvidenceStage(StrEnum):
@@ -38,12 +46,6 @@ class ContextRole(StrEnum):
     CORROBORATING = "CORROBORATING"
     NAVIGATION = "NAVIGATION"
     EXPANSION = "EXPANSION"
-
-
-class FailureInterpretation(StrEnum):
-    UNKNOWN = "UNKNOWN"
-    NO_NEW_EVIDENCE = "NO_NEW_EVIDENCE"
-    STATIC_BOUNDARY = "STATIC_BOUNDARY"
 
 
 @dataclass(frozen=True)
@@ -144,80 +146,6 @@ _DEEP_CONTEXT_KINDS = frozenset({
     "api_argument_trace", "value_flow", "resolved_api", "decode_result",
     "mechanism_decode_window", "abstract_execution_trace",
 })
-
-
-def canonical_token(value: object) -> str:
-    return " ".join(str(value).casefold().split())
-
-
-_ACTION_SELECTOR_KEYS = frozenset(
-    {"target", "api", "function", "function_entry", "entry", "rva", "address"}
-)
-_FUNCTION_SELECTOR_KEYS = frozenset({"function", "function_entry", "entry", "rva", "address"})
-_FUNCTION_LOCATOR = re.compile(r"^(?:0x[0-9a-f]+|[0-9a-f]{5,}|fun_[0-9a-f]+|sub_[0-9a-f]+)$", re.IGNORECASE)
-
-
-def _canonical_action_selector(value: Mapping[str, object]) -> dict[str, str]:
-    """Normalize selector aliases without merging API and function scopes.
-
-    Historical actions used ``function_entry`` while the deep-mining planner
-    intentionally uses ``target`` for the same RVA.  The normal form makes
-    those queries dedupe, while an API name stays in a distinct scope so an
-    API-oriented query cannot suppress a function-oriented query by accident.
-    """
-    selector = {
-        str(key): item
-        for key, item in value.items()
-        if str(key) in _ACTION_SELECTOR_KEYS
-        and isinstance(item, (str, int))
-        and str(item).strip()
-    }
-    if not selector:
-        return {}
-    function_key = next((key for key in _FUNCTION_SELECTOR_KEYS if key in selector), None)
-    if function_key is not None:
-        return {
-            "scope": "function",
-            "target": canonical_token(selector[function_key]),
-        }
-    if "api" in selector:
-        return {"scope": "api", "target": canonical_token(selector["api"])}
-    target = canonical_token(selector["target"])
-    scope = (
-        "function"
-        if _FUNCTION_LOCATOR.fullmatch(target) or target in {"entry", "entrypoint", "main"}
-        else "symbol"
-    )
-    return {"scope": scope, "target": target}
-
-
-def canonical_action_key(action_type: str, parameters: Mapping[str, object]) -> str:
-    """Return a target- and investigation-scope-sensitive action key.
-
-    ``action_scope`` is deliberately optional for backwards compatibility.
-    Legacy callers that only know the target keep their historical key, while
-    mechanism-scoped investigations can run the same action type against the
-    same function for independent questions (for example decode and process
-    execution) without suppressing one another.
-    """
-    payload = dict(parameters)
-    nested_selector = payload.get("target_selector")
-    if isinstance(nested_selector, Mapping):
-        normalized_selector = _canonical_action_selector(nested_selector)
-        if normalized_selector:
-            # Retain a single shape so old persisted ``function_entry``
-            # selectors dedupe against newer ``target`` RVAs.
-            payload = {"target_selector": normalized_selector}
-    else:
-        normalized_selector = _canonical_action_selector(payload)
-        if normalized_selector:
-            payload = {"target_selector": normalized_selector}
-    scope = parameters.get("action_scope")
-    if isinstance(scope, (str, int)) and str(scope).strip():
-        payload["action_scope"] = canonical_token(scope)
-    canonical_parameters = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(canonical_parameters.encode("utf-8")).hexdigest()[:20]
-    return f"{str(action_type).upper()}:{digest}"
 
 
 @dataclass(frozen=True)

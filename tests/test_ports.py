@@ -495,9 +495,14 @@ def test_the_model_action_contract_is_defined_once_and_only_reexported() -> None
     #: The LINE NUMBER is pinned on purpose: the pin's job is to force a deliberate update when `contracts.py` changes
     #: shape, so a silent move of the canonical class cannot slip through. MEASURED shift 141 -> 142: the P3.5-0/M-2
     #: move sank `PackageEntry` into `contracts.py` (appended at the end of the file) and added the module's
-    #: `from dataclasses import dataclass` import above this class. One line, hence 142 - and the assertion below still
-    #: proves the substance (exactly ONE definition, in the contract layer).
-    assert definitions == ["contracts.py:142"], (
+    #: `from dataclasses import dataclass` import above this class. One line, hence 142.
+    #: MEASURED shift 142 -> 146: the P3.5-0/M-1 move put the 17-definition contract cluster at the END of the file
+    #: (so appending moved nothing) but had to add FOUR import lines above this class - `import hashlib`,
+    #: `import json`, `import re` and `from enum import Enum, StrEnum`, which the moved `canonical_action_key`,
+    #: `_FUNCTION_LOCATOR`, `ActionType` and `InvestigationThreadState` need. Its two other import changes are
+    #: in-line (`dataclasses` gained `field`, `typing` gained `Iterable, Mapping`) and add no line. 142 + 4 = 146.
+    #: In both cases the assertion below still proves the substance (exactly ONE definition, in the contract layer).
+    assert definitions == ["contracts.py:146"], (
         f"expected exactly one definition, in contracts.py; found {definitions}. The canonical class is the contract "
         "layer's and every other path must only re-export it"
     )
@@ -531,4 +536,4 @@ def test_the_duplicate_definition_check_can_fail() -> None:
         _definitions_of("DynamicPlanAction", PACKAGE, source="class SomethingElse:\n    pass\n")
         == []
     )
-    assert _definitions_of("DynamicPlanAction", PACKAGE) == ["contracts.py:142"]
+    assert _definitions_of("DynamicPlanAction", PACKAGE) == ["contracts.py:146"]  # same pin as above: M-1 142 -> 146
