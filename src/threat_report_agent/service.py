@@ -4225,6 +4225,18 @@ class AnalysisService:
         except SQLAlchemyError:
             return
 
+    def run_investigation_loop(self, task_id: str, *, model_actions_only: bool = False, ledger_phase: str = 'coverage') -> list[str]:
+        """Public behaviour entry point for `_run_investigation_loop` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name, so a test asserted against an
+        implementation detail rather than against a behaviour the service offers. Callers outside the class use this
+        name; the private method stays the implementation, and its ONE deliberate remaining caller is production code
+        that a test replaces by attribute (`tests/test_analysis_task_orchestration.py`), which is why the private name
+        is not removed here.
+        """
+        return self._run_investigation_loop(task_id, model_actions_only=model_actions_only, ledger_phase=ledger_phase)
+
+
     def _run_investigation_loop(
         self,
         task_id: str,
@@ -9965,6 +9977,18 @@ class AnalysisService:
     def _has_real_simulation_result(cls, rows: Iterable[Any], simulator: str) -> bool:
         return has_real_simulation_result(rows, simulator)
 
+    def run_post_static_emulation(self, task_id: str) -> list[str]:
+        """Public behaviour entry point for `_run_post_static_emulation` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name, so a test asserted against an
+        implementation detail rather than against a behaviour the service offers. Callers outside the class use this
+        name; the private method stays the implementation, and its ONE deliberate remaining caller is production code
+        that a test replaces by attribute (`tests/test_analysis_task_orchestration.py`), which is why the private name
+        is not removed here.
+        """
+        return self._run_post_static_emulation(task_id)
+
+
     def _run_post_static_emulation(self, task_id: str) -> list[str]:
         """After static recovery, emulate granted start-routine windows in isolation."""
         policy = simulation_policy_from_settings(self.settings)
@@ -10053,6 +10077,18 @@ class AnalysisService:
                 )
             )
         return limitations
+
+    def run_controlled_emulator(self, task_id: str, artifact_id: str, entry: PackageEntry, *, planned_tool_names: tuple[str, ...] = (), scheduler: str | None = None, allow_speakeasy: bool | None = None) -> list[str]:
+        """Public behaviour entry point for `_run_controlled_emulator` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name, so a test asserted against an
+        implementation detail rather than against a behaviour the service offers. Callers outside the class use this
+        name; the private method stays the implementation, and its ONE deliberate remaining caller is production code
+        that a test replaces by attribute (`tests/test_analysis_task_orchestration.py`), which is why the private name
+        is not removed here.
+        """
+        return self._run_controlled_emulator(task_id, artifact_id, entry, planned_tool_names=planned_tool_names, scheduler=scheduler, allow_speakeasy=allow_speakeasy)
+
 
     def _run_controlled_emulator(
         self,
@@ -10463,6 +10499,18 @@ class AnalysisService:
     @classmethod
     def _emit_ranked_symbols_then_stage(cls, *args, **kwargs):
         return PersistHow.emit_ranked_symbols_then_stage(*args, **kwargs)
+
+    def record_ghidra_evidence(self, session: Session, task: AnalysisTask, artifact: Artifact, tool_run: ToolRun, output: dict[str, object]) -> None:
+        """Public behaviour entry point for `_record_ghidra_evidence` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name, so a test asserted against an
+        implementation detail rather than against a behaviour the service offers. Callers outside the class use this
+        name; the private method stays the implementation, and its ONE deliberate remaining caller is production code
+        that a test replaces by attribute (`tests/test_analysis_task_orchestration.py`), which is why the private name
+        is not removed here.
+        """
+        return self._record_ghidra_evidence(session, task, artifact, tool_run, output)
+
 
     def _record_ghidra_evidence(
         self,
@@ -12576,6 +12624,18 @@ class AnalysisService:
                 "claim_id": relation.claim_id,
             }
 
+    def record_function_similarity(self, session: Session, task: AnalysisTask, artifact: Artifact, source_tool_run: ToolRun, *, processed_function_entries: set[str] | None = None) -> None:
+        """Public behaviour entry point for `_record_function_similarity` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name, so a test asserted against an
+        implementation detail rather than against a behaviour the service offers. Callers outside the class use this
+        name; the private method stays the implementation, and its ONE deliberate remaining caller is production code
+        that a test replaces by attribute (`tests/test_analysis_task_orchestration.py`), which is why the private name
+        is not removed here.
+        """
+        return self._record_function_similarity(session, task, artifact, source_tool_run, processed_function_entries=processed_function_entries)
+
+
     def _record_function_similarity(
         self,
         session: Session,
@@ -13066,6 +13126,18 @@ class AnalysisService:
             and mechanism.count("->") >= 2
             and any(token in mechanism.casefold() for token in vocabulary)
         )
+
+    def run_gap_driven_model_rounds(self, task_id: str) -> list[str]:
+        """Public behaviour entry point for `_run_gap_driven_model_rounds` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name, so a test asserted against an
+        implementation detail rather than against a behaviour the service offers. Callers outside the class use this
+        name; the private method stays the implementation, and its ONE deliberate remaining caller is production code
+        that a test replaces by attribute (`tests/test_analysis_task_orchestration.py`), which is why the private name
+        is not removed here.
+        """
+        return self._run_gap_driven_model_rounds(task_id)
+
 
     def _run_gap_driven_model_rounds(self, task_id: str) -> list[str]:
         """Continue model planning from unresolved semantic frontier gaps.

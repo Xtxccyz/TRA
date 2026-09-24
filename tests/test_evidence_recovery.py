@@ -1727,7 +1727,7 @@ def test_no_result_investigation_action_is_not_persisted_as_success(test_setting
             }
         }
 
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
     view = service.task_view(task_id)
     action = next(
         item
@@ -1973,7 +1973,7 @@ def test_blind_function_similarity_never_queries_known_library(test_settings) ->
             anchor={"entry": "0x401000"},
         ))
         session.flush()
-        service._record_function_similarity(session, task, artifact, source_run)
+        service.record_function_similarity(session, task, artifact, source_run)
         session.flush()
         similarity_scopes = next(
             run.parameters["scopes"]

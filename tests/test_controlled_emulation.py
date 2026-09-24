@@ -1237,7 +1237,7 @@ def test_post_static_emulation_does_not_disable_policy_speakeasy(
         return ToolRunResult(status="FAILED", error="NO_GRANTED_WINDOW")
 
     monkeypatch.setattr(service_module.TemporalToolExecutor, "execute", fake_execute)
-    service._run_post_static_emulation(task_id)
+    service.run_post_static_emulation(task_id)
     assert dispatched, "the post-static path dispatched no emulator request"
     assert dispatched[0].parameters["allow_speakeasy"] is True, (
         "the post-static dispatch must not override the configured Speakeasy decision; the "
@@ -2055,7 +2055,7 @@ def test_post_static_emulation_selects_elf_and_qiling(test_settings, monkeypatch
         return []
 
     monkeypatch.setattr(service, "_run_controlled_emulator", fake_dispatch)
-    service._run_post_static_emulation(task_id)
+    service.run_post_static_emulation(task_id)
     assert [item[0] for item in dispatched] == [artifact_id], (
         "the ELF artifact was not selected for post-static emulation: "
         f"{[item[0] for item in dispatched]}"

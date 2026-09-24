@@ -371,7 +371,7 @@ def test_gap_driven_rounds_are_not_skipped_only_because_dsh_owns_chat(
     monkeypatch.setattr(service, "_run_model_planning", record_planning)
     monkeypatch.setattr(service, "_run_investigation_loop", lambda task_id, **kwargs: [])
 
-    service._run_gap_driven_model_rounds(task_id)
+    service.run_gap_driven_model_rounds(task_id)
 
     assert planned_phases == ["post_investigation_gap_1"], (
         "no gap-driven model round was planned while DSH owned the conversation: the retired "

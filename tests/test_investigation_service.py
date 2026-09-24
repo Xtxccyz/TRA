@@ -646,7 +646,7 @@ def test_seeded_api_recovers_late_function_context_beyond_prompt_working_set(tes
         }
         task_id = task.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     with database.session_factory() as session:
         actions = list(
@@ -823,7 +823,7 @@ def test_sql_execution_corpus_prioritizes_late_high_signal_rows_before_limit(
         )
         task_id = task.id
 
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
 
     assert captured_rows, "the model action should reach the static executor"
     assert any(
@@ -1249,7 +1249,7 @@ def test_verified_static_shell_link_is_attached_to_investigation_claim(test_sett
         )
         task_id = task.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
     view = service.task_view(task_id)
     verified = [
         item for item in view["strategy_snapshot"]["investigation"]["mechanisms"]
@@ -1382,7 +1382,7 @@ def test_late_specialist_link_is_verified_and_reportable_after_high_signal_cap(t
         )
         task_id = task.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
     view = service.task_view(task_id)
     mechanisms = view["strategy_snapshot"]["investigation"]["mechanisms"]
     shell = next(item for item in mechanisms if item.get("mechanism_type") == "SHELL_OUTPUT")
@@ -1561,7 +1561,7 @@ def test_verified_static_link_survives_narrow_runtime_thread_context(test_settin
         }
         task_id = task.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     snapshot = service.task_view(task_id)["strategy_snapshot"]["investigation"]
     mechanism = next(
@@ -1607,7 +1607,7 @@ def test_investigation_loop_uses_matching_playbook_for_ppid(test_settings) -> No
         task_id = task.id
         artifact_id = artifact.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     with database.session_factory() as session:
         threads = session.query(InvestigationThreadRecord).filter_by(task_id=task_id, artifact_id=artifact_id).all()
@@ -1677,7 +1677,7 @@ def test_investigation_loop_does_not_spawn_empty_corroboration_thread(test_setti
         task_id = task.id
         artifact_id = artifact.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     with database.session_factory() as session:
         threads = session.query(InvestigationThreadRecord).filter_by(task_id=task_id, artifact_id=artifact_id).all()
@@ -1713,7 +1713,7 @@ def test_investigation_runtime_projection_keeps_prior_turns(test_settings) -> No
         session.flush()
         task_id = task.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     snapshot = service.task_view(task_id)["strategy_snapshot"]["investigation"]
     assert prior_event in snapshot["runtime"]["events"]
@@ -2171,7 +2171,7 @@ def test_investigation_loop_executes_all_seed_clusters(test_settings) -> None:
         task_id = task.id
         artifact_id = artifact.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     with database.session_factory() as session:
         threads = list(
@@ -2304,7 +2304,7 @@ def test_investigation_loop_resumes_frontier_for_each_seed_cluster_with_small_ro
         task_id = task.id
         artifact_id = artifact.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     with database.session_factory() as session:
         threads = list(
@@ -2701,7 +2701,7 @@ def test_investigation_loop_does_not_drop_later_function_frontier_after_round_ca
         task_id = task.id
         artifact_id = artifact.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     with database.session_factory() as session:
         thread = session.scalar(
@@ -3182,7 +3182,7 @@ def test_investigation_loop_admits_seed_clusters_through_the_admission_policy(
         derivation_module, "admit_investigation_seed_clusters", _admitting_spy
     )
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     with database.session_factory() as session:
         questions = {
@@ -3598,7 +3598,7 @@ def test_model_investigation_action_is_replayed_by_static_executor(test_settings
     with database.session_factory.begin() as session:
         task = session.get(AnalysisTask, task_id)
         task.strategy_snapshot["dynamic_planning"]["action_history"] = [item.model_dump(mode="json") for item in actions]
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
     with database.session_factory() as session:
         rows = list(session.query(Evidence).filter(Evidence.task_id == task_id, Evidence.module == "investigation"))
         turns = list(session.query(AnalysisTurnRecord).filter(AnalysisTurnRecord.task_id == task_id))
@@ -3718,7 +3718,7 @@ def test_model_action_dependencies_are_enforced_at_execution_boundary(test_setti
         }
         task_id = task.id
 
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
 
     with database.session_factory() as session:
         rows = list(
@@ -3811,7 +3811,7 @@ def test_model_action_recovers_cited_evidence_outside_prompt_window(test_setting
         }
         task_id = task.id
 
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
 
     with database.session_factory() as session:
         rows = list(session.query(Evidence).filter(Evidence.task_id == task_id, Evidence.module == "investigation"))
@@ -4742,7 +4742,7 @@ def test_no_new_evidence_action_is_not_replayed_when_later_evidence_arrives(test
         task_id = task.id
         artifact_id = artifact.id
 
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
     with database.session_factory() as session:
         rows = list(session.query(InvestigationActionRecord).filter(
             InvestigationActionRecord.task_id == task_id,
@@ -4766,7 +4766,7 @@ def test_no_new_evidence_action_is_not_replayed_when_later_evidence_arrives(test
             anchor={"type": "pe_import"},
         ))
 
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
     with database.session_factory() as session:
         rows = list(session.query(InvestigationActionRecord).filter(
             InvestigationActionRecord.task_id == task_id,
@@ -4869,7 +4869,7 @@ def test_investigation_task_budget_defers_later_seed_threads(test_settings) -> N
         }
         task_id = task.id
 
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     with database.session_factory() as session:
         task = session.get(AnalysisTask, task_id)
@@ -4907,7 +4907,7 @@ def test_investigation_task_budget_defers_later_seed_threads(test_settings) -> N
     )
 
     before = len(actions)
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
     with database.session_factory() as session:
         after = len(
             list(

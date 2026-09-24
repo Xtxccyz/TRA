@@ -123,7 +123,7 @@ def _record(test_settings, *, sources: int = 3):
     with database.session_factory.begin() as session:
         task = session.get(AnalysisTask, task_id)
         artifact = session.get(Artifact, artifact_id)
-        service._record_function_similarity(
+        service.record_function_similarity(
             session,
             task,
             artifact,

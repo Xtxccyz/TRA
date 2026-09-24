@@ -137,7 +137,7 @@ def test_conversation_owned_planning_still_runs_backend_gap_rounds_when_task_mis
     database = Database(settings.database_url)
     service = AnalysisService(settings, database, LocalContentStore(settings.content_store_path))
     database.create_schema()
-    assert service._run_gap_driven_model_rounds("task-does-not-matter") == []
+    assert service.run_gap_driven_model_rounds("task-does-not-matter") == []
 
 
 def test_workbench_investigation_uses_conversation_model(test_settings) -> None:

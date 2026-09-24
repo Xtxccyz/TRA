@@ -223,7 +223,7 @@ def test_live_service_call_sites_use_the_setting(test_settings, monkeypatch) -> 
         )
         session.add(tool_run)
         session.flush()
-        service._record_ghidra_evidence(session, task, artifact, tool_run, output)
+        service.record_ghidra_evidence(session, task, artifact, tool_run, output)
 
     assert seen, (
         "the Ghidra recording path never constructed a StaticAbstractExecutor, so this guard no longer covers "

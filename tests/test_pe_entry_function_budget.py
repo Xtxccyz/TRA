@@ -1773,7 +1773,7 @@ def _record_ghidra_evidence_rows(
         )
         session.add(tool_run)
         session.flush()
-        service._record_ghidra_evidence(session, task, artifact, tool_run, output)
+        service.record_ghidra_evidence(session, task, artifact, tool_run, output)
         session.flush()
         rows = list(
             session.query(Evidence).filter(Evidence.task_id == task.id).all()

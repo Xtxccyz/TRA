@@ -130,7 +130,7 @@ def test_identical_static_observations_are_reused_across_action_scopes(test_sett
             )
         task_id = task.id
 
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
 
     with database.session_factory() as session:
         rows = list(

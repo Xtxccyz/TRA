@@ -145,7 +145,7 @@ def _captured_request(test_settings, monkeypatch, **overrides: object):
 
     monkeypatch.setattr(service_module, "TemporalToolExecutor", _ExecutorRecorder)
 
-    service._run_controlled_emulator(
+    service.run_controlled_emulator(
         task_id,
         artifact_id,
         PackageEntry(

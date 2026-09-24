@@ -88,7 +88,7 @@ def test_ghidra_similarity_filter_uses_processed_function_budget(test_settings) 
             session.flush()
             source_evidence_ids[entry] = evidence.id
         session.flush()
-        service._record_function_similarity(
+        service.record_function_similarity(
             session,
             task,
             artifact,

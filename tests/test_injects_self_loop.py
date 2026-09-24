@@ -107,7 +107,7 @@ def _record_ghidra_on_single_artifact(
         )
         session.add(tool_run)
         session.flush()
-        service._record_ghidra_evidence(session, task, artifact, tool_run, output)
+        service.record_ghidra_evidence(session, task, artifact, tool_run, output)
         task_id = task.id
     return service, task_id
 

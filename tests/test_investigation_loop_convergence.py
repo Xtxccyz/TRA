@@ -439,7 +439,7 @@ def test_recorded_stall_is_not_replayed_and_reaches_a_terminal_ledger_state(
     """A recorded STALLED frontier must stop consuming the loop."""
     database, service, task_id = _build_stalled_task(test_settings)
 
-    limitations = service._run_investigation_loop(task_id, ledger_phase="coverage")
+    limitations = service.run_investigation_loop(task_id, ledger_phase="coverage")
     assert any("STALLED" in item for item in limitations)
     # The exhausted frontier is stamped terminal immediately: a DEFERRED item
     # would keep `completion_allows_stop` false forever.
@@ -457,7 +457,7 @@ def test_recorded_stall_is_not_replayed_and_reaches_a_terminal_ledger_state(
     # Once the item is terminal the loop must not touch it again - not in a
     # tail pass, not in a later coverage pass.
     for phase in ("tail", "coverage"):
-        assert service._run_investigation_loop(task_id, ledger_phase=phase) == []
+        assert service.run_investigation_loop(task_id, ledger_phase=phase) == []
         assert _ledger_status(database, task_id, THREAD_ID) == "UNKNOWN"
     with database.session_factory() as session:
         actions = list(
@@ -480,7 +480,7 @@ def test_recorded_stall_is_not_replayed_and_reaches_a_terminal_ledger_state(
 def test_a_stalled_ledger_is_terminal_so_the_loop_can_stop(test_settings) -> None:
     """`completion_allows_stop` is the loop's own convergence predicate."""
     database, service, task_id = _build_stalled_task(test_settings)
-    service._run_investigation_loop(task_id, ledger_phase="coverage")
+    service.run_investigation_loop(task_id, ledger_phase="coverage")
     with database.session_factory() as session:
         task = session.get(AnalysisTask, task_id)
         assert task is not None
@@ -496,7 +496,7 @@ def test_stall_skip_records_a_replay_free_audit_trail(test_settings) -> None:
     from threat_report_agent.models import AuditEvent
 
     database, service, task_id = _build_stalled_task(test_settings)
-    service._run_investigation_loop(task_id, ledger_phase="coverage")
+    service.run_investigation_loop(task_id, ledger_phase="coverage")
     with database.session_factory() as session:
         events = list(
             session.scalars(

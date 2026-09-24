@@ -728,7 +728,7 @@ def test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives(
     """K01: an artifact-wide Evidence timestamp is not a new input for the same method."""
     settings = replace(test_settings, investigation_max_steps=8, investigation_max_rounds=1)
     database, service, task_id, artifact_id, _callback = _seed_t3_task(settings, "t3-k01")
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
     with database.session_factory() as session:
         first = list(
             session.scalars(
@@ -766,7 +766,7 @@ def test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives(
                 anchor={"type": "file_offset", "offset": 0},
             )
         )
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
     with database.session_factory() as session:
         second = list(
             session.scalars(
@@ -789,7 +789,7 @@ def test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives(
 def test_t3_service_one_start_enqueues_multiple_distinct_actions(test_settings) -> None:
     settings = replace(test_settings, investigation_max_steps=8, investigation_max_rounds=1)
     database, service, task_id, artifact_id, _callback = _seed_t3_task(settings, "t3-service")
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
     with database.session_factory() as session:
         first = list(
             session.scalars(
@@ -802,7 +802,7 @@ def test_t3_service_one_start_enqueues_multiple_distinct_actions(test_settings) 
     assert len({row.action_type for row in first}) >= 3
     completed = [row for row in first if row.status in {"SUCCEEDED", "FAILED"}]
     assert completed
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
     with database.session_factory() as session:
         second = list(
             session.scalars(

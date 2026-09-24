@@ -151,7 +151,7 @@ def test_service_materializes_one_different_method_after_no_gain(test_settings):
             finished_at=datetime.now(UTC),
         ))
 
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
     with database.session_factory() as session:
         rows = list(session.scalars(select(InvestigationActionRecord).where(
             InvestigationActionRecord.task_id == task_id
@@ -185,7 +185,7 @@ def test_service_does_not_static_boundary_after_two_distinct_no_gain_methods(tes
         ))
 
     # First pass records the failure contract for the original method.
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
     with database.session_factory() as session:
         original = session.get(InvestigationActionRecord, "prior-action")
     assert original is not None
@@ -199,7 +199,7 @@ def test_service_does_not_static_boundary_after_two_distinct_no_gain_methods(tes
     # The next bounded pass executes the stamped different method. Two dry
     # static methods must keep a concrete next method (decompile then isolated
     # emulation). STATIC_BOUNDARY is only honest after CONTROLLED_EMULATE.
-    service._run_investigation_loop(task_id, model_actions_only=True)
+    service.run_investigation_loop(task_id, model_actions_only=True)
     view = service.task_view(task_id)
     convergence = view["strategy_snapshot"]["investigation"]["convergence"]
     record = convergence["convergence-thread"]

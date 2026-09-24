@@ -221,7 +221,7 @@ def test_live_budget_comes_from_the_setting_not_from_max_sample_files(
     from threat_report_agent.investigation import derivation as derivation_module
 
     monkeypatch.setattr(derivation_module, "InvestigationLoopDriver", _RecordingDriver)
-    service._run_investigation_loop(task_id)
+    service.run_investigation_loop(task_id)
 
     assert _RecordingDriver.calls, "the investigation loop never reached the driver"
     assert {call["init"]["max_steps"] for call in _RecordingDriver.calls if "init" in call} == {

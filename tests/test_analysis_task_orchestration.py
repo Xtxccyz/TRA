@@ -603,7 +603,7 @@ def test_investigation_loop_defers_an_unmined_seed_once_the_budget_is_spent(
         task_id = task.id
         artifact_id = artifact.id
 
-    limitations = service._run_investigation_loop(task_id)
+    limitations = service.run_investigation_loop(task_id)
 
     snapshot = service.task_view(task_id)["strategy_snapshot"]["investigation"]
     ledger = [dict(item) for item in (snapshot.get("work_ledger") or [])]
