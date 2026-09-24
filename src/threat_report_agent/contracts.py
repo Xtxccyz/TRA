@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, ClassVar, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from dataclasses import dataclass
 
 
 class FrozenContract(BaseModel):
@@ -245,3 +246,22 @@ class DynamicPlanAction(BaseModel):
     def _normalize_optional_dependencies(cls, value: object) -> object:
         """Treat a provider's explicit JSON null as no dependency list."""
         return [] if value is None else value
+
+
+@dataclass(frozen=True)
+class PackageEntry:
+    logical_path: str
+    content: bytes
+    parent_path: str | None
+    discovery: str
+    is_container: bool = False
+    content_sha256: str | None = None
+    storage_key: str | None = None
+    stored_size: int | None = None
+    detected_type: str | None = None
+    mime_type: str | None = None
+    type_source: str | None = None
+
+    @property
+    def size(self) -> int:
+        return self.stored_size if self.stored_size is not None else len(self.content)

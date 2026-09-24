@@ -9,6 +9,10 @@ from pathlib import Path, PurePosixPath
 import py7zr
 from py7zr import exceptions as py7zr_exceptions
 
+# MOVED to `contracts.py` (P3.5-0 M-2) and re-exported with `X as X`, so every existing importer of
+# `threat_report_agent.intake.PackageEntry` keeps the same object - and `intake -> contracts` is the legal direction.
+from threat_report_agent.contracts import PackageEntry as PackageEntry  # noqa: E402
+
 
 class IntakeError(ValueError):
     pass
@@ -21,23 +25,6 @@ class IntakeGateRequired(IntakeError):
         self.context = context or {}
 
 
-@dataclass(frozen=True)
-class PackageEntry:
-    logical_path: str
-    content: bytes
-    parent_path: str | None
-    discovery: str
-    is_container: bool = False
-    content_sha256: str | None = None
-    storage_key: str | None = None
-    stored_size: int | None = None
-    detected_type: str | None = None
-    mime_type: str | None = None
-    type_source: str | None = None
-
-    @property
-    def size(self) -> int:
-        return self.stored_size if self.stored_size is not None else len(self.content)
 
 
 _SEVEN_Z_MAGIC = b"\x37\x7a\xbc\xaf\x27\x1c"

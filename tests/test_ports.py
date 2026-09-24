@@ -492,7 +492,12 @@ def test_the_model_action_contract_is_defined_once_and_only_reexported() -> None
     every existing caller keeps working while the canonical home changed.
     """
     definitions = _definitions_of("DynamicPlanAction", PACKAGE)
-    assert definitions == ["contracts.py:141"], (
+    #: The LINE NUMBER is pinned on purpose: the pin's job is to force a deliberate update when `contracts.py` changes
+    #: shape, so a silent move of the canonical class cannot slip through. MEASURED shift 141 -> 142: the P3.5-0/M-2
+    #: move sank `PackageEntry` into `contracts.py` (appended at the end of the file) and added the module's
+    #: `from dataclasses import dataclass` import above this class. One line, hence 142 - and the assertion below still
+    #: proves the substance (exactly ONE definition, in the contract layer).
+    assert definitions == ["contracts.py:142"], (
         f"expected exactly one definition, in contracts.py; found {definitions}. The canonical class is the contract "
         "layer's and every other path must only re-export it"
     )
@@ -526,4 +531,4 @@ def test_the_duplicate_definition_check_can_fail() -> None:
         _definitions_of("DynamicPlanAction", PACKAGE, source="class SomethingElse:\n    pass\n")
         == []
     )
-    assert _definitions_of("DynamicPlanAction", PACKAGE) == ["contracts.py:141"]
+    assert _definitions_of("DynamicPlanAction", PACKAGE) == ["contracts.py:142"]

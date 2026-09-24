@@ -139,15 +139,25 @@ P3.5-0 的**最小**形态是 **5 个搬动项 + 2 条决定 + 1 次改名**，�
 | # | 项 | 内容 | 覆盖的名字 | 新增边 |
 |---|---|---|---|---|
 | **M-1** | 10 名纯簇 → `contracts.py` | `{ActionSpec, ActionType, InvestigationEvent, InvestigationResult, InvestigationThreadState, GateDecision, action_scope_from_plan, normalize_target_selector}` 从 `investigation/investigation.py` 搬出；`{FailureInterpretation, canonical_action_key}` 从 `static/evidence_recovery.py` 搬出。旧路径全部 `X as X` re-export | `ActionSpec`、`ActionType`、`InvestigationEvent`、`InvestigationResult`、`InvestigationThreadState`（5 个） | 无（contracts 面向所有人） |
-| **M-2** | `PackageEntry` → `contracts.py` | 1 个 17 行纯 dataclass，`intake/intake.py` 留 re-export | `PackageEntry` | 无 |
+| ~~**M-2**~~ ✅ | `PackageEntry` → `contracts.py` | 1 个 17 行纯 dataclass，`intake/intake.py` 留 re-export | `PackageEntry` | 无 |
 | **M-3** | `TaskLifecycle` 簇 → `contracts.py` | `{TaskLifecycle, TASK_TRANSITIONS, transition_task, InvalidStateTransition}`；**`AnalysisClass` 别名与 `product_certification` 留在原地** | `TaskLifecycle` | 无 |
 | **M-4** | `fill_protocol` → `contracts.py` 或 `facts/` | 纯函数簇（~130 行）或整个 496 行纯模块；`investigation/investigation_protocol.py` 留 re-export | `fill_protocol` | 无 |
-| **M-5** | `SimulationWindowOutcome` → `emulation/policy.py` | 同包 MOVE，4 成员 Protocol；`investigation/derivation.py` 留 re-export | `SimulationWindowOutcome` | **零新边**（`derivation -> emulation.policy` 已存在） |
+| ~~**M-5**~~ ✅ | `SimulationWindowOutcome` → `emulation/policy.py` | 同包 MOVE，4 成员 Protocol；`investigation/derivation.py` 留 re-export | `SimulationWindowOutcome` | **零新边**（`derivation -> emulation.policy` 已存在） |
 | **D-1** | 登记 `emulation -> models` 决定 | `docs/import-policy.json` 的 `recorded_allowed_edges` 已有该机制（现有 3 条：`model.model_gateway->contracts`、`report.revision_writer->models`、`workbench_query->models`）。**注意 `_recorded_allowed_edges_note` 自己写明：门禁今天不读这个键。** 所以这条决定还需要一份决议文档（同 decision (d) 做法） | `AnalysisTask`、`Artifact`、`ContentBlob`、`Evidence`、`InvestigationActionRecord`、`ToolRun`、`new_id`、`utcnow`（8 个） | **1 条新边** |
 | **D-2** | 工具执行走端口 + 宿主注入 | coordinator 接收 `ToolExecutionPort`（`ports.py:261`），用 `ToolRunRequestView`/`ToolRunResultView`；`TemporalToolExecutor` 由宿主 pin（设计 §5.2 的 `tool_executor`）；**不 import `tools.tool_execution`** | `ToolRunRequest`、`ToolRunResult`、`TemporalToolExecutor`（3 个） | 无（端口在允许列"worker/模拟端口"里） |
 | **D-3** | `_scoped_investigation_action_key` 改名公开 | M-1 落地后它是 3 依赖纯函数，但跨模块用私有名违反仓库自己的 canonical 规则；改名（如 `scoped_investigation_action_key`）+ 原地保留旧私有名 alias | 1 个 | 无 |
 
 **这 5 搬 + 2 决定 + 1 改名 = 清掉 15 个里的 10 个，外加全部 8 个 models 名与 3 个 tools 名（共 21 个名字）。**
+
+### 落地状态（实测，不是计划）
+
+| 项 | 状态 | 实测证据 |
+|---|---|---|
+| M-5 `SimulationWindowOutcome` | ✅ **已落地** | 同包 MOVE 到 `emulation/policy.py`；`derivation.SimulationWindowOutcome is policy.SimulationWindowOutcome`；全量套件节点集 = 基线 + 环境阻断，无新增。 |
+| M-2 `PackageEntry` | ✅ **已落地** | 定义搬到 `contracts.py:251-267`，`intake/intake.py` 用 `X as X` re-export；三条 import 路径同一对象。**这一步动了 2 个"新失败"节点，两个都是 `tests/test_ports.py` 里对 `contracts.py` 的"行号 pin"（`DynamicPlanAction` 141 → 142，因为模块新增了 `from dataclasses import dataclass`）** —— pin 的存在意义就是逼人做这次显式更新，所以按 §7.1 更新 pin 并在 pin 处写下实测原因，全量套件随即回到基线。 |
+| M-1 / M-3 / M-4 / D-1 / D-2 / D-3 | ⏳ **未落地** | 见下节"让 P3.5-0 大于一轮的名字"。 |
+
+**方法论留痕（M-2 这一轮最重要的产出）：** 新失败**只报数量**时，2 个未知节点差点被当成"能力回归"并把一个结构上干净、行为不变的搬动回滚掉；把失败段落落盘、用 `compare-failure-nodes.py` 按**节点集合**求差之后，两个节点当场有了名字（`test_ports.py` 的两个行号 pin）。基线现在另外记 `environment_blocked`（Docker 引擎停机的 2 个 `test_detection_rule_indicator_correctness` 节点，报错是 `container ... is not running`），使"引擎没起"不再被打印成某一步的回归。
 
 **剩下的 5 个名字沉不下去，必须另立一步（P3.5-0b / P3.5-1）：**
 `PersistHow`(2,214 行 + `-> reporting` 违规)、`MechanismPlaybookRegistry`(+`BehaviorCatalog` 1,236 行 + `MechanismPlaybook` 20 行 ≈ 1,756 行)、`apply_emulation_reverification`(87 名闭包)、`recovery_actions_for_gap`(17 名闭包)、`_derivation`(模块别名 + 13 处私有跨模块调用)。
