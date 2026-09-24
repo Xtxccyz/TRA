@@ -1,6 +1,6 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 98 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 99 条，本文件只汇总。
 
 - **被核验的树 = 提交 `7ecb6b49d3c598cf82a5a6e4d746187f94eb1813`**（该提交的 tree 上跑过四道门禁与全量套件）
 - `head_sha` 的语义：`head_sha` 是**被门禁核验的代码提交**，不是「当前 HEAD」：当前为 `30c2adcf258c`（P3.3f-2 的循环迁移）。每一步的回滚点是该步 `rollback_point` 记录的上一个提交。**本 phase 实测过的两次漂移**都出在这个字段上：它曾记「提交前的 HEAD」，于是文档声称在一个不含本步改动的提交上完成核验；改成「当前 HEAD」后，写下该值的提交本身又会移动 HEAD——任何文件都无法正确写出「包含自己的那个提交」。因此这里固定记代码提交，并在每次复验时核对 `src/` 与 `tests/` 是否仍与它一致。**P3.4 设计步（records commit a83126b6680f）实测为**`git diff --name-only 30c2adcf258c..a83126b6680f -- src tests` 为空，即本步只动 `docs/`。ROUND 121 AMEND NOTE: P3.3f-2 的代码提交先写成 `d1cda62d8488`，两轴审查的修复（模块 docstring 的成员数、`_investigation_scheduled_keys` 的再导出、注释与两个加强后的测试）落盘后被 `git commit --amend` 折进同一提交，并在改写后的树上**重跑**了全量套件与部署门禁——被 amend 的提交不可达，写它等于让读者无法检出。
@@ -35,7 +35,7 @@ UNCHANGED and untouched by this plan: capability acceptance is measured on the a
 
 ## 三、机械条件（P5.1）
 
-PASS - 130 files per service across 8 services, missing=0 differing=0 container-only=0, import smoke 57 modules per service
+PASS at 22ca50de28b3 (`check-deployed-code-hashes.py --strict`: checked 131 file(s) across 8 service(s), missing=0 differing=0 container-only=0 for every service, `ALL DEPLOYED MODULES MATCH src/`), with both image routes rebuilt (`docker compose build api emu-worker` plus the separate `scripts/build-ghidra-worker.ps1` route) and the containers recreated without touching the data volumes. The BEFORE run at the same commit reported `STRICT: deployment does NOT match the tree` with `MISSING IN CONTAINER (8)` = `facts/investigation_protocol.py` and `DIFFERING (80)`. ANY FURTHER `src/` CHANGE RE-OWES THIS: the honest report after such a change is DEPLOYMENT_BLOCKED with the stale paths named, never a carried-over pass.
 
 四道门禁在 HEAD 上全部通过：结构 diff、导入图 `--strict`、行为探针（含 item 8「移动模块同一性」）、部署 `--strict --import-smoke`。全量 pytest 的失败**节点集合**与 P0.2 基线一致。
 
