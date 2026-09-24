@@ -1258,8 +1258,8 @@ def test_post_static_emulation_needed_when_unicorn_is_only_deferred() -> None:
         SimpleNamespace(value={"status": "SUCCEEDED", "simulator": "speakeasy"}),
         SimpleNamespace(value={"status": "DEFERRED_TO_WORKER", "simulator": "unicorn"}),
     ]
-    assert AnalysisService._has_real_simulation_result(rows, "speakeasy")
-    assert not AnalysisService._has_real_simulation_result(rows, "unicorn")
+    assert AnalysisService.has_real_simulation_result(rows, "speakeasy")
+    assert not AnalysisService.has_real_simulation_result(rows, "unicorn")
     assert has_real_simulation_result(rows, "speakeasy")
     assert not has_real_simulation_result(rows, "unicorn")
     assert post_static_emulation_needed(
@@ -2214,7 +2214,7 @@ def test_post_static_emu_still_needed_for_uncovered_start_routine() -> None:
             }
         )
     ]
-    assert AnalysisService._has_real_simulation_result(existing, "unicorn")
+    assert AnalysisService.has_real_simulation_result(existing, "unicorn")
     assert AnalysisService._has_uncovered_emulation_entry(
         existing, "unicorn", ("0x401000", "0x401040")
     )

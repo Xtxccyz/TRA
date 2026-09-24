@@ -851,6 +851,16 @@ class AnalysisService:
         return reconciled
 
     @staticmethod
+    def record_analysis_failure(session: Session, task: AnalysisTask, exc: BaseException, *, stage: str = 'ANALYSIS', event_id: str | None = None) -> dict[str, object]:
+        """Public behaviour entry point for `_record_analysis_failure` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._record_analysis_failure(session, task, exc, stage=stage, event_id=event_id)
+
+
+    @staticmethod
     def _record_analysis_failure(session: Session, task: AnalysisTask, exc: BaseException, *, stage: str = 'ANALYSIS', event_id: str | None = None) -> dict[str, object]:
         return _limitations.record_analysis_failure(session, task, exc, stage=stage, event_id=event_id)
 
@@ -3726,6 +3736,16 @@ class AnalysisService:
         )
 
     @classmethod
+    def persist_time_static_boundary(cls, *, playbook: object, evidence: Iterable[object], thread_id: str, artifact_id: str) -> InvestigationResult | None:
+        """Public behaviour entry point for `_persist_time_static_boundary` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._persist_time_static_boundary(playbook=playbook, evidence=evidence, thread_id=thread_id, artifact_id=artifact_id)
+
+
+    @classmethod
     def _persist_time_static_boundary(
         cls,
         *,
@@ -3897,6 +3917,16 @@ class AnalysisService:
     @classmethod
     def _how_recovery_evidence(cls, *args, **kwargs):
         return PersistHow._how_recovery_evidence(*args, **kwargs)
+
+    @classmethod
+    def catalog_candidate_mechanism_fields(cls, *args, **kwargs):
+        """Public behaviour entry point for `_catalog_candidate_mechanism_fields` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._catalog_candidate_mechanism_fields(*args, **kwargs)
+
 
     @classmethod
     def _catalog_candidate_mechanism_fields(cls, *args, **kwargs):
@@ -4453,6 +4483,16 @@ class AnalysisService:
             model_actions_only=model_actions_only,
             ledger_phase=ledger_phase,
         )
+
+    @staticmethod
+    def link_claim_evidence(session: Session, *, claim_id: str, evidence_id: str, stance: str = 'SUPPORTS') -> None:
+        """Public behaviour entry point for `_link_claim_evidence` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._link_claim_evidence(session, claim_id=claim_id, evidence_id=evidence_id, stance=stance)
+
 
     @staticmethod
     def _link_claim_evidence(
@@ -5233,6 +5273,16 @@ class AnalysisService:
         coverage: Mapping[str, object] | None = None,
     ) -> list[str]:
         return _coordinator._convergence_completed_fields(evidence, coverage)
+
+    @classmethod
+    def convergence_alternate_type(cls, action_type: ActionType | str, attempted: object = ()) -> ActionType | None:
+        """Public behaviour entry point for `_convergence_alternate_type` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._convergence_alternate_type(action_type, attempted)
+
 
     @classmethod
     def _convergence_alternate_type(
@@ -10276,6 +10326,16 @@ class AnalysisService:
         planned_entries: Iterable[str],
     ) -> bool:
         return has_uncovered_emulation_entry(rows, simulator, planned_entries)
+
+    @classmethod
+    def has_real_simulation_result(cls, rows: Iterable[Any], simulator: str) -> bool:
+        """Public behaviour entry point for `_has_real_simulation_result` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it.
+        """
+        return cls._has_real_simulation_result(rows, simulator)
+
 
     @classmethod
     def _has_real_simulation_result(cls, rows: Iterable[Any], simulator: str) -> bool:
@@ -15327,6 +15387,16 @@ class AnalysisService:
         return document
 
     @staticmethod
+    def apply_honest_analysis_outcome(task: AnalysisTask, document: dict[str, object]) -> None:
+        """Public behaviour entry point for `_apply_honest_analysis_outcome` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._apply_honest_analysis_outcome(task, document)
+
+
+    @staticmethod
     def _apply_honest_analysis_outcome(task: AnalysisTask, document: dict[str, object]) -> None:
         """C10: a minted report is not COMPLETE when the critic or depth is bounded."""
         quality = document.get("analysis_quality")
@@ -15887,6 +15957,16 @@ class AnalysisService:
     def run_daily_audit_sealer(self, *, utc_day: datetime.date, actor: str = "audit-sealer") -> int:
         """Stable scheduler seam for the UTC daily audit sealing worker."""
         return self.seal_daily_audit(utc_day=utc_day, actor=actor)
+
+    @staticmethod
+    def as_utc(value: datetime) -> datetime:
+        """Public behaviour entry point for `_as_utc` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it.
+        """
+        return AnalysisService._as_utc(value)
+
 
     @staticmethod
     def _as_utc(value: datetime) -> datetime:

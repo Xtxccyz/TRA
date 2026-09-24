@@ -1302,9 +1302,9 @@ def test_resolved_api_seed_rows_are_pinned_with_catalog_identity() -> None:
 
 
 def test_callees_and_function_failures_alternate_to_decompile_then_emulate() -> None:
-    assert AnalysisService._convergence_alternate_type(ActionType.GET_CALLEES) == ActionType.GET_DECOMPILE
-    assert AnalysisService._convergence_alternate_type(ActionType.GET_FUNCTION) == ActionType.GET_DECOMPILE
-    assert AnalysisService._convergence_alternate_type(ActionType.GET_DECOMPILE) == ActionType.CONTROLLED_EMULATE
+    assert AnalysisService.convergence_alternate_type(ActionType.GET_CALLEES) == ActionType.GET_DECOMPILE
+    assert AnalysisService.convergence_alternate_type(ActionType.GET_FUNCTION) == ActionType.GET_DECOMPILE
+    assert AnalysisService.convergence_alternate_type(ActionType.GET_DECOMPILE) == ActionType.CONTROLLED_EMULATE
 
 
 def test_parent_attribute_seed_rows_are_pinned_and_process_playbook_stays_bound() -> None:
@@ -1416,7 +1416,7 @@ def test_parent_attribute_seed_rows_are_pinned_and_process_playbook_stays_bound(
     assert persist_ready.thread_state == InvestigationThreadState.CLAIM_READY
     assert persist_ready.hypothesis_status == "CANDIDATE"
     assert persist_ready.actions == ()
-    persist_boundary = AnalysisService._persist_time_static_boundary(
+    persist_boundary = AnalysisService.persist_time_static_boundary(
         playbook=playbook,
         evidence=ppid_rows,
         thread_id="thread-ppid",
@@ -1897,7 +1897,7 @@ def test_entrypoint_playbook_skips_trace_without_typed_catalog_contract() -> Non
         thread_id="thread-entry",
         artifact_id="artifact-resume",
     ) is None
-    boundary = AnalysisService._persist_time_static_boundary(
+    boundary = AnalysisService.persist_time_static_boundary(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-entry",
@@ -1977,7 +1977,7 @@ def test_process_persist_claim_uses_command_flags_not_ppid_keywords() -> None:
     assert "FoxitPDFReader.exe" in str(fields["object"])
     assert "0x00080000" in str(fields["mechanism"])
     assert fields["action"] != "may_spoof_parent_process"
-    stamped = AnalysisService._catalog_candidate_mechanism_fields(
+    stamped = AnalysisService.catalog_candidate_mechanism_fields(
         playbook, evidence, "Resume.pdf.exe"
     )
     assert stamped["inputs"] == ["cmd.exe /c FoxitPDFReader.exe"]
@@ -2778,7 +2778,7 @@ def test_dynamic_api_how_does_not_steal_iat_name_from_mixed_ppid_trace() -> None
     assert "UpdateProcThreadAttribute" not in how["api_name"]
 
     playbook = MechanismPlaybookRegistry().by_id("dynamic-api-resolution")
-    snapshot = AnalysisService._catalog_candidate_mechanism_fields(
+    snapshot = AnalysisService.catalog_candidate_mechanism_fields(
         playbook,
         mixed,
         "Resume.pdf.exe.VIR",
@@ -2839,7 +2839,7 @@ def test_http_how_seed_skips_trace_without_transport_api() -> None:
         thread_id="thread-http",
         artifact_id="artifact-resume",
     ) is None
-    boundary = AnalysisService._persist_time_static_boundary(
+    boundary = AnalysisService.persist_time_static_boundary(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-http",

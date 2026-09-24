@@ -251,7 +251,7 @@ def test_critic_blocked_cannot_leave_task_outcome_complete() -> None:
             "s4_orchestration": [],
         },
     }
-    AnalysisService._apply_honest_analysis_outcome(blocked, blocked_document)
+    AnalysisService.apply_honest_analysis_outcome(blocked, blocked_document)
     assert blocked_document["analysis_outcome"] == "PARTIAL"
     assert blocked.outcome == "PARTIAL"
 
@@ -264,7 +264,7 @@ def test_critic_blocked_cannot_leave_task_outcome_complete() -> None:
             "s4_orchestration": [{"status": "CLOSED"}],
         },
     }
-    AnalysisService._apply_honest_analysis_outcome(ready, ready_document)
+    AnalysisService.apply_honest_analysis_outcome(ready, ready_document)
     assert ready_document["analysis_outcome"] == "COMPLETE"
     assert ready.outcome == "COMPLETE"
 

@@ -1467,7 +1467,7 @@ def test_daily_audit_seal_is_idempotent(test_settings) -> None:
 
         event = session.query(AuditEvent).filter(AuditEvent.task_id == result.task_id).first()
         assert event is not None
-        day = service._as_utc(event.created_at).date()
+        day = service.as_utc(event.created_at).date()
     assert service.seal_daily_audit(utc_day=day) >= 1
     assert service.seal_daily_audit(utc_day=day) == 0
     integrity = service.audit_integrity(result.task_id)
@@ -1615,7 +1615,7 @@ def test_daily_audit_seal_public_scheduler_entrypoint_returns_count(test_setting
 
         event = session.query(AuditEvent).filter(AuditEvent.task_id == result.task_id).first()
         assert event is not None
-        day = service._as_utc(event.created_at).date()
+        day = service.as_utc(event.created_at).date()
     assert service.run_daily_audit_sealer(utc_day=day, actor="scheduler") >= 1
 
 

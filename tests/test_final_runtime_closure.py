@@ -454,7 +454,7 @@ def test_failure_contract_does_not_point_retry_lineage_to_itself(test_settings) 
         task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
         session.add(task)
         session.flush()
-        payload = service._record_analysis_failure(session, task, RuntimeError("deterministic parser error"))
+        payload = service.record_analysis_failure(session, task, RuntimeError("deterministic parser error"))
         assert payload["retry_of_task_id"] is None
         assert payload["attempt_number"] == 1
         assert payload["retry_suppressed"] is False
@@ -467,14 +467,14 @@ def test_failure_contract_links_previous_attempt_and_suppresses_duplicate(test_s
         first = AnalysisTask(case_id=case.id, lifecycle="FAILED")
         session.add(first)
         session.flush()
-        first_payload = service._record_analysis_failure(
+        first_payload = service.record_analysis_failure(
             session, first, RuntimeError("deterministic parser error")
         )
         assert first_payload["attempt_number"] == 1
         second = AnalysisTask(case_id=case.id, lifecycle="FAILED")
         session.add(second)
         session.flush()
-        second_payload = service._record_analysis_failure(
+        second_payload = service.record_analysis_failure(
             session, second, RuntimeError("deterministic parser error")
         )
         assert second_payload["retry_of_task_id"] == first.id

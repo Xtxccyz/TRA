@@ -2583,13 +2583,13 @@ def test_claim_evidence_duplicate_pair_does_not_abort_task(test_settings) -> Non
         )
         session.add(claim)
         session.flush()
-        service._link_claim_evidence(
+        service.link_claim_evidence(
             session, claim_id=claim.id, evidence_id=evidence.id
         )
-        service._link_claim_evidence(
+        service.link_claim_evidence(
             session, claim_id=claim.id, evidence_id=evidence.id
         )
-        service._link_claim_evidence(
+        service.link_claim_evidence(
             session, claim_id=claim.id, evidence_id=evidence.id
         )
         claim_id = claim.id
