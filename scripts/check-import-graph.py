@@ -163,6 +163,11 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
+        "--dump-edges",
+        action="store_true",
+        help="print the runtime edge set as JSON pairs and exit (this is how `known_edges` is recorded)",
+    )
+    parser.add_argument(
         "--source",
         default="",
         help="measure another copy of the package instead of src/ (used by the structure-diff can-fail harness)",
@@ -241,6 +246,14 @@ def main() -> int:
         merged.setdefault(canonical(node), set())
     resolved = merged
     nodes = sorted(set(resolved))
+
+    # --- EDGE REGISTRY (added after an adversarial review measured the blind spot three times) --------------------
+    # Every runtime edge as a short `(source, target)` pair. The `moved_paths` normalisation above is already applied,
+    # so a relocated module is policed under its recorded name rather than escaping under the new one.
+    edges_short = sorted({(short(a), short(b)) for a, targets in resolved.items() for b in targets})
+    if args.dump_edges:
+        print(json.dumps([list(pair) for pair in edges_short], ensure_ascii=False, indent=1))
+        return 0
     cycles = components(nodes, resolved)
     # Compare on SHORT names throughout. MEASURED BUG: `components` returns fully-qualified module names while
     # the policy lists short ones, so every allowlisted cycle was reported as NEW and --strict failed on the
@@ -252,6 +265,15 @@ def main() -> int:
     # Pre-existing violations are RECORDED, not fixed, in a structural step (plan P0.4: "发现现有循环先记录,
     # 不借搬家机会顺手重写业务"). Only a violation absent from this list fails --strict.
     known_violations = {(str(a), str(b)) for a, b in policy.get("known_violations", [])}
+
+    # The EDGE allow-list: the recorded inventory plus the explicit decisions. MEASURED DEFECT this closes: with only
+    # NODES registered and a flat deny-list, an edge between two registered modules that no `forbidden_edges` entry
+    # names passes GREEN - which is why `recorded_allowed_edges` could be ignored by the gate while looking enforced.
+    known_edges = {(str(a), str(b)) for a, b in policy.get("known_edges", [])}
+    decision_edges = {(str(a), str(b)) for a, b in policy.get("recorded_allowed_edges", [])}
+    allowed_edges = known_edges | decision_edges
+    new_edges = [(a, b) for (a, b) in edges_short if (a, b) not in allowed_edges]
+    stale_edges = [(a, b) for (a, b) in sorted(known_edges) if (a, b) not in set(edges_short)]
 
     new_cycles = [group for group in cycles_short if group not in allowed_cycles]
     all_violations = sorted(
@@ -302,6 +324,9 @@ def main() -> int:
             "new_cycles": [list(group) for group in new_cycles],
             "forbidden_violations": all_violations,
             "new_forbidden_violations": new_violations,
+            "registered_edges": len(known_edges),
+            "new_edges": [list(pair) for pair in new_edges],
+            "stale_edges": [list(pair) for pair in stale_edges],
         }, indent=2, ensure_ascii=False))
     else:
         print(f"modules : {len(known)}")
@@ -312,11 +337,21 @@ def main() -> int:
             marker = "KNOWN" if group in allowed_cycles else "NEW"
             print(f"  [{marker}] " + " <-> ".join(group)[:160])
         print(f"forbidden edges present: {len(all_violations)} ({len(new_violations)} not registered)")
+        print(f"edges registered: {len(known_edges)} of {len(edges_short)} ({len(new_edges)} unregistered, {len(stale_edges)} stale)")
         for item in all_violations[:10]:
             tag = "NEW" if item in new_violations else "known"
             print(f"  [{tag}] {item}")
 
-    if args.strict and (new_cycles or new_violations or unregistered):
+    if new_edges:
+        print(f"\nUNREGISTERED EDGES ({len(new_edges)}): {', '.join(f'{a} -> {b}' for a, b in new_edges[:12])}")
+        print("  An edge between two registered modules is invisible to a deny-list. Record it in `known_edges` in the")
+        print("  same commit that adds it, or state the decision in `recorded_allowed_edges`.")
+    if stale_edges:
+        print(f"\nSTALE EDGE RECORDS ({len(stale_edges)}): "
+              f"{', '.join(f'{a} -> {b}' for a, b in stale_edges[:12])}")
+        print("  A recorded edge no longer exists in the tree. The record must match the measurement EXACTLY, so delete")
+        print("  the entry deliberately in the same commit that removes the import.")
+    if args.strict and (new_cycles or new_violations or unregistered or new_edges or stale_edges):
         print("\nSTRICT: import policy violated")
         return 1
     if args.strict:
