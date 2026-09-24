@@ -35,7 +35,7 @@ UNCHANGED and untouched by this plan: capability acceptance is measured on the a
 
 ## 三、机械条件（P5.1）
 
-PASS at 22ca50de28b3 (`check-deployed-code-hashes.py --strict`: checked 131 file(s) across 8 service(s), missing=0 differing=0 container-only=0 for every service, `ALL DEPLOYED MODULES MATCH src/`), with both image routes rebuilt (`docker compose build api emu-worker` plus the separate `scripts/build-ghidra-worker.ps1` route) and the containers recreated without touching the data volumes. The BEFORE run at the same commit reported `STRICT: deployment does NOT match the tree` with `MISSING IN CONTAINER (8)` = `facts/investigation_protocol.py` and `DIFFERING (80)`. ANY FURTHER `src/` CHANGE RE-OWES THIS: the honest report after such a change is DEPLOYMENT_BLOCKED with the stale paths named, never a carried-over pass.
+PASS at ce67eb2818a4: 131 files x 8 services, `ALL DEPLOYED MODULES MATCH src/`, and `import smoke OK` for every service. Both image routes rebuilt from this commit. Re-owed by any later `src/` change.
 
 四道门禁在 HEAD 上全部通过：结构 diff、导入图 `--strict`、行为探针（含 item 8「移动模块同一性」）、部署 `--strict --import-smoke`。全量 pytest 的失败**节点集合**与 P0.2 基线一致。
 
