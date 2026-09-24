@@ -2137,9 +2137,9 @@ def test_failed_pe_entry_emu_does_not_cover_a_later_thread_start() -> None:
         "simulator": "unicorn",
         "stop_reason": "EXECUTION_ERROR",
     }
-    assert AnalysisService._simulation_covers_request(failed_entry, "0x401000")
-    assert not AnalysisService._simulation_covers_request(failed_entry, "0x401040")
-    assert not AnalysisService._simulation_covers_request(unlabeled_failed, "0x401040")
+    assert AnalysisService.simulation_covers_request(failed_entry, "0x401000")
+    assert not AnalysisService.simulation_covers_request(failed_entry, "0x401040")
+    assert not AnalysisService.simulation_covers_request(unlabeled_failed, "0x401040")
     rows = [
         SimpleNamespace(kind="simulation_result", value=failed_entry),
         SimpleNamespace(kind="simulation_result", value=unlabeled_failed),
@@ -2148,7 +2148,7 @@ def test_failed_pe_entry_emu_does_not_cover_a_later_thread_start() -> None:
         rows, {"function_entry": "0x401040"}
     )
     assert matching == ()
-    assert AnalysisService._simulation_covers_request(failed_entry, "0x401000")
+    assert AnalysisService.simulation_covers_request(failed_entry, "0x401000")
     reused = AnalysisService._matching_simulation_results(
         rows, {"function_entry": "0x401000"}
     )
@@ -2176,7 +2176,7 @@ def test_target_selector_is_not_covered_by_unlabeled_failed_emu() -> None:
     ]
     assert AnalysisService._matching_simulation_results(rows, {"target": "0x140016920"}) == ()
     assert AnalysisService._matching_simulation_results(rows, {"target": "140016920"}) == ()
-    assert AnalysisService._simulation_covers_request(other_entry, "0x140038ae0")
+    assert AnalysisService.simulation_covers_request(other_entry, "0x140038ae0")
     assert AnalysisService._matching_simulation_results(rows, {"target": "140038ae0"}) == ()
 
 
@@ -2193,13 +2193,13 @@ def test_simulation_covers_fun_label_and_hex_alias() -> None:
         "simulator": "unicorn",
         "function_entry": "0x140038ae0",
     }
-    assert AnalysisService._simulation_covers_request(labeled, "0x140038ae0")
-    assert AnalysisService._simulation_covers_request(labeled, "140038ae0")
-    assert AnalysisService._simulation_covers_request(hexed, "FUN_140038ae0")
+    assert AnalysisService.simulation_covers_request(labeled, "0x140038ae0")
+    assert AnalysisService.simulation_covers_request(labeled, "140038ae0")
+    assert AnalysisService.simulation_covers_request(hexed, "FUN_140038ae0")
     assert AnalysisService._emulation_entry_key("140004605") == "0x140004605"
     assert AnalysisService._emulation_entry_key("FUN_140004605") == "0x140004605"
-    assert not AnalysisService._simulation_covers_request(hexed, "[R8]")
-    assert not AnalysisService._simulation_covers_request(hexed, "0x140004605")
+    assert not AnalysisService.simulation_covers_request(hexed, "[R8]")
+    assert not AnalysisService.simulation_covers_request(hexed, "0x140004605")
 
 
 def test_post_static_emu_still_needed_for_uncovered_start_routine() -> None:

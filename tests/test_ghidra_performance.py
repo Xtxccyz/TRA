@@ -211,7 +211,7 @@ def test_report_projection_bounds_large_evidence_and_keeps_references() -> None:
         for index in range(10000)
     ]
     rows.append({"id": "critical-link", "kind": "resolved_api", "value": {"api_name": "WinHttpOpen"}})
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         rows,
         referenced_ids={"critical-link"},
         limit=128,
@@ -240,7 +240,7 @@ def test_report_projection_keeps_simulation_result_when_claim_links_fill_limit()
             "value": {"function": "FUN_180038af8", "call_sequence": [{"api": "CryptAcquireContextW"}]},
         }
     )
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         rows,
         referenced_ids={f"linked-{index}" for index in range(400)},
         limit=128,
@@ -270,7 +270,7 @@ def test_report_projection_prefers_crypto_semantic_summaries_inside_cap() -> Non
             },
         }
     )
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         rows, referenced_ids=set(), limit=128
     )
     assert any(item["id"] == "zzz-crypto-tail" for item in selected)
@@ -285,7 +285,7 @@ def test_report_projection_prioritizes_unlinked_decode_results() -> None:
         "id": "decode-result", "kind": "decode_result",
         "value": {"verification_status": "VERIFIED_STATIC_DATA"},
     })
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         rows, referenced_ids=set(), limit=128
     )
     assert any(item["id"] == "decode-result" for item in selected)

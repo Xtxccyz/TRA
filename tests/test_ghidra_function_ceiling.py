@@ -51,7 +51,7 @@ def test_selection_keeps_every_row_when_budget_clears_the_corpus() -> None:
     rows = [_crt_entry_row(), *[_noise_row(index) for index in range(607)]]
     assert len(rows) == 608  # the 551KB Rust PE recovered 703; scale stands in
 
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         rows,
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=_CEILING,
@@ -65,7 +65,7 @@ def test_selection_keeps_every_row_at_the_exact_budget_boundary() -> None:
     """budget == len(all_rows) is the tightest no-cull case."""
     rows = [_crt_entry_row(), *[_noise_row(index) for index in range(99)]]
 
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         rows,
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=len(rows),
@@ -121,7 +121,7 @@ def test_pinned_rows_still_sort_ahead_of_the_ranked_pool() -> None:
     noise = [_noise_row(index) for index in range(50)]
     rows = [crt, creator, start, consumer, *noise]
 
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         rows,
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=_CEILING,
@@ -154,7 +154,7 @@ def test_pinned_rows_survive_even_a_collapsing_budget() -> None:
     }
     rows = [crt, consumer, *[_noise_row(index) for index in range(50)]]
 
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         rows,
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=2,

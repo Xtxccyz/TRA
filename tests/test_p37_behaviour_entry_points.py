@@ -50,6 +50,20 @@ FACADE = {
 }
 
 
+#: The same contract for CLASS/STATIC private members: the facade is a classmethod/staticmethod, so the
+#: delegation proof patches the CLASS rather than an instance (a class-level lookup ignores instances).
+CLASS_FACADE = {
+    "_persist_time_seed_result": "persist_time_seed_result",
+    "_select_report_evidence_rows": "select_report_evidence_rows",
+    "_persist_how_claim_specs": "persist_how_claim_specs",
+    "_select_ghidra_function_rows": "select_ghidra_function_rows",
+    "_simulation_covers_request": "simulation_covers_request",
+    "_stamp_persist_how_snapshot": "stamp_persist_how_snapshot",
+    "_failed_tool_run_limitations": "failed_tool_run_limitations",
+    "_gate_for_seed_playbook": "gate_for_seed_playbook",
+}
+
+
 def _signature(function: object) -> list[tuple[str, str, object]]:
     return [
         (parameter.name, str(parameter.kind), parameter.default)
@@ -122,6 +136,26 @@ def test_the_public_entry_point_really_delegates(private: str, public: str) -> N
     )
 
 
+def _looks_like_the_service(receiver: ast.AST) -> bool:
+    """Whether a call's receiver plausibly IS the service, so the completeness rule is about the right object.
+
+    WHY RECEIVER-AWARE, and this is a MEASURED correction rather than a refinement: a blanket rewrite of `._name(` in this
+    batch also changed `revision_writer._select_report_evidence_rows(...)` - a module-level function in the P3.6-1 slice
+    module with the same name - and broke a passing test. The rule's intent is "a test must not reach the SERVICE's
+    privates", so a receiver that is another module is out of scope.
+
+    LIMITATION, stated rather than hidden: this is a name heuristic, not resolution. A test that bound the service to an
+    unrelated local name and called a private through it would slip past - the alternative is real import resolution, which
+    belongs in the gate rather than in a contract test.
+    """
+    if isinstance(receiver, ast.Name):
+        name = receiver.id.lower()
+        return name == "analysisservice" or "service" in name or name in {"svc", "analysis", "subject"}
+    if isinstance(receiver, ast.Attribute):
+        return receiver.attr == "AnalysisService" or "service" in receiver.attr.lower()
+    return False
+
+
 def _private_calls_in_tests() -> list[str]:
     """Every CALL-shaped reference to a driver under `tests/`, as `path:line:name`.
 
@@ -135,7 +169,9 @@ def _private_calls_in_tests() -> list[str]:
             continue  # this file mentions the names on purpose, in the mapping above
         tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in FACADE:
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {**FACADE, **CLASS_FACADE}
+                    and _looks_like_the_service(node.func.value)):
                 found.append(f"{path.relative_to(REPO).as_posix()}:{node.lineno}:{node.func.attr}")
     return found
 
@@ -146,4 +182,69 @@ def test_no_test_calls_a_phase_driver_by_its_private_name() -> None:
     assert not offenders, (
         "these tests call a phase driver by its PRIVATE name; use the public entry point instead "
         f"({', '.join(sorted(FACADE.values()))}): {offenders}"
+    )
+
+
+@pytest.mark.parametrize("private,public", sorted(CLASS_FACADE.items()))
+def test_each_class_level_member_has_a_public_entry_point_with_the_same_signature(private: str, public: str) -> None:
+    """Same parity rule as the instance facades, applied to the class/static group.
+
+    The declaration is compared including the FIRST parameter (`cls` for a classmethod), because a facade that drops it is
+    a staticmethod pretending to be a classmethod - the kind is part of the interface here.
+    """
+    assert hasattr(AnalysisService, private), f"{private} is gone, so the facade wraps nothing"
+    assert hasattr(AnalysisService, public), (
+        f"AnalysisService has no public `{public}`; plan P3.7 requires the test surface to call a behaviour entry point "
+        f"rather than `{private}`"
+    )
+    assert _signature(getattr(AnalysisService, public)) == _signature(getattr(AnalysisService, private)), (
+        f"`{public}` and `{private}` do not have the same parameters (names, kinds and defaults all count)"
+    )
+    assert inspect.signature(getattr(AnalysisService, public)).return_annotation == \
+        inspect.signature(getattr(AnalysisService, private)).return_annotation, (
+        f"`{public}` returns a different type than `{private}`"
+    )
+
+
+@pytest.mark.parametrize("private,public", sorted(CLASS_FACADE.items()))
+def test_the_class_level_entry_point_really_delegates(private: str, public: str,
+                                                      monkeypatch: pytest.MonkeyPatch) -> None:
+    """The delegation proof for a CLASS-level member: patch the CLASS, call through the CLASS.
+
+    MEASURED why this cannot reuse the instance test: a class-level attribute is found on the class, so setting it on an
+    instance changes nothing - the recorder would never see a call and the test would fail on a correct facade (or worse,
+    pass vacuously if the assertion were written loosely). Patching the class with a plain function means both the
+    classmethod and staticmethod facades reach it with exactly the arguments they forward.
+    """
+    signature = inspect.signature(getattr(AnalysisService, private))
+    positional = [
+        name for name, parameter in signature.parameters.items()
+        if name not in {"self", "cls"} and parameter.kind in (parameter.POSITIONAL_ONLY,
+                                                              parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    keyword = [
+        name for name, parameter in signature.parameters.items()
+        if name not in {"self", "cls"} and parameter.kind == parameter.KEYWORD_ONLY
+    ]
+    sentinels = {name: f"<{name}>" for name in [*positional, *keyword]}
+
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def recorder(*args: object, **kwargs: object) -> str:
+        calls.append((args, kwargs))
+        return "DELEGATED"
+
+    monkeypatch.setattr(AnalysisService, private, recorder)
+    result = getattr(AnalysisService, public)(**sentinels)
+
+    assert result == "DELEGATED", f"`{public}` did not return what the implementation returned"
+    assert calls, f"`{public}` never reached `{private}`"
+    args, kwargs = calls[0]
+    assert args == tuple(sentinels[name] for name in positional), (
+        f"`{public}` forwarded positional arguments {args}, expected "
+        f"{tuple(sentinels[name] for name in positional)}"
+    )
+    assert kwargs == {name: sentinels[name] for name in keyword}, (
+        f"`{public}` forwarded keyword arguments {kwargs}, expected "
+        f"{ {name: sentinels[name] for name in keyword} }"
     )

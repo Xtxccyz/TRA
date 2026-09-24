@@ -3600,12 +3600,34 @@ class AnalysisService:
         return _derivation._pin_config_consumer_seed_rows(seed_rows, pinned_rows)
 
     @classmethod
+    def gate_for_seed_playbook(cls, *args, **kwargs):
+        """Public behaviour entry point for `_gate_for_seed_playbook` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it, so a test that replaces
+        the private attribute on the class keeps working.
+        """
+        return cls._gate_for_seed_playbook(*args, **kwargs)
+
+
+    @classmethod
     def _gate_for_seed_playbook(cls, *args, **kwargs):
         return PersistHow._gate_for_seed_playbook(*args, **kwargs)
 
     @classmethod
     def _apply_seed_playbook_gate(cls, result: object, playbook: object):
         return _derivation._apply_seed_playbook_gate(cls, result, playbook)
+
+    @classmethod
+    def persist_time_seed_result(cls, *, playbook: object, evidence: Iterable[object], thread_id: str, artifact_id: str) -> InvestigationResult | None:
+        """Public behaviour entry point for `_persist_time_seed_result` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it, so a test that replaces
+        the private attribute on the class keeps working.
+        """
+        return cls._persist_time_seed_result(playbook=playbook, evidence=evidence, thread_id=thread_id, artifact_id=artifact_id)
+
 
     @classmethod
     def _persist_time_seed_result(
@@ -3789,6 +3811,17 @@ class AnalysisService:
         return PersistHow._persist_partial_how_ready(*args, **kwargs)
 
     @classmethod
+    def persist_how_claim_specs(cls, *args, **kwargs):
+        """Public behaviour entry point for `_persist_how_claim_specs` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it, so a test that replaces
+        the private attribute on the class keeps working.
+        """
+        return cls._persist_how_claim_specs(*args, **kwargs)
+
+
+    @classmethod
     def _persist_how_claim_specs(cls, *args, **kwargs):
         return PersistHow._persist_how_claim_specs(*args, **kwargs)
 
@@ -3888,6 +3921,17 @@ class AnalysisService:
             if len(selected) >= limit:
                 break
         return selected
+
+    @classmethod
+    def stamp_persist_how_snapshot(cls, *args, **kwargs):
+        """Public behaviour entry point for `_stamp_persist_how_snapshot` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it, so a test that replaces
+        the private attribute on the class keeps working.
+        """
+        return cls._stamp_persist_how_snapshot(*args, **kwargs)
+
 
     @classmethod
     def _stamp_persist_how_snapshot(cls, *args, **kwargs):
@@ -9147,6 +9191,17 @@ class AnalysisService:
         return _derivation_support._pe_entry_integers(pe_summary)
 
     @classmethod
+    def select_ghidra_function_rows(cls, functions: object, pe_summary: Mapping[str, object] | None = None, *, limit: int | None = None, pin_data_addresses: Iterable[object] = (), thunks: Mapping[int, str] | None = None) -> list[dict[str, object]]:
+        """Public behaviour entry point for `_select_ghidra_function_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it, so a test that replaces
+        the private attribute on the class keeps working.
+        """
+        return cls._select_ghidra_function_rows(functions, pe_summary, limit=limit, pin_data_addresses=pin_data_addresses, thunks=thunks)
+
+
+    @classmethod
     def _select_ghidra_function_rows(
         cls,
         functions: object,
@@ -9933,6 +9988,17 @@ class AnalysisService:
     @classmethod
     def _emulation_entry_key(cls, value: Mapping[str, object] | str | None) -> str:
         return emulation_entry_key(value)
+
+    @classmethod
+    def simulation_covers_request(cls, value: Mapping[str, object], requested_entry: str, *, simulator: str | None = None) -> bool:
+        """Public behaviour entry point for `_simulation_covers_request` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it, so a test that replaces
+        the private attribute on the class keeps working.
+        """
+        return cls._simulation_covers_request(value, requested_entry, simulator=simulator)
+
 
     @classmethod
     def _simulation_covers_request(
@@ -12390,6 +12456,16 @@ class AnalysisService:
         return _limitations.completion_limitations(session, task_id, artifacts)
 
     @staticmethod
+    def failed_tool_run_limitations(session, task_id) -> list[str]:
+        """Public behaviour entry point for `_failed_tool_run_limitations` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private staticmethod stays the implementation and the facade delegates to it, so a test that replaces
+        the private attribute on the class keeps working.
+        """
+        return AnalysisService._failed_tool_run_limitations(session, task_id)
+
+
     @staticmethod
     def _failed_tool_run_limitations(session, task_id) -> list[str]:
         return _limitations.failed_tool_run_limitations(session, task_id)
@@ -14533,6 +14609,17 @@ class AnalysisService:
         #     re-verifying the sealed digest after a full report build and asserting
         #     the ORM attribute is never marked dirty.
         return _revision_writer._snapshot_report_context(self, snapshot)
+
+    @classmethod
+    def select_report_evidence_rows(cls, rows: list[object], *, referenced_ids: set[str], limit: int) -> list[object]:
+        """Public behaviour entry point for `_select_report_evidence_rows` (P3.7).
+
+        WHY IT EXISTS: the test surface reached this behaviour by its PRIVATE name. Callers outside the class use
+        this name; the private classmethod stays the implementation and the facade delegates to it, so a test that replaces
+        the private attribute on the class keeps working.
+        """
+        return cls._select_report_evidence_rows(rows, referenced_ids=referenced_ids, limit=limit)
+
 
     @classmethod
     def _select_report_evidence_rows(

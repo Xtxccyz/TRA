@@ -125,7 +125,7 @@ def test_preference_list_does_not_upgrade_an_unbound_name() -> None:
 def _http_spec(evidence: list[dict[str, object]]) -> dict[str, object]:
     from threat_report_agent.service import AnalysisService
 
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe.VIR",
         evidence=evidence,
     )

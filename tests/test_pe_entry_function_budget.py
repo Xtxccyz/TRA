@@ -51,7 +51,7 @@ def test_ghidra_function_budget_pins_pe_entry_without_api_signal() -> None:
         }
         for index in range(200)
     ]
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         [crt, *noise],
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=96,
@@ -112,7 +112,7 @@ def test_ghidra_function_budget_pins_unique_thread_start_routine() -> None:
         }
         for index in range(200)
     ]
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         [crt, creator, start, *noise],
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=96,
@@ -193,7 +193,7 @@ def test_ghidra_function_budget_pins_unique_thread_start_via_iat_thunk() -> None
         }
         for index in range(200)
     ]
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         [crt, thunk, creator, start, *noise],
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=96,
@@ -242,7 +242,7 @@ def test_ghidra_function_budget_pins_thread_start_from_pe_code_signals() -> None
         }
         for index in range(200)
     ]
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         [crt, start, *noise],
         {
             "entry_rva": 0x1420,
@@ -305,7 +305,7 @@ def test_ghidra_function_budget_pins_functions_that_xref_recovered_xor_vas() -> 
         }
         for index in range(200)
     ]
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         [crt, consumer, *noise],
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=96,
@@ -355,7 +355,7 @@ def test_ghidra_function_budget_pins_createprocess_thunk_callers() -> None:
         }
         for index in range(200)
     ]
-    selected = AnalysisService._select_ghidra_function_rows(
+    selected = AnalysisService.select_ghidra_function_rows(
         [crt, wrapper, *noise],
         {"entry_rva": 0x1420, "image_base": 0x140000000},
         limit=96,
@@ -792,7 +792,7 @@ def test_seed_playbook_claim_gate_keeps_decode_contract_when_imports_dominate() 
     assert "fact:module_input" in drifted.missing or "fact:resolver" in drifted.missing
 
     playbook = MechanismPlaybookRegistry().by_id("xor-config-recovery")
-    seed_gate = AnalysisService._gate_for_seed_playbook(playbook, evidence)
+    seed_gate = AnalysisService.gate_for_seed_playbook(playbook, evidence)
     assert seed_gate is not None
     assert "fact:module_input" not in seed_gate.missing
     assert "fact:resolver" not in seed_gate.missing
@@ -1017,7 +1017,7 @@ def test_process_creation_seed_rows_survive_cluster_filter_and_export_symbol_win
     assert {row.id for row in pinned} >= {call.id, trace.id, flow.id}
 
     playbook = MechanismPlaybookRegistry().by_id("process-execution")
-    seed_gate = AnalysisService._gate_for_seed_playbook(
+    seed_gate = AnalysisService.gate_for_seed_playbook(
         playbook,
         [
             {
@@ -1046,7 +1046,7 @@ def test_process_creation_seed_rows_survive_cluster_filter_and_export_symbol_win
     assert "creation_flags" not in seed_gate.missing
     assert "command_to_process_sink" not in seed_gate.missing
 
-    persist_ready = AnalysisService._persist_time_seed_result(
+    persist_ready = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=[
             {"id": call.id, "kind": call.kind, "nature": call.nature, "value": call.value},
@@ -1063,7 +1063,7 @@ def test_process_creation_seed_rows_survive_cluster_filter_and_export_symbol_win
     assert persist_ready.events[0].phase == "persist_time_claim_ready"
     assert persist_ready.coverage.get("claim_eligible") is True
 
-    incomplete = AnalysisService._persist_time_seed_result(
+    incomplete = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=[
             {
@@ -1275,7 +1275,7 @@ def test_resolved_api_seed_rows_are_pinned_with_catalog_identity() -> None:
     assert {row.id for row in pinned} >= {resolved.id, flow.id}
 
     playbook = MechanismPlaybookRegistry().by_id("dynamic-api-resolution")
-    seed_gate = AnalysisService._gate_for_seed_playbook(
+    seed_gate = AnalysisService.gate_for_seed_playbook(
         playbook,
         [
             {
@@ -1392,7 +1392,7 @@ def test_parent_attribute_seed_rows_are_pinned_and_process_playbook_stays_bound(
     )
     assert contract.accepted
     playbook = MechanismPlaybookRegistry().by_id("ppid-process-chain")
-    seed_gate = AnalysisService._gate_for_seed_playbook(
+    seed_gate = AnalysisService.gate_for_seed_playbook(
         playbook,
         [
             {"id": trace.id, "kind": trace.kind, "nature": trace.nature, "value": trace.value, "anchor": trace.anchor},
@@ -1406,7 +1406,7 @@ def test_parent_attribute_seed_rows_are_pinned_and_process_playbook_stays_bound(
         {"id": trace.id, "kind": trace.kind, "nature": trace.nature, "value": trace.value, "anchor": trace.anchor},
         {"id": flow.id, "kind": flow.kind, "nature": flow.nature, "value": flow.value, "anchor": flow.anchor},
     ]
-    persist_ready = AnalysisService._persist_time_seed_result(
+    persist_ready = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=ppid_rows,
         thread_id="thread-ppid",
@@ -1469,7 +1469,7 @@ def test_ppid_how_seed_claim_ready_from_parent_attribute_immediate() -> None:
     assert not AnalysisService._persist_partial_how_ready("ppid-process-chain", [open_only])
     assert not AnalysisService._persist_partial_how_ready("ppid-process-chain", [flags])
     evidence = [open_only, update, summary, flags]
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-ppid",
@@ -1478,7 +1478,7 @@ def test_ppid_how_seed_claim_ready_from_parent_attribute_immediate() -> None:
     assert result is not None
     assert result.thread_state == InvestigationThreadState.CLAIM_READY
     snapshot: dict[str, object] = {"mechanisms": []}
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-ppid",
         playbook=playbook,
@@ -1532,7 +1532,7 @@ def test_ppid_how_uses_explorer_parent_not_openprocess_handle_dict() -> None:
             },
         },
     ]
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-ppid",
@@ -1540,7 +1540,7 @@ def test_ppid_how_uses_explorer_parent_not_openprocess_handle_dict() -> None:
     )
     assert result is not None
     snapshot: dict[str, object] = {"mechanisms": []}
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-ppid",
         playbook=playbook,
@@ -1597,7 +1597,7 @@ def test_ppid_how_joins_explorer_string_with_process32_enumeration() -> None:
             "value": {"api": "Process32FirstW"},
         },
     ]
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-ppid",
@@ -1605,7 +1605,7 @@ def test_ppid_how_joins_explorer_string_with_process32_enumeration() -> None:
     )
     assert result is not None
     snapshot: dict[str, object] = {"mechanisms": []}
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-ppid",
         playbook=playbook,
@@ -1645,7 +1645,7 @@ def test_ppid_how_ignores_explorer_string_without_process_enumeration() -> None:
             "value": {"text": "explorer.exe"},
         },
     ]
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-ppid",
@@ -1653,7 +1653,7 @@ def test_ppid_how_ignores_explorer_string_without_process_enumeration() -> None:
     )
     assert result is not None
     snapshot: dict[str, object] = {"mechanisms": []}
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-ppid",
         playbook=playbook,
@@ -1696,7 +1696,7 @@ def test_ppid_how_does_not_treat_process32_import_listing_as_enumeration() -> No
             "value": {"name": "Process32FirstW", "external": True, "address": "140046000"},
         },
     ]
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-ppid",
@@ -1704,7 +1704,7 @@ def test_ppid_how_does_not_treat_process32_import_listing_as_enumeration() -> No
     )
     assert result is not None
     snapshot: dict[str, object] = {"mechanisms": []}
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-ppid",
         playbook=playbook,
@@ -1891,7 +1891,7 @@ def test_entrypoint_playbook_skips_trace_without_typed_catalog_contract() -> Non
             "value": {"name": "entry", "entry": "0x140001000"},
         },
     ]
-    assert AnalysisService._persist_time_seed_result(
+    assert AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-entry",
@@ -2128,7 +2128,7 @@ def test_persist_how_claim_specs_mint_process_dynamic_api_and_decode(monkeypatch
             consumer_api="FUN_140004605",
         ),
     }
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe",
         evidence=[
             process_call,
@@ -2232,7 +2232,7 @@ def test_persist_how_claim_specs_mint_process_dynamic_api_and_decode(monkeypatch
 
 def test_persist_how_claim_specs_mint_named_api_without_module_input() -> None:
     """Kunglao DISPATCH_VERIFIER: named API + consumer is a CANDIDATE, not TRACE bait."""
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe",
         evidence=[
             {
@@ -2258,7 +2258,7 @@ def test_persist_how_claim_specs_mint_named_api_without_module_input() -> None:
 
 def test_persist_how_claim_specs_named_api_without_invented_resolver() -> None:
     """Kunglao SUMMARY_FAKE: do not invent GetProcAddress when the row has none."""
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe",
         evidence=[
             {
@@ -2284,7 +2284,7 @@ def test_persist_how_claim_specs_named_api_without_invented_resolver() -> None:
 
 def test_persist_how_claim_specs_mint_unique_thread_start() -> None:
     """Kunglao DISPATCH_VERIFIER: recovered lpStartAddress is a claim, not TRACE bait."""
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe",
         evidence=[
             {
@@ -2501,7 +2501,7 @@ def test_unique_thread_seed_rows_exclude_process_how() -> None:
 
 def test_persist_how_claim_specs_mint_process_from_flags_and_image_string() -> None:
     """Live Resume: empty CreateProcess traces still mint HOW from flags + Foxit image."""
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe",
         evidence=[
             {
@@ -2593,7 +2593,7 @@ def test_persist_how_prefers_recovered_flags_over_specialist_token() -> None:
     prefer the other credible candidate. The fixture carries a credible value
     (``0x00080000``) because a timeout constant must not close the process HOW.
     """
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe",
         evidence=[
             {
@@ -2651,7 +2651,7 @@ def test_persist_how_prefers_recovered_flags_over_specialist_token() -> None:
 
 def test_persist_how_claim_specs_mint_each_named_api() -> None:
     """Kunglao DISPATCH_VERIFIER: each recovered named API is its own claim."""
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe",
         evidence=[
             {
@@ -2706,7 +2706,7 @@ def test_persist_how_claim_specs_mint_each_named_api() -> None:
 
 def test_persist_how_claim_specs_skip_ghidra_function_symbol_as_api() -> None:
     """HOW7: FUN_140001ddd is a start routine, not kernel32.dll!FUN_140001ddd."""
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe",
         evidence=[
             {
@@ -2807,9 +2807,9 @@ def test_persist_time_seed_result_claim_ready_without_module_input() -> None:
             "anchor": {"function_entry": "140038dd0"},
         }
     ]
-    seed_gate = AnalysisService._gate_for_seed_playbook(playbook, evidence)
+    seed_gate = AnalysisService.gate_for_seed_playbook(playbook, evidence)
     assert seed_gate is None or seed_gate.accepted is False
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-dyn",
@@ -2833,7 +2833,7 @@ def test_http_how_seed_skips_trace_without_transport_api() -> None:
             "value": {"text": "WinHTTP export not found"},
         }
     ]
-    assert AnalysisService._persist_time_seed_result(
+    assert AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-http",
@@ -2904,7 +2904,7 @@ def test_http_how_seed_claim_ready_from_decoded_winhttp_and_url() -> None:
     assert AnalysisService._is_http_transport_seed_row(url)
     playbook = MechanismPlaybookRegistry().by_id("http-download")
     evidence = [dos, missing, send, open_request, url]
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=evidence,
         thread_id="thread-http",
@@ -2914,7 +2914,7 @@ def test_http_how_seed_claim_ready_from_decoded_winhttp_and_url() -> None:
     assert result.thread_state == InvestigationThreadState.CLAIM_READY
     assert result.hypothesis_status == "CANDIDATE"
     snapshot: dict[str, object] = {"mechanisms": []}
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-http",
         playbook=playbook,
@@ -2936,7 +2936,7 @@ def test_http_how_seed_claim_ready_from_decoded_winhttp_and_url() -> None:
     assert "http://203.0.113.10/ComHost.exe" in blob
     assert "cannot be run in dos mode" not in blob.casefold()
     assert "export not found" not in blob.casefold()
-    specs = AnalysisService._persist_how_claim_specs(
+    specs = AnalysisService.persist_how_claim_specs(
         artifact_path="Resume.pdf.exe.VIR",
         evidence=evidence,
     )
@@ -2965,7 +2965,7 @@ def test_process_execution_seed_claim_ready_from_flags_and_image_string() -> Non
     assert AnalysisService._is_process_creation_seed_row(flags)
     assert AnalysisService._is_process_creation_seed_row(image)
     playbook = MechanismPlaybookRegistry().by_id("process-execution")
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=[flags, image],
         thread_id="thread-process",
@@ -3157,7 +3157,7 @@ def test_stamp_persist_how_snapshot_keeps_named_api_when_specialist_fails() -> N
             }
         ]
     }
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-api",
         playbook=playbook,
@@ -3192,7 +3192,7 @@ def test_process_seed_stamp_and_emu_from_flags_and_foxit_string() -> None:
         "value": {"encoding": "utf-16le", "text": "FoxitPDFReader.exe"},
     }
     playbook = MechanismPlaybookRegistry().by_id("process-execution")
-    result = AnalysisService._persist_time_seed_result(
+    result = AnalysisService.persist_time_seed_result(
         playbook=playbook,
         evidence=[flags, image],
         thread_id="thread-process",
@@ -3200,7 +3200,7 @@ def test_process_seed_stamp_and_emu_from_flags_and_foxit_string() -> None:
     )
     assert result is not None
     snapshot: dict[str, object] = {"mechanisms": []}
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-process",
         playbook=playbook,
@@ -3249,7 +3249,7 @@ def test_stamp_persist_boundary_writes_http_unknown_not_empty_seed() -> None:
         ),
     )
     snapshot: dict[str, object] = {"mechanisms": []}
-    AnalysisService._stamp_persist_how_snapshot(
+    AnalysisService.stamp_persist_how_snapshot(
         snapshot,
         thread_id="thread-http",
         playbook=playbook,

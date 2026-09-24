@@ -71,7 +71,7 @@ def test_window_keeps_operationally_significant_strings() -> None:
     The budget here is deliberately smaller than the row count, and every fact id
     sorts AFTER every noise id, so this fails on the old `row_id` tiebreak.
     """
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         _rows(),
         referenced_ids=set(),
         limit=8,
@@ -87,7 +87,7 @@ def test_window_keeps_operationally_significant_strings() -> None:
 
 def test_window_still_respects_the_limit() -> None:
     """Prioritising facts must not break the bound itself."""
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         _rows(),
         referenced_ids=set(),
         limit=8,
@@ -104,7 +104,7 @@ def test_window_keeps_cited_evidence_ahead_of_strings() -> None:
     cited = "00000000-0000-4000-8000-000000009999"
     rows = [_noise_row(item) for item in NOISE_IDS] + [_string_row(cited, "cited value")]
     rows += [_string_row(FACT_IDS[name], text) for name, text in FACTS.items()]
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         rows,
         referenced_ids={cited},
         limit=8,
@@ -138,7 +138,7 @@ def test_window_ranks_significant_strings_above_bulk_non_string_rows() -> None:
     rows = bulk + [
         _string_row(FACT_IDS[name], text) for name, text in FACTS.items()
     ]
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         rows,
         referenced_ids=set(),
         limit=6,
@@ -151,8 +151,8 @@ def test_window_ranks_significant_strings_above_bulk_non_string_rows() -> None:
 
 def test_window_is_deterministic() -> None:
     """The same ledger must always yield the same report view."""
-    first = AnalysisService._select_report_evidence_rows(_rows(), referenced_ids=set(), limit=8)
-    second = AnalysisService._select_report_evidence_rows(_rows(), referenced_ids=set(), limit=8)
+    first = AnalysisService.select_report_evidence_rows(_rows(), referenced_ids=set(), limit=8)
+    second = AnalysisService.select_report_evidence_rows(_rows(), referenced_ids=set(), limit=8)
     assert [str(getattr(row, "id", "")) for row in first] == [
         str(getattr(row, "id", "")) for row in second
     ]

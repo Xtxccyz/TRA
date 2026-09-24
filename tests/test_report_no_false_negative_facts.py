@@ -373,7 +373,7 @@ def test_projection_keeps_the_window_that_holds_the_creation_flags() -> None:
         )
         for index in range(20)
     ]
-    selected = AnalysisService._select_report_evidence_rows(
+    selected = AnalysisService.select_report_evidence_rows(
         [SimpleNamespace(**unrelated), *filler, SimpleNamespace(**window_row)],
         referenced_ids=set(),
         limit=64,

@@ -177,7 +177,7 @@ def test_both_call_paths_agree_on_evidence_selection() -> None:
     from_module = revision_writer._select_report_evidence_rows(
         copy.deepcopy(rows), referenced_ids={"e5"}, limit=4
     )
-    from_service = service.AnalysisService._select_report_evidence_rows(
+    from_service = service.AnalysisService.select_report_evidence_rows(
         copy.deepcopy(rows), referenced_ids={"e5"}, limit=4
     )
     assert list(from_module) == list(from_service), "the two homes select different evidence rows"
