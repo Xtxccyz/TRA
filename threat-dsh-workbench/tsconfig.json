@@ -9,6 +9,7 @@
     "ignoreDeprecations": "6.0",
     "allowImportingTsExtensions": true,
     "lib": ["ES2022", "DOM"],
+    "types": ["node"],
     "baseUrl": ".",
     "paths": {
       "@threat-dsh/plugin-sdk": ["packages/threat-plugin-sdk/src/index.ts"],

@@ -80,7 +80,10 @@ function coerceFailureInterpretation(payload: Record<string, unknown>): Record<s
   let token = 'UNKNOWN'
   if (folded.includes('NO_NEW_EVIDENCE') || raw.toUpperCase().includes('NO_NEW_EVIDENCE')) token = 'NO_NEW_EVIDENCE'
   else if (folded.includes('STATIC_BOUNDARY') || raw.toUpperCase().includes('STATIC_BOUNDARY')) token = 'STATIC_BOUNDARY'
-  const next = { ...payload, failure_interpretation: token }
+  // The explicit annotation is REQUIRED, not cosmetic: `{ ...payload, failure_interpretation: token }` is inferred as
+  // `{ failure_interpretation: string }`, dropping the index signature, so the `next.failure_meaning` write below failed
+  // `pnpm typecheck` with TS2339 while the function's own return type is `Record<string, unknown>`.
+  const next: Record<string, unknown> = { ...payload, failure_interpretation: token }
   const meaning = textValue(payload.failure_meaning, 1200) || ''
   if (raw !== token && !meaning.includes(raw)) {
     next.failure_meaning = (meaning ? `${meaning}; ${raw}` : raw).slice(0, 1200)

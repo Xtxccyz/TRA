@@ -12,5 +12,8 @@
     "legacy-guard": "node scripts/legacy-webui-guard.mjs",
     "core-guard": "node scripts/dsh-core-diff-guard.mjs",
     "smoke:dsh": "node scripts/smoke-dsh.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2"
   }
 }
