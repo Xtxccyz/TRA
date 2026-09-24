@@ -198,7 +198,14 @@ rename 表把 `emulation.controlled_emulation` 归一回扁平名（line 221-242
 `forbidden_edges` 补 `("emulation.coordinator", "service"|"reporting"|"models"|"investigation")`，
 要么明确在 P3.5 的证据包里写明"门禁对目标模块不可见"。
 
-**R2（端口缺口）：`ToolExecutionPort` 的接口面与它自己的取消语义不一致。**
+**R2 决议（P3.5-0 已做，2026-09-24）：选 (b) —— `cancel` 直接收 `workflow_id: str`。** 实测依据（`.scratch/d2-r2-measure.py`）：
+* **真正的取消调用点根本不经过端口**：`task/task_runner.py:531` 与 `:640` 都是 `executor.cancel_workflow(workflow_id)`，直接调用实现类，且 id 取自**持久化行**的 `run.environment["workflow_id"]`（`ToolRun` 14 个字段里没有 workflow 列，id 在 `environment` JSON 里）——也就是说调用者手里**从来就是**一个 id 字符串，不是一个 view。
+* `tools/tool_execution.py:1234` 的实现是 `await self.cancel_workflow(request.workflow_id)`，即**今天**的 `cancel(request)` 要求 view 上有 `workflow_id`，而 `ToolRunRequestView` 的 18 个字段里没有它 → 端口在取消方向**确实不闭合**（传 view 过去会 AttributeError）。
+* `ToolRunRequestView` **含全部 10 个 idempotency 输入**（`task_id`/`artifact_id`/`content_sha256`/`tool_name`/`tool_version`/`parameters`/`max_cpu_seconds`/`max_memory_mb`/`task_queue`/`environment_version` 一个不缺），所以 (a) 在技术上可行；**但选 (a) 会让端口自己承担"canonical JSON + sha256 + `toolrun-` 前缀"这套派生**（`tool_execution.py:112-130`），把实现细节变成接口的第二份真相来源。
+* (b) 只改一个方法签名，`execute(view)` 不变，且与端口 docstring 里"cancellation is issued by a DIFFERENT caller ... cancel by workflow id"的既有描述一致 —— 该 docstring 本来就写着取消是按 workflow id 做的。
+
+**以下为决议前的原文（保留为论证记录）：**
+
 `ports.py:283` `execute(request: ToolRunRequestView)`、`:287` `cancel(request: ToolRunRequestView)`，
 但 `ToolRunRequestView`（`:217-238`，19 字段）**没有 `workflow_id`**，也没有 `control_task_queue`；
 而真实取消路径用的是 workflow id（`service.py` 的取消点"cancel by workflow id"写在 `ports.py:278-280` 的说明里，
