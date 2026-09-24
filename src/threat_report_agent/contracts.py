@@ -633,3 +633,16 @@ def transition_task(current: TaskLifecycle | str, target: TaskLifecycle | str) -
     if target_state not in TASK_TRANSITIONS[current_state]:
         raise InvalidStateTransition(f"{current_state.value} -> {target_state.value}")
     return target_state
+
+
+def scoped_investigation_action_key(
+    action_type: str,
+    selector: Mapping[str, object],
+    plan: Mapping[str, object] | None = None,
+) -> str:
+    """Build the durable action key with the mechanism scope, if available."""
+    scope = action_scope_from_plan(plan)
+    payload: dict[str, object] = {"target_selector": dict(selector)}
+    if scope:
+        payload["action_scope"] = scope
+    return canonical_action_key(action_type, payload)

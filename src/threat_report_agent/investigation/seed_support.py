@@ -46,11 +46,15 @@ from typing import Iterable, Mapping
 from threat_report_agent.investigation.investigation import (
     ActionType,
     MechanismPlaybookRegistry,
-    action_scope_from_plan,
 )
 from threat_report_agent.investigation.semantic_predicates import normalize_api_symbol
 from threat_report_agent.models import Evidence
-from threat_report_agent.static.evidence_recovery import canonical_action_key
+
+# MOVED to `contracts.py` (P3.5-0/D-3) and re-exported with `X as X`, so this path and every existing importer
+# keep the SAME function object. The worklist row required the move once the two dependencies
+# (`action_scope_from_plan`, `canonical_action_key`) had themselves been sunk, which M-1 did; `contracts` is
+# importable from every layer, so the direction is legal and no cycle is created.
+from threat_report_agent.contracts import scoped_investigation_action_key as scoped_investigation_action_key  # noqa: E402
 
 
 HOW_SEED_CATEGORIES = frozenset(
@@ -203,21 +207,11 @@ def _provenance_free_digest(item: object) -> str:
 
 
 
-def scoped_investigation_action_key(
-    action_type: str,
-    selector: Mapping[str, object],
-    plan: Mapping[str, object] | None = None,
-) -> str:
-    """Build the durable action key with the mechanism scope, if available."""
-    scope = action_scope_from_plan(plan)
-    payload: dict[str, object] = {"target_selector": dict(selector)}
-    if scope:
-        payload["action_scope"] = scope
-    return canonical_action_key(action_type, payload)
 
 
-#: Backwards-compatible name, kept in place (P3.5-0/D-3). Callers outside this module use the PUBLIC name above; this
-#: alias exists so that anything still spelling the private name keeps working, and it is the SAME function object.
+#: Backwards-compatible name for the re-export above (P3.5-0/D-3 MOVE): the implementation now lives in
+#: `contracts.py`, this name and the public one are the SAME function object, and the alias is kept because a
+#: caller elsewhere may still spell it privately.
 _scoped_investigation_action_key = scoped_investigation_action_key
 
 

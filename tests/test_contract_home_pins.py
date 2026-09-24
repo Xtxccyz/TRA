@@ -32,6 +32,7 @@ HOMES = {
     "transition_task": "contracts.py",
     "FailureInterpretation": "contracts.py",
     "canonical_action_key": "contracts.py",
+    "scoped_investigation_action_key": "contracts.py",
     "fill_protocol": "facts/investigation_protocol.py",
     "is_empty_marker": "facts/investigation_protocol.py",
     "function_call_names": "facts/investigation_protocol.py",
@@ -47,6 +48,7 @@ REEXPORTS = [
     ("threat_report_agent.investigation", "ActionSpec"),
     ("threat_report_agent.investigation.investigation", "ActionSpec"),
     ("threat_report_agent.static.evidence_recovery", "canonical_action_key"),
+    ("threat_report_agent.investigation.seed_support", "scoped_investigation_action_key"),
     ("threat_report_agent.investigation.investigation_protocol", "fill_protocol"),
     ("threat_report_agent.investigation_protocol", "fill_protocol"),
 ]
@@ -107,6 +109,23 @@ def test_the_old_paths_expose_the_same_object_as_the_canonical_home() -> None:
         if getattr(module, attribute) is not canonical:
             broken.append(f"{module_name}.{attribute}")
     assert not broken, f"these paths hold a DIFFERENT object than the canonical home: {broken}"
+
+
+def test_the_private_alias_kept_for_backwards_compatibility_is_the_public_function() -> None:
+    """D-3's alias is a PROMISE, not a leftover: anything still spelling the private name must get the one object.
+
+    Stated separately from `REEXPORTS` because that list maps a path to a CANONICAL name, while this is an alias whose
+    whole purpose is that the old private spelling keeps working after the function moved into the contract layer.
+    """
+    seed_support = importlib.import_module("threat_report_agent.investigation.seed_support")
+    contracts = importlib.import_module("threat_report_agent.contracts")
+    assert hasattr(seed_support, "_scoped_investigation_action_key"), (
+        "the in-place private alias is gone; the worklist row required it to survive the move so no caller breaks"
+    )
+    assert seed_support._scoped_investigation_action_key is contracts.scoped_investigation_action_key, (
+        "the private alias is not the contract layer's function - a caller using the old spelling would get a different "
+        "object, which is exactly what the alias exists to prevent"
+    )
 
 
 def test_the_contract_layer_imports_no_implementation_module() -> None:
