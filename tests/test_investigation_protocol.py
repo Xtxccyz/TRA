@@ -94,15 +94,53 @@ def test_protocol_fills_persist_how_command_named_api_and_decode() -> None:
     assert protocol["consumer"]["status"] == "ANSWERED"
     assert protocol["transformation"]["status"] == "ANSWERED"
     assert "kernel32.dll" not in str(protocol)
-    # MIGRATED in P3.3f-2: `_persist_time_seed_result` moved into `investigation/derivation.py`, so reading it off
-    # `AnalysisService` read a one-statement delegation and this assertion failed for the wrong reason. Same guard -
-    # the persistence path must call `fill_protocol(rows)` - pointed at the implementation's home.
-    persist_source = __import__("inspect").getsource(
-        __import__(
-            "threat_report_agent.investigation.derivation", fromlist=["_persist_time_seed_result"]
-        )._persist_time_seed_result
+    # MIGRATED in P3.3f-2 to the implementation's home, then CONVERTED to a BEHAVIOURAL assertion in P3.7: the
+    # source-text form asserted that the persistence path NAMES `fill_protocol(rows)`, which a rename or an
+    # inlined re-implementation would break for the wrong reason (and a body that merely mentioned the call
+    # without using it would still pass). Running `_persist_time_seed_result` and comparing its published
+    # protocol against `fill_protocol(rows)` for the same rows pins the same requirement - the persistence path
+    # must build the protocol through the ONE shared function - and additionally pins that the protocol is
+    # derived from the persisted rows rather than constant.
+    from threat_report_agent.investigation.derivation import _persist_time_seed_result
+    from threat_report_agent.investigation.investigation import GateDecision
+
+    persisted_rows = [
+        {"id": "e1", "kind": "function_context", "value": {"name": "decode_config"}},
+        {"id": "e2", "kind": "api_argument_trace", "value": {"resolved": True, "api": "LoadLibraryW"}},
+    ]
+
+    class _Host:
+        """Only the two decisions `_persist_time_seed_result` consults."""
+
+        @staticmethod
+        def _gate_for_seed_playbook(playbook: object, rows: object) -> GateDecision:
+            return GateDecision(
+                accepted=True,
+                status="VERIFIED",
+                reason="persist-time catalog facts already satisfy the seed playbook",
+                evidence_ids=("e1", "e2"),
+            )
+
+        @staticmethod
+        def _persist_partial_how_ready(playbook_id: str, rows: object) -> bool:
+            return False
+
+    class _Playbook:
+        id = "persist-time-seed"
+
+    result = _persist_time_seed_result(
+        _Host(),
+        playbook=_Playbook(),
+        evidence=persisted_rows,
+        thread_id="thread-1",
+        artifact_id="artifact-1",
     )
-    assert '"protocol": fill_protocol(rows)' in persist_source or "fill_protocol(rows)" in persist_source
+    assert result is not None, "the seed gate accepted, so a claim-ready result must be published"
+    assert result.coverage["protocol"] == fill_protocol(persisted_rows), (
+        "the persist-time path no longer builds its protocol through the shared `fill_protocol`: the published "
+        f"protocol was {result.coverage['protocol']!r}"
+    )
+    assert result.coverage["protocol"]["initiator"]["value"] == "decode_config"
 
 
 def test_protocol_fills_unique_thread_start_without_inventing() -> None:

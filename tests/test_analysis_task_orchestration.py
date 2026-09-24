@@ -323,6 +323,38 @@ def test_persist_how_ready_skips_mining_when_playbook_is_present() -> None:
     assert mint.calls == ["seed"]
 
 
+def test_a_zero_cost_round_still_mines_and_never_fabricates_persist_ready() -> None:
+    """P3.7: the retired `persist_zero_cost` shortcut, asserted as BEHAVIOUR on `resolve_persist_how_skip`.
+
+    The shortcut read `not model_actions_only and not proposed_actions` - "nothing was proposed, so this
+    round is free / persist-ready". Both calls below ARE that shape. The first shows the mining is still
+    ATTEMPTED (a shortcut would skip it and call the round free); the second shows an unsatisfied gate is not
+    upgraded to a skip. Only a gate that accepts may return READY.
+    """
+    from threat_report_agent.investigation.loop_path import PERSIST_HOW_MINE, PERSIST_HOW_READY
+
+    playbook = SimpleNamespace(id="process-execution", mechanism_type="PROCESS_EXECUTION")
+
+    satisfied = _PersistMint()
+    satisfied.ready = SimpleNamespace(gate=SimpleNamespace(missing=()))
+    ready = satisfied.resolve(playbook=playbook, model_actions_only=False, proposed_actions=())
+    assert ready.disposition == PERSIST_HOW_READY
+    assert satisfied.calls == ["seed"], (
+        "a round with no proposed actions skipped the persist-HOW mining: the retired `persist_zero_cost` "
+        f"shortcut is back (calls={satisfied.calls!r})"
+    )
+
+    unsatisfied = _PersistMint()
+    mined = unsatisfied.resolve(playbook=playbook, model_actions_only=False, proposed_actions=())
+    assert mined.disposition == PERSIST_HOW_MINE, (
+        "an unsatisfied persist gate was turned into a persist skip: a zero-cost shortcut is treating an "
+        "empty proposal list as persist-ready"
+    )
+    assert unsatisfied.calls == ["seed", "boundary"], (
+        f"the mining was not attempted before the skip was decided: {unsatisfied.calls!r}"
+    )
+
+
 def test_persist_how_does_not_call_seed_without_playbook() -> None:
     from threat_report_agent.investigation.loop_path import PERSIST_HOW_MINE
 
@@ -401,8 +433,6 @@ def test_dead_letter_attempts_force_static_boundary() -> None:
 
 
 def test_investigation_loop_resolves_persist_how_before_budget_or_planner() -> None:
-    import inspect
-
     from threat_report_agent.investigation.loop_path import (
         LOOP_PATH_BUDGET_DEFER,
         LOOP_PATH_PERSIST_BOUNDARY,
@@ -413,7 +443,6 @@ def test_investigation_loop_resolves_persist_how_before_budget_or_planner() -> N
         PERSIST_HOW_READY,
         PersistHowDecision,
         next_investigation_loop_path,
-        resolve_persist_how_skip,
     )
 
     ready = PersistHowDecision(PERSIST_HOW_READY, object(), None)
@@ -423,18 +452,187 @@ def test_investigation_loop_resolves_persist_how_before_budget_or_planner() -> N
     assert next_investigation_loop_path(boundary, budget_exhausted=True) == LOOP_PATH_PERSIST_BOUNDARY
     assert next_investigation_loop_path(mine, budget_exhausted=True) == LOOP_PATH_BUDGET_DEFER
     assert next_investigation_loop_path(mine, budget_exhausted=False) == LOOP_PATH_PLANNER
+    # P3.7: the two `persist_zero_cost` NEGATIVE guards that used to stand here - one against this function,
+    # one against `resolve_persist_how_skip` - are replaced by the behaviour they named. The retired shortcut
+    # treated "nothing was proposed" as a zero-cost route to the persist-ready branch. `mine` IS that shape
+    # (no mined result at all), so the two properties below are what a reintroduced shortcut breaks: it could
+    # never reach the persist-ready branch at any budget, and the budget alone decides DEFER vs PLANNER.
+    reached = {
+        budget: next_investigation_loop_path(mine, budget_exhausted=budget)
+        for budget in (True, False)
+    }
+    assert LOOP_PATH_PERSIST_READY not in reached.values(), (
+        "a decision carrying no mined result was routed to the persist-ready branch: the retired "
+        f"`persist_zero_cost` shortcut is back ({reached!r})"
+    )
+    assert reached == {
+        True: LOOP_PATH_BUDGET_DEFER,
+        False: LOOP_PATH_PLANNER,
+    }, f"the budget no longer decides defer-vs-planner for an unmined seed: {reached!r}"
 
-    # MIGRATED in P3.3f-2: `_run_investigation_loop` is a one-statement delegation on `AnalysisService` now, so
-    # `getsource` on the class returned the delegation and the assertions below failed for the wrong reason. The guard's
-    # intent is unchanged - the loop's own body must consult the loop-path decision and must not carry the retired
-    # `persist_zero_cost` shortcut - so it reads the implementation where it lives.
-    from threat_report_agent.investigation.derivation import _run_investigation_loop
 
-    loop_source = inspect.getsource(_run_investigation_loop)
-    assert "next_investigation_loop_path" in loop_source
-    assert "persist_zero_cost = not model_actions_only and not proposed_actions" not in loop_source
-    assert "persist_zero_cost" not in inspect.getsource(next_investigation_loop_path)
-    assert "persist_zero_cost" not in inspect.getsource(resolve_persist_how_skip)
+def test_investigation_loop_defers_an_unmined_seed_once_the_budget_is_spent(
+    test_settings,
+) -> None:
+    """P3.7: the loop's own routing, as behaviour - it consults the loop-path decision, not a cost guess.
+
+    Replaces the last two `getsource` guards on the loop body (`"next_investigation_loop_path" in` it, and
+    the `persist_zero_cost` NEGATIVE). `persist_zero_cost` read `not model_actions_only and not
+    proposed_actions`, i.e. "a round that proposed nothing is zero-cost, so do NOT defer it". This fixture is
+    exactly that shape and the budget is spent by an earlier seed IN THE SAME invocation, so the two
+    behaviours differ observably: the retired shortcut mined the seed, while the loop-path decision must
+    leave it DEFERRED with `INVESTIGATION_BUDGET_EXHAUSTED` so a later bounded pass can close it.
+    """
+    from dataclasses import replace
+
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.database import Database
+    from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob, Evidence, ToolRun
+    from threat_report_agent.service import AnalysisService
+
+    settings = replace(
+        test_settings, environment="development", investigation_task_max_actions=1
+    )
+    database = Database(settings.database_url)
+    service = AnalysisService(
+        settings, database, LocalContentStore(settings.content_store_path)
+    )
+    database.create_schema()
+    case = service.create_case("loop budget deferral")
+    with database.session_factory.begin() as session:
+        session.add(
+            ContentBlob(
+                sha256="5" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/loop-budget-deferral",
+            )
+        )
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            id="artifact-budget-deferral",
+            task_id=task.id,
+            content_sha256="5" * 64,
+            logical_path="sample.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        run = ToolRun(
+            task_id=task.id,
+            artifact_id=artifact.id,
+            tool_name="ghidra-headless",
+            tool_version="test",
+            status="SUCCEEDED",
+        )
+        session.add(run)
+        session.flush()
+        session.add(
+            Evidence(
+                id="create-process-trace",
+                task_id=task.id,
+                artifact_id=artifact.id,
+                tool_run_id=run.id,
+                module="static",
+                kind="api_argument_trace",
+                nature="STATIC_DERIVED",
+                value={"api": "CreateProcessW", "command": "cmd.exe"},
+                anchor={"function_entry": "0x401000"},
+            )
+        )
+        session.add(
+            Evidence(
+                id="func-entry",
+                task_id=task.id,
+                artifact_id=artifact.id,
+                tool_run_id=run.id,
+                module="static",
+                kind="function",
+                nature="STATIC_DERIVED",
+                value={"entry": "0x401000"},
+                anchor={"function_entry": "0x401000"},
+            )
+        )
+        session.add(
+            Evidence(
+                id="thread-context",
+                task_id=task.id,
+                artifact_id=artifact.id,
+                tool_run_id=run.id,
+                module="static",
+                kind="function_context",
+                nature="STATIC_DERIVED",
+                value={"entry": "0x401000"},
+                anchor={"function_entry": "0x401000"},
+            )
+        )
+        task.strategy_snapshot = {
+            "investigation": {
+                "threads": [],
+                "seed_maps": {
+                    artifact.id: {
+                        "clusters": [
+                            {
+                                # A CreateProcess trace WITHOUT the creation flags: the persist-time seed
+                                # gate cannot close on it, so this seed is MINE and must be planned.
+                                "id": "process-cluster",
+                                "category": "process",
+                                "question": "How is the child process created?",
+                                "evidence_ids": ["create-process-trace", "func-entry"],
+                            },
+                            {
+                                "id": "thread-cluster",
+                                "category": "thread",
+                                "question": "Which thread start is recovered?",
+                                "evidence_ids": ["thread-context"],
+                            },
+                        ]
+                    }
+                },
+            }
+        }
+        task_id = task.id
+        artifact_id = artifact.id
+
+    limitations = service._run_investigation_loop(task_id)
+
+    snapshot = service.task_view(task_id)["strategy_snapshot"]["investigation"]
+    ledger = [dict(item) for item in (snapshot.get("work_ledger") or [])]
+    deferred = [
+        item
+        for item in ledger
+        if str(item.get("status") or "").upper() == "DEFERRED"
+        and str(item.get("reason") or "").upper() == "INVESTIGATION_BUDGET_EXHAUSTED"
+    ]
+    assert deferred, (
+        "no seed was left DEFERRED after the invocation budget was spent; the loop either ignored the "
+        "loop-path decision or treated the round as zero-cost. "
+        f"ledger={ledger!r} runtime={(snapshot.get('runtime') or {}).get('events')!r} "
+        f"limitations={limitations!r} artifact={artifact_id}"
+    )
+    # Positive control: the deferral must be BECAUSE the invocation budget was spent (the loop's own
+    # `action_budget` projection must read used == limit == 1). If an earlier seed stops charging the action
+    # it attempted, the budget never becomes exhausted and this fails instead of the test passing because
+    # the seed was unmined for some other reason.
+    budget = dict(snapshot.get("action_budget") or {})
+    assert (budget.get("scope"), budget.get("limit"), budget.get("used")) == ("invocation", 1, 1), (
+        f"the seed was deferred without the invocation budget being spent: action_budget={budget!r}"
+    )
+    # Anchored a second time on the phase the budget-defer branch records. The reason string alone is also
+    # written when an over-budget ACTION is parked (a different branch that never consults the loop-path
+    # decision), so this is what keeps the assertion specific to the deferral of the SEED.
+    runtime_events = (snapshot.get("runtime") or {}).get("events") or []
+    assert any(
+        str(event.get("phase") or "") == "budget_deferred"
+        and str(event.get("thread_id") or "") in {str(item.get("thread_id")) for item in deferred}
+        for event in runtime_events
+    ), (
+        "the deferred seed was not recorded in the runtime projection as `budget_deferred`: "
+        f"events={runtime_events!r}"
+    )
 
 
 def test_persist_how_is_not_ready_while_recoverable_gaps_remain() -> None:

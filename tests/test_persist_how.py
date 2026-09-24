@@ -14,17 +14,20 @@ def test_process_verifiers_are_wired_into_the_live_mechanism_path() -> None:
     A verifier that is registered but never called is not implemented. This asserts
     both halves: dispatching each mechanism type reaches that specific function, and
     the live post-emulation path actually goes through ``verify_mechanism``.
-    """
-    import inspect
 
+    P3.7: the two `getsource` guards that used to close this test - `"verify_mechanism" in
+    getsource(apply_emulation_reverification)` and `"apply_emulation_reverification" in
+    getsource(AnalysisService._reverify_how_after_emulation)` - are gone. Their subject (does the LIVE
+    post-emulation path arrive at `verify_mechanism`?) is asserted below by RUNNING it end to end, through
+    the public orchestration entry point, and reading the row it writes back; a grep could be satisfied by
+    a mention in a comment, which is exactly the failure mode measured in this family.
+    """
     from threat_report_agent.investigation import (
         verify_mechanism,
         verify_ppid_mechanism,
         verify_process_execution_mechanism,
         verify_thread_callback_mechanism,
     )
-    from threat_report_agent.investigation import apply_emulation_reverification
-    from threat_report_agent.service import AnalysisService
 
     rows: list[dict[str, object]] = []
     for mechanism_type, direct in (
@@ -39,11 +42,116 @@ def test_process_verifiers_are_wired_into_the_live_mechanism_path() -> None:
         assert dispatched.accepted == expected.accepted, mechanism_type
         assert dispatched.missing == expected.missing, mechanism_type
 
-    # The live post-emulation revertification reaches verify_mechanism through
-    # apply_emulation_reverification, which is the documented call path.
-    assert "verify_mechanism" in inspect.getsource(apply_emulation_reverification)
-    reverify_source = inspect.getsource(AnalysisService._reverify_how_after_emulation)
-    assert "apply_emulation_reverification" in reverify_source
+
+def test_live_post_emulation_path_reaches_verify_mechanism_and_persists_its_verdict(
+    test_settings, monkeypatch
+) -> None:
+    """§7.5, as behaviour: a real simulation result must reach `verify_mechanism` and be written back.
+
+    Replacement for the two source guards in the test above. The public entry point
+    (`run_emulation_informed_investigation`) is run against a real database; the only stand-ins are the two
+    hops this test is NOT about - the emulator dispatch (made to land one real `simulation_result` row) and
+    the follow-up loop (recorded, not run). The observables are then the recorded dispatch into
+    `verify_mechanism` and the persisted mechanism row, so a broken hop fails here whatever the source says.
+    """
+    from dataclasses import replace
+
+    import threat_report_agent.investigation.investigation as investigation_module
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.database import Database
+    from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob, Evidence, ToolRun
+    from threat_report_agent.service import AnalysisService
+    from threat_report_agent.task.analysis_task_orchestration import (
+        run_emulation_informed_investigation,
+    )
+
+    settings = replace(test_settings, environment="development", model_calls_enabled=True)
+    database = Database(settings.database_url)
+    service = AnalysisService(settings, database, LocalContentStore(settings.content_store_path))
+    database.create_schema()
+    case = service.create_case("live post-emulation reverification")
+    mechanism = {"id": "mech-exec", "mechanism_type": "PROCESS_EXECUTION", "status": "CANDIDATE"}
+    with database.session_factory.begin() as session:
+        session.add(
+            ContentBlob(
+                sha256="9" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/live-reverification",
+            )
+        )
+        task = AnalysisTask(
+            case_id=case.id,
+            lifecycle="RUNNING",
+            strategy_snapshot={"investigation": {"mechanisms": [dict(mechanism)]}},
+        )
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            id="artifact-live-reverify",
+            task_id=task.id,
+            content_sha256="9" * 64,
+            logical_path="sample.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        run = ToolRun(
+            task_id=task.id,
+            artifact_id=artifact.id,
+            tool_name="controlled-emulator",
+            tool_version="test",
+            status="SUCCEEDED",
+        )
+        session.add(run)
+        session.flush()
+        task_id = task.id
+        artifact_id = artifact.id
+        run_id = run.id
+
+    def dispatch_post_static_emulation(inner_task_id: str) -> list[str]:
+        """The worker's real rows would land here; one SUCCEEDED simulation_result is what matters."""
+        with database.session_factory.begin() as session:
+            session.add(
+                Evidence(
+                    id="sim-real",
+                    task_id=inner_task_id,
+                    artifact_id=artifact_id,
+                    tool_run_id=run_id,
+                    module="emulation",
+                    kind="simulation_result",
+                    nature="EMULATION_OBSERVED",
+                    value={"status": "SUCCEEDED", "simulator": "unicorn"},
+                    anchor={},
+                )
+            )
+        return ["dispatched"]
+
+    dispatched_mechanisms: list[str] = []
+    real_verify_mechanism = investigation_module.verify_mechanism
+
+    def spy_verify_mechanism(mechanism_type, evidence):  # noqa: ANN001, ANN202 - mirrors the real signature
+        dispatched_mechanisms.append(str(mechanism_type).upper())
+        return real_verify_mechanism(mechanism_type, evidence)
+
+    monkeypatch.setattr(service, "_run_post_static_emulation", dispatch_post_static_emulation)
+    monkeypatch.setattr(service, "_run_investigation_loop", lambda task_id, **kwargs: [])
+    monkeypatch.setattr(investigation_module, "verify_mechanism", spy_verify_mechanism)
+
+    run_emulation_informed_investigation(service, task_id, saturated=False)
+
+    assert dispatched_mechanisms == ["PROCESS_EXECUTION"], (
+        "the live post-emulation path never dispatched the mechanism to `verify_mechanism`; the verifier is "
+        "registered but unreachable, which §7.5 counts as not implemented"
+    )
+    with database.session_factory() as session:
+        persisted = dict(session.get(AnalysisTask, task_id).strategy_snapshot or {})
+    stored = dict(persisted.get("investigation") or {}).get("mechanisms") or []
+    assert stored and stored[0].get("verifier"), (
+        "the live path reached `apply_emulation_reverification` but the verdict it produced was not written "
+        f"back to the task: {stored!r}"
+    )
 
 
 def test_persist_how_mints_named_api_without_module_input() -> None:

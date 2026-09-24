@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -1176,11 +1175,75 @@ def test_worker_runs_qiling_linux_elf_when_rootfs_pinned(test_settings, tmp_path
     assert "linux" in explained
 
 
-def test_post_static_emulation_does_not_disable_policy_speakeasy() -> None:
-    from threat_report_agent.service import AnalysisService
+def test_post_static_emulation_does_not_disable_policy_speakeasy(
+    test_settings, monkeypatch
+) -> None:
+    """The post-static dispatch must forward the configured Speakeasy decision.
 
-    source = inspect.getsource(AnalysisService._run_post_static_emulation)
-    assert "allow_speakeasy=False" not in source
+    Behavioural replacement for the former `"allow_speakeasy=False" not in source` guard: the
+    former text check could not tell whether the request actually dispatched carries the operator's
+    decision. Here the real post-static path runs against a recording tool executor, so the
+    assertion is on the request that reaches the worker: forcing Speakeasy off makes the full-PE
+    emulator unreachable, which is what the guard existed to prevent.
+    """
+    from threat_report_agent import service as service_module
+    from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob
+    from threat_report_agent.service import AnalysisService
+    from threat_report_agent.tools.tool_execution import ToolRunResult
+
+    settings = replace(
+        test_settings,
+        simulation_profile="static-first-controlled-emulation",
+        simulation_worker_identity="controlled-emu-worker-v1",
+        simulation_worker_image_digest="sha256:emu-worker-v1",
+        simulation_allowed_simulators=("unicorn", "speakeasy"),
+        simulation_allow_local_process=False,
+        tool_execution_mode="temporal",
+    )
+    database = Database(settings.database_url)
+    store = LocalContentStore(settings.content_store_path)
+    service = AnalysisService(settings, database, store)
+    database.create_schema()
+    case = service.create_case("post-static speakeasy policy")
+    with database.session_factory.begin() as session:
+        stored = store.put(b"MZ" + b"\x00" * 256)
+        session.add(
+            ContentBlob(
+                sha256=stored.sha256,
+                size=stored.size,
+                media_type="application/octet-stream",
+                storage_key=stored.storage_key,
+            )
+        )
+        session.flush()
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256=stored.sha256,
+            logical_path="sample.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        task_id = task.id
+
+    dispatched: list[ToolRunRequest] = []
+
+    async def fake_execute(_executor, request):  # noqa: ANN001 - mirrors TemporalToolExecutor.execute
+        dispatched.append(request)
+        return ToolRunResult(status="FAILED", error="NO_GRANTED_WINDOW")
+
+    monkeypatch.setattr(service_module.TemporalToolExecutor, "execute", fake_execute)
+    service._run_post_static_emulation(task_id)
+    assert dispatched, "the post-static path dispatched no emulator request"
+    assert dispatched[0].parameters["allow_speakeasy"] is True, (
+        "the post-static dispatch must not override the configured Speakeasy decision; the "
+        "request that reached the worker carried "
+        f"{dispatched[0].parameters.get('allow_speakeasy')!r}"
+    )
 
 
 def test_post_static_emulation_needed_when_unicorn_is_only_deferred() -> None:
@@ -1236,6 +1299,93 @@ def test_placeholder_simulation_does_not_cover_a_start_routine() -> None:
     assert not simulation_covers_request(deferred, "0x401000")
 
 
+class _EmuPhaseRuntime:
+    """A recording collaborator for the analysis phase machine.
+
+    The phase functions are driven with this instead of `inspect.getsource`: the claims under
+    test are about WHICH runtime method the phase machine calls, in WHICH order, and about the
+    work-ledger state at the moment the worker is dispatched - none of which source text can
+    prove. ``_run_emulation_informed_investigation`` deliberately delegates to the real phase
+    function so the nested dispatch/reverify order is exercised rather than recorded.
+    """
+
+    def __init__(self, ledger: list[dict[str, object]] | None = None) -> None:
+        self.ledger = [dict(item) for item in (ledger or [])]
+        self.calls: list[object] = []
+        self.simulation_rows = 0
+        self.ledger_at_emulation: list[str] = []
+
+    def _work_ledger(self, task_id: str) -> list[dict[str, object]]:
+        del task_id
+        return [dict(item) for item in self.ledger]
+
+    def _park_open_ledger(self, task_id: str) -> None:
+        del task_id
+        self.calls.append("park")
+        self.ledger = [
+            {
+                **item,
+                "status": "DEFERRED",
+                "next_method": ActionType.CONTROLLED_EMULATE.value,
+            }
+            if str(item.get("status") or "").upper() == "OPEN"
+            else dict(item)
+            for item in self.ledger
+        ]
+
+    def _finalize_tail_ledger(self, task_id: str) -> None:
+        del task_id
+        self.calls.append("finalize")
+        self.ledger = [
+            {**item, "status": "UNKNOWN"}
+            if str(item.get("status") or "").upper() == "DEFERRED"
+            else dict(item)
+            for item in self.ledger
+        ]
+
+    def _run_investigation_loop(self, task_id: str, **kwargs: object) -> list[str]:
+        del task_id
+        self.calls.append(("investigation_loop", str(kwargs.get("ledger_phase") or "coverage")))
+        return []
+
+    def _run_post_static_emulation(self, task_id: str) -> list[str]:
+        del task_id
+        self.calls.append("post_static_emulation")
+        self.ledger_at_emulation = [str(item.get("status") or "") for item in self.ledger]
+        self.simulation_rows += 1
+        return []
+
+    def _deferred_budget_thread_ids(self, task_id: str) -> tuple[str, ...]:
+        del task_id
+        return ()
+
+    def _unattempted_seed_thread_ids(self, task_id: str) -> tuple[str, ...]:
+        del task_id
+        return ()
+
+    def _real_simulation_result_count(self, task_id: str) -> int:
+        del task_id
+        return self.simulation_rows
+
+    def _reverify_how_after_emulation(self, task_id: str) -> None:
+        del task_id
+        self.calls.append("reverify_how")
+
+    def _run_saturated_investigation(self, task_id: str) -> list[str]:
+        del task_id
+        self.calls.append("saturated")
+        return []
+
+    def _run_emulation_informed_investigation(
+        self, task_id: str, *, saturated: bool = True
+    ) -> list[str]:
+        from threat_report_agent.task.analysis_task_orchestration import (
+            run_emulation_informed_investigation,
+        )
+
+        return run_emulation_informed_investigation(self, task_id, saturated=saturated)
+
+
 def test_analysis_dispatches_isolated_emu_then_continues_investigation() -> None:
     """Kunglao DISPATCH then continue: emu is not a tail job after saturation."""
     from threat_report_agent.task.analysis_task_orchestration import (
@@ -1243,32 +1393,147 @@ def test_analysis_dispatches_isolated_emu_then_continues_investigation() -> None
         run_analysis_task_investigation,
         run_emulation_informed_investigation,
     )
+
+    composed = _EmuPhaseRuntime()
+    run_analysis_task_investigation(composed, "task-1")
+    assert composed.calls == [
+        "saturated",
+        "post_static_emulation",
+        "reverify_how",
+        "saturated",
+    ], f"saturation must happen before the emulation-informed pass: {composed.calls}"
+
+    informed = _EmuPhaseRuntime()
+    run_emulation_informed_investigation(informed, "task-2")
+    assert informed.calls == ["post_static_emulation", "reverify_how", "saturated"], (
+        "the emulation-informed pass must dispatch the worker, reverify on the new rows, then "
+        f"continue: {informed.calls}"
+    )
+
+    workbench = _EmuPhaseRuntime()
+    continue_investigation_after_action(workbench, "task-3")
+    assert workbench.calls == [
+        "post_static_emulation",
+        "reverify_how",
+        ("investigation_loop", "coverage"),
+    ], f"the Workbench path must never saturate: {workbench.calls}"
+    assert "saturated" not in workbench.calls
+
+
+def test_service_facade_drives_the_orchestration_phase_functions(
+    test_settings, monkeypatch
+) -> None:
+    """Both public submit paths must reach the phase functions they claim to drive.
+
+    Behavioural replacement for `"run_analysis_task_investigation" in getsource(_run_analysis)`
+    and `"continue_investigation_after_action" in getsource(workbench_submit_action)`: the
+    collaboration is recorded on the real public calls (`analyze_submission`,
+    `workbench_submit_action`) rather than read out of their bodies.
+    """
+    from threat_report_agent import service as service_module
+    from threat_report_agent.investigation import ActionType
+    from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob
     from threat_report_agent.service import AnalysisService
 
-    analysis = inspect.getsource(AnalysisService._run_analysis)
-    workbench = inspect.getsource(AnalysisService.workbench_submit_action)
-    composed = inspect.getsource(run_analysis_task_investigation)
-    informed = inspect.getsource(run_emulation_informed_investigation)
-    workbench_continue = inspect.getsource(continue_investigation_after_action)
-    assert "run_analysis_task_investigation" in analysis
-    saturate = composed.index("_run_saturated_investigation")
-    after_emu = composed.index("_run_emulation_informed_investigation")
-    assert saturate < after_emu
-    assert "_run_post_static_emulation" in informed
-    assert "_run_saturated_investigation" in informed
-    assert "saturated=False" in workbench_continue
-    assert "continue_investigation_after_action" in workbench
+    database = Database(test_settings.database_url)
+    store = LocalContentStore(test_settings.content_store_path)
+    service = AnalysisService(test_settings, database, store)
+    database.create_schema()
+
+    analysis_calls: list[tuple[object, str]] = []
+
+    def fake_run_analysis_task_investigation(runtime: object, task_id: str) -> list[str]:
+        analysis_calls.append((runtime, task_id))
+        return []
+
+    monkeypatch.setattr(
+        service_module, "run_analysis_task_investigation", fake_run_analysis_task_investigation
+    )
+    case = service.create_case("facade drives orchestration")
+    submission = service.analyze_submission(
+        case_id=case.id,
+        filename="facade_phases.py",
+        content=b"import socket\nsocket.socket().connect(('example.invalid', 443))\n",
+    )
+    assert [(runtime is service, task_id) for runtime, task_id in analysis_calls] == [
+        (True, submission.task_id)
+    ], "analyze_submission did not drive its investigation through run_analysis_task_investigation"
+
+    with database.session_factory.begin() as session:
+        stored = store.put(b"MZ" + b"\x00" * 256)
+        session.add(
+            ContentBlob(
+                sha256=stored.sha256,
+                size=stored.size,
+                media_type="application/octet-stream",
+                storage_key=stored.storage_key,
+            )
+        )
+        session.flush()
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256=stored.sha256,
+            logical_path="sample.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        task_id, artifact_id = task.id, artifact.id
+
+    workbench_calls: list[tuple[object, str]] = []
+
+    def fake_continue_investigation_after_action(runtime: object, task_id: str) -> list[str]:
+        workbench_calls.append((runtime, task_id))
+        return []
+
+    monkeypatch.setattr(
+        service_module,
+        "continue_investigation_after_action",
+        fake_continue_investigation_after_action,
+    )
+    monkeypatch.setattr(service, "_run_investigation_loop", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(service, "_refresh_report_after_investigation", lambda _task_id: {})
+    result = service.workbench_submit_action(
+        task_id,
+        {
+            "action_type": ActionType.READ_BYTES.value,
+            "target_artifact_id": artifact_id,
+            "target_selector": {"function_entry": "0x401000"},
+            "expected_evidence_kinds": ["granted_window"],
+            "origin": "human",
+        },
+    )
+    assert result["accepted"] is True
+    assert workbench_calls == [(service, task_id)], (
+        "workbench_submit_action did not continue the investigation after the action: "
+        f"{workbench_calls}"
+    )
 
 
 def test_saturated_investigation_dispatches_emu_before_deferred_tail() -> None:
     """Coverage placeholders must not be finalized UNKNOWN before the worker runs."""
     from threat_report_agent.task.analysis_task_orchestration import run_saturated_investigation
 
-    source = inspect.getsource(run_saturated_investigation)
-    coverage = source.index('ledger_phase="coverage"')
-    emu = source.index("_run_post_static_emulation")
-    tail = source.index('ledger_phase="tail"')
-    assert coverage < emu < tail
+    runtime = _EmuPhaseRuntime(
+        [{"id": "thread-how", "status": "OPEN", "next_method": ""}]
+    )
+    run_saturated_investigation(runtime, "task-1")
+    assert runtime.calls == [
+        ("investigation_loop", "coverage"),
+        "park",
+        "post_static_emulation",
+        ("investigation_loop", "tail"),
+        "finalize",
+    ], f"the worker must run between the coverage and tail passes: {runtime.calls}"
+    assert runtime.ledger_at_emulation == ["DEFERRED"], (
+        "the deferred seed was finalized before the isolated worker was dispatched: "
+        f"{runtime.ledger_at_emulation}"
+    )
+    assert runtime.ledger[0]["status"] == "UNKNOWN"
 
 
 def test_emulation_informed_investigation_continues_when_worker_writes_real_rows(
@@ -1733,12 +1998,69 @@ def test_local_controlled_emulate_requests_speakeasy_when_policy_allows(
     assert captured["allow_speakeasy"] is False
 
 
-def test_post_static_emulation_selects_elf_and_qiling() -> None:
+def test_post_static_emulation_selects_elf_and_qiling(test_settings, monkeypatch) -> None:
+    """An ELF artifact must be selected for isolated emulation, not only a PE.
+
+    Behavioural replacement for `'detected_type.in_(("pe", "elf"))' in source`: an ELF-only task
+    is dispatched to the emulator, which only happens if the artifact query matches "elf".
+    """
     from threat_report_agent.controlled_emulation import post_static_emulation_needed
+    from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob
     from threat_report_agent.service import AnalysisService
 
-    source = inspect.getsource(AnalysisService._run_post_static_emulation)
-    assert 'detected_type.in_(("pe", "elf"))' in source
+    settings = replace(
+        test_settings,
+        simulation_profile="static-first-controlled-emulation",
+        simulation_worker_identity="controlled-emu-worker-v1",
+        simulation_worker_image_digest="sha256:emu-worker-v1",
+        simulation_allowed_simulators=("qiling",),
+        simulation_allow_local_process=False,
+    )
+    database = Database(settings.database_url)
+    store = LocalContentStore(settings.content_store_path)
+    service = AnalysisService(settings, database, store)
+    database.create_schema()
+    case = service.create_case("post-static elf selection")
+    with database.session_factory.begin() as session:
+        stored = store.put(linux_x86_64_exit_elf())
+        session.add(
+            ContentBlob(
+                sha256=stored.sha256,
+                size=stored.size,
+                media_type="application/octet-stream",
+                storage_key=stored.storage_key,
+            )
+        )
+        session.flush()
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256=stored.sha256,
+            logical_path="sample.elf",
+            detected_type="elf",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        task_id, artifact_id = task.id, artifact.id
+
+    dispatched: list[tuple[str, dict[str, object]]] = []
+
+    def fake_dispatch(
+        task_id: str, artifact_id: str, _entry: object, **kwargs: object
+    ) -> list[str]:
+        dispatched.append((artifact_id, kwargs))
+        return []
+
+    monkeypatch.setattr(service, "_run_controlled_emulator", fake_dispatch)
+    service._run_post_static_emulation(task_id)
+    assert [item[0] for item in dispatched] == [artifact_id], (
+        "the ELF artifact was not selected for post-static emulation: "
+        f"{[item[0] for item in dispatched]}"
+    )
+    assert dispatched[0][1].get("scheduler") == "post_static_emulation"
     assert post_static_emulation_needed(
         allowed_simulators=("qiling",),
         artifact_type="elf",
@@ -1924,13 +2246,90 @@ def test_emulation_overall_keeps_unicorn_success_when_speakeasy_fails() -> None:
     assert failed_error == "EXECUTION_ERROR"
 
 
-def test_emu_worker_does_not_default_speakeasy_on() -> None:
-    from threat_report_agent.tools.tool_execution import StaticToolActivities
+def test_emu_worker_does_not_default_speakeasy_on(test_settings, tmp_path, monkeypatch) -> None:
+    """Speakeasy is opt-in per request, and the run status is aggregated from the windows.
 
-    source = inspect.getsource(StaticToolActivities._execute_controlled_emulator)
-    assert 'get("allow_speakeasy", False)' in source
-    assert 'get("allow_speakeasy", True)' not in source
-    assert "emulation_overall_from_results" in source
+    Behavioural replacement for three source-text checks on the worker: the parameter default is
+    a DENY (`get("allow_speakeasy", False)`, never `True`) and the overall status comes from
+    `emulation_overall_from_results`. All three are observed here by running the real worker with
+    deterministic per-simulator adapters.
+    """
+    from threat_report_agent.tools import tool_execution
+    from threat_report_agent.tools.tool_execution import StaticToolActivities, ToolRunRequest
+
+    settings = replace(
+        test_settings,
+        simulation_profile="static-first-controlled-emulation",
+        simulation_worker_identity="controlled-emu-worker-v1",
+        simulation_worker_image_digest="sha256:emu-worker-v1",
+        simulation_allowed_simulators=("unicorn", "speakeasy"),
+        simulation_allow_local_process=False,
+        simulation_timeout_seconds=8,
+        simulation_instruction_budget=64,
+        content_store_path=str(tmp_path / "content"),
+    )
+    store = LocalContentStore(settings.content_store_path)
+    source = store.put(b"MZ" + b"\x00" * 256)
+    activity = StaticToolActivities(settings, store)
+
+    def fixed_runner(_policy=None, *, execute_in_process=None):  # noqa: ANN001 - mirrors the seam
+        return SimpleNamespace(
+            adapters={
+                "unicorn": lambda _request: SimulationResult(
+                    "SUCCEEDED", "unicorn", stop_reason="UNMAPPED_RETURN"
+                ),
+                "speakeasy": lambda _request: SimulationResult(
+                    "FAILED", "speakeasy", stop_reason="EXECUTION_ERROR"
+                ),
+            }
+        )
+
+    monkeypatch.setattr(tool_execution, "default_simulation_runner", fixed_runner)
+    granted = [
+        {
+            "simulator": "unicorn",
+            "entry_address": 0x401000,
+            "input_hex": (b"\x90" * 16).hex(),
+        }
+    ]
+
+    def run(tool_run_id: str, parameters: dict[str, object]) -> dict[str, object]:
+        request = ToolRunRequest(
+            case_id="case-1",
+            task_id="task-1",
+            trace_id="trace-1",
+            artifact_id="artifact-1",
+            tool_run_id=tool_run_id,
+            tool_name="controlled-emulator",
+            tool_version="0.1.0",
+            content_sha256=source.sha256,
+            storage_key=source.storage_key,
+            logical_path="sample.exe",
+            parameters=parameters,
+            max_cpu_seconds=8,
+            max_memory_mb=512,
+            task_queue="static-emu",
+            sample_execution=False,
+            network_access=False,
+        )
+        result = activity._execute(request)
+        return __import__("json").loads(store.read(str(result["output_storage_key"])))
+
+    defaulted = run("emu-default", {"granted_windows": granted})
+    assert "speakeasy" not in {
+        str(item.get("simulator")) for item in defaulted["results"]
+    }, "a request that omits allow_speakeasy must not run the full-PE emulator"
+
+    allowed = run("emu-allowed", {"granted_windows": granted, "allow_speakeasy": True})
+    statuses = {
+        str(item.get("simulator")): str(item.get("status")) for item in allowed["results"]
+    }
+    assert statuses.get("speakeasy") == "FAILED", statuses
+    assert statuses.get("unicorn") == "SUCCEEDED", statuses
+    assert allowed["status"] == "SUCCEEDED", (
+        "the worker status must be aggregated from the per-window results: a FAILED Speakeasy "
+        f"window erased the SUCCEEDED Unicorn window ({statuses})"
+    )
 
 
 def test_placeholder_simulation_is_not_attempted_emulation() -> None:

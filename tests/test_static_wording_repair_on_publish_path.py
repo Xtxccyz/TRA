@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+
 from threat_report_agent import analyst_report, product_certification, reporting
 
 #: One probe sentence per gate pattern. The gate evaluates the smallest punctuation-delimited clause, so each
@@ -57,15 +59,38 @@ def test_every_gate_pattern_is_repairable() -> None:
         )
 
 
-def test_the_published_path_repairs_before_it_gates() -> None:
-    """The defect was that the published path only raised."""
-    source = inspect.getsource(analyst_report.render_official_markdown)
-    assert "repair_static_runtime_wording(" in source, (
+def test_the_published_path_repairs_before_it_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The defect was that the published path only raised.
+
+    BEHAVIOURAL (P3.7), not a source-text read: the shared repair function is replaced with a spy that records
+    every call and its argument, so the assertion is about what the published path DOES, not about what its
+    source says. The sentinel it returns is what the gate must then see - proving the repaired text is the text
+    that gates, rather than the repair merely being mentioned in the body.
+    """
+    calls: list[str] = []
+    #: contains none of `_FORBIDDEN_RUNTIME_WORDING`, so the gate must pass on it.
+    sentinel = "# 静态分析报告\n\n- 任务结果：**UNKNOWN**\n\n无受限措辞。\n"
+
+    def _repair_spy(text: str) -> str:
+        calls.append(text)
+        return sentinel
+
+    monkeypatch.setattr(analyst_report, "repair_static_runtime_wording", _repair_spy)
+
+    rendered = analyst_report.render_official_markdown({})
+
+    assert calls, (
         "the published path does not repair model wording before the static-only gate, so one word from the "
         "model can still discard the entire report"
     )
-    # And the gate must still be there: repairing is not a substitute for checking.
-    assert "static_wording_violations(" in source, "the static-only gate was removed instead of preceded"
+    assert rendered == sentinel, (
+        "the published path rendered its own text instead of the repaired text, so the repair is not on the "
+        "published path"
+    )
+    # And the gate is not merely preceded: it still runs, and it raises on what the repair left behind.
+    monkeypatch.setattr(analyst_report, "repair_static_runtime_wording", lambda text: "the socket is connected")
+    with pytest.raises(ValueError, match="static-only wording gate"):
+        analyst_report.render_official_markdown({})
 
 
 def test_the_repair_table_has_exactly_one_definition() -> None:
@@ -79,12 +104,34 @@ def test_the_repair_table_has_exactly_one_definition() -> None:
     )
 
 
-def test_the_english_path_still_repairs_through_the_shared_table() -> None:
-    """`_static_safe_text` is the English path's entry point and must delegate, not re-implement."""
-    source = inspect.getsource(reporting._static_safe_text)
-    assert "repair_static_runtime_wording(" in source, (
+def test_the_english_path_still_repairs_through_the_shared_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_static_safe_text` is the English path's entry point and must delegate, not re-implement.
+
+    BEHAVIOURAL (P3.7): the shared table's function is replaced with a spy, so this fails for the SAME reason a
+    missing `repair_static_runtime_wording(` call in the source used to fail - the English path no longer routes
+    through the one shared table - without reading the implementation's text.
+    """
+    calls: list[str] = []
+
+    def _repair_spy(text: str) -> str:
+        calls.append(text)
+        return "repaired by the shared table"
+
+    monkeypatch.setattr(reporting, "repair_static_runtime_wording", _repair_spy)
+
+    assert reporting._static_safe_text("the socket is connected") == "repaired by the shared table"
+    assert calls == ["the socket is connected"], (
         "the English path no longer delegates to the shared table"
     )
+    # Text the gate already accepts is returned untouched without consulting the table.
+    calls.clear()
+    assert reporting._static_safe_text("the socket would connect") == "the socket would connect"
+    assert calls == []
+
+    # Back to the real table for the remaining assertions.
+    monkeypatch.undo()
     repaired = reporting._static_safe_text("the socket is connected")
     assert "connected" not in repaired
     assert not product_certification.static_wording_violations(repaired)

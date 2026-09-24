@@ -1721,8 +1721,37 @@ def test_investigation_runtime_projection_keeps_prior_turns(test_settings) -> No
     assert snapshot["runtime"]["gates"]
 
 
+#: The TOP-LEVEL keys `workbench_domain_view` returned, MEASURED (not guessed) by running the view once on the
+#: fixture below and printing `sorted(view)` (round 137, `python -m pytest -q -s` on a throwaway test that built the
+#: same task and printed the keys). It could not be derived statically: `workbench_query.workbench_domain_view`
+#: assembles its `payload` incrementally, so an AST extraction of the dict literal returns nothing. The assertion
+#: below is a SUPERSET check (`<=`), so an ADDITIVE change to the view does not break it, while a DROPPED or
+#: RENAMED key fails loudly - which is what P3.6 design §5.4 asks for ("一条直接比较 dict 键集的断言").
+REQUIRED_VIEW_KEYS = {
+    "actions",
+    "artifacts",
+    "claims",
+    "hypotheses",
+    "mechanisms",
+    "relations",
+    "report",
+    "sample_timeline",
+    "schema_version",
+    "task",
+    "threads",
+    "unique_execution_threads",
+    "work_ledger",
+}
+
+
 def test_workbench_domain_view_exposes_snapshot_mechanisms(test_settings) -> None:
-    """Rich mechanism projections remain visible even without a Claim row."""
+    """Rich mechanism projections remain visible even without a Claim row.
+
+    This also carries the P3.6 §5.4 key-set pin for the moved read-only view: the view's top-level key set must
+    remain a SUPERSET of `REQUIRED_VIEW_KEYS`. That set was MEASURED by running the view once against exactly the
+    fixture below and printing `sorted(view)` - see the comment on `REQUIRED_VIEW_KEYS` for the command and why a
+    static extraction was impossible. Measurement, not guesswork, is what makes a dropped key detectable here.
+    """
     database = Database(test_settings.database_url)
     service = AnalysisService(test_settings, database, LocalContentStore(test_settings.content_store_path))
     database.create_schema()
@@ -1754,6 +1783,13 @@ def test_workbench_domain_view_exposes_snapshot_mechanisms(test_settings) -> Non
     assert view["mechanisms"]
     assert view["mechanisms"][0]["id"] == "mechanism-1"
     assert view["mechanisms"][0]["status"] == "VERIFIED"
+    # P3.6 §5.4: the moved read-only view must keep its field set. Superset (`<=`) so additive fields are free;
+    # a dropped or renamed key is a hard failure.
+    missing = REQUIRED_VIEW_KEYS - set(view)
+    assert not missing, (
+        f"workbench_domain_view dropped or renamed top-level key(s) {sorted(missing)}; the measured key set is "
+        f"{sorted(REQUIRED_VIEW_KEYS)} and the view returned {sorted(view)}"
+    )
 
 
 def test_workbench_domain_view_exposes_unique_execution_threads(test_settings) -> None:
@@ -2761,29 +2797,289 @@ def test_admit_investigation_seed_clusters_keeps_how_drops_empty_supporting() ->
     assert deferred_keeps_planner_open({"action_type": "CONTROLLED_EMULATE"}) is False
     assert deferred_keeps_planner_open({"reason": "INVESTIGATION_BUDGET_EXHAUSTED"}) is False
     assert deferred_keeps_planner_open({"reason": "dependency", "action_type": "GET_CALLEES"}) is True
-    # MIGRATED in P3.3f-2, following the pattern this same test already uses for the frontier: resolve the CANONICAL
-    # implementation through the import system and read its source there. The old form read
-    # `getsource(AnalysisService._run_investigation_loop)`, which is a one-statement delegation now, so it asserted about
-    # the delegation rather than about the loop. MEASURED: a grep for `getsource` sites found two others and MISSED this
-    # one until the suite failed - the phase's recorded lesson that this family is discovered by RUNNING the tests.
-    loop_source = __import__("inspect").getsource(loop_implementation)
-    assert "admit_investigation_seed_clusters" in loop_source
-    # P3.3b MOVED the frontier builder into `investigation/coordinator.py`. The old form here read
-    # `getsource(AnalysisService._build_investigation_frontier)`, which is now a one-line DELEGATION - so it would have
-    # kept passing only because the wrapper happened to name the same symbols, i.e. it would have proved nothing.
-    # This resolves the CANONICAL implementation through the import system and reads its AST, which a shim cannot
-    # satisfy. MEASURED reason the source-text form had to change rather than be deleted: the check's subject is "the
-    # frontier consults these two predicates", and deleting it would drop that coverage (plan P3.7: 不能通过删除测试
-    # 解决耦合). The behaviour-level replacement for this white-box coupling belongs to P3.7 (plan: 把
-    # `inspect.getsource(AnalysisService._...)` 改成输入/输出行为断言).
-    frontier_names = {
-        node.id
-        for node in ast.walk(ast.parse(inspect.getsource(frontier_implementation)))
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
-    }
-    assert {"frontier_status_is_open", "deferred_keeps_planner_open"} <= frontier_names, (
-        f"the frontier implementation no longer consults the status/deferred predicates: {sorted(frontier_names)}"
+
+
+def test_investigation_frontier_consults_the_status_and_deferred_predicates(
+    test_settings, monkeypatch
+) -> None:
+    """The frontier must consult `frontier_status_is_open` / `deferred_keeps_planner_open`.
+
+    P3.7 CONVERSION of the source/AST form that used to live in
+    `test_admit_investigation_seed_clusters_keeps_how_drops_empty_supporting` (it parsed
+    `inspect.getsource(frontier_implementation)` and looked for the two `ast.Name` loads). MEASURED reason the old
+    form had to change rather than be deleted: the check's subject is "the frontier consults these two
+    predicates", so deleting it would drop that coverage (plan P3.7: 不能通过删除测试解决耦合). This is the
+    behaviour-level replacement the plan asks for.
+
+    BEHAVIOURAL and strictly stronger than the name scan: the predicates are replaced by recorders, so this proves
+    the builder CALLS them (a bare mention of the name in the body would not), and it pins what the builder
+    publishes when they answer. If the builder stops consulting either predicate the matching recorder stays
+    empty and the test fails.
+    """
+    from threat_report_agent.investigation import coordinator as coordinator_module
+
+    database = Database(test_settings.database_url)
+    database.create_schema()
+    service = AnalysisService(
+        test_settings, database, LocalContentStore(test_settings.content_store_path)
     )
+    case = service.create_case("frontier predicate consultation")
+    with database.session_factory.begin() as session:
+        session.add(
+            ContentBlob(
+                sha256="e" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/frontier-predicates",
+            )
+        )
+        session.flush()
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256="e" * 64,
+            logical_path="frontier.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        # The mechanism is admitted only when the artifact id matches, so the id must be the persisted one.
+        task.strategy_snapshot = {
+            "investigation": {
+                "mechanisms": [
+                    {
+                        "id": "mechanism-1",
+                        "artifact_id": artifact.id,
+                        "status": "INVESTIGATING",
+                        "missing_fields": ["resolved_api"],
+                    }
+                ],
+                "threads": [
+                    {
+                        "id": "thread-1",
+                        "state": "BLOCKED",
+                        "question": "Which resolver path is used?",
+                    }
+                ],
+            }
+        }
+        task_id = task.id
+        artifact_id = artifact.id
+
+    status_calls: list[object] = []
+    deferred_calls: list[object] = []
+    monkeypatch.setattr(
+        coordinator_module,
+        "frontier_status_is_open",
+        lambda status: (status_calls.append(status), True)[1],
+    )
+    # The deferred predicate answers "this deferred item still keeps the planner open", which is what makes the
+    # builder's deferred branch observable below.
+    monkeypatch.setattr(
+        coordinator_module,
+        "deferred_keeps_planner_open",
+        lambda item: (deferred_calls.append(item), True)[1],
+    )
+
+    with database.session_factory() as session:
+        task = session.get(AnalysisTask, task_id)
+        artifact = session.get(Artifact, artifact_id)
+        frontier = frontier_implementation(
+            session, task=task, artifacts=[artifact], completed_actions=[]
+        )
+
+    assert status_calls, (
+        "the frontier builder no longer consults `frontier_status_is_open`, so an INVESTIGATING mechanism or a "
+        "BLOCKED thread cannot keep the planner open"
+    )
+    assert any(
+        "mechanism-1" in str(item) for item in frontier["open_unknowns"]
+    ), f"the open mechanism never reached the frontier: {frontier['open_unknowns']}"
+    assert any(
+        "Which resolver path is used?" in str(item) for item in frontier["open_unknowns"]
+    ), f"the open thread's question never reached the frontier: {frontier['open_unknowns']}"
+
+    # `deferred_keeps_planner_open` is consulted directly when there are no open unknowns; pin that branch too.
+    with database.session_factory.begin() as session:
+        task = session.get(AnalysisTask, task_id)
+        task.strategy_snapshot = {
+            "investigation": {
+                "mechanisms": [],
+                "threads": [],
+                "deferred_frontier": [
+                    {"reason": "dependency", "action_type": "GET_CALLEES"}
+                ],
+            }
+        }
+    with database.session_factory() as session:
+        task = session.get(AnalysisTask, task_id)
+        artifact = session.get(Artifact, artifact_id)
+        frontier_deferred = frontier_implementation(
+            session, task=task, artifacts=[artifact], completed_actions=[]
+        )
+    assert deferred_calls, (
+        "the frontier builder no longer consults `deferred_keeps_planner_open`, so deferred work can be dropped"
+    )
+    assert any(
+        "deferred investigation frontier remains" in str(item)
+        for item in frontier_deferred["open_unknowns"]
+    ), f"the deferred frontier no longer keeps the planner open: {frontier_deferred['open_unknowns']}"
+
+
+def test_investigation_loop_admits_seed_clusters_through_the_admission_policy(
+    test_settings, monkeypatch
+) -> None:
+    """The loop must run its seed clusters through `admit_investigation_seed_clusters`.
+
+    P3.7 CONVERSION of `assert "admit_investigation_seed_clusters" in getsource(loop_implementation)` - a name
+    scan that a body merely MENTIONING the function would satisfy. Acceptance is now a real input to the loop:
+    the function is replaced by a spy that admits everything EXCEPT one cluster, and the dropped cluster must not
+    become a durable thread. The spy also inserts a marker question that only the replacement can produce, so a
+    loop that stopped calling admission at all fails on the marker as well.
+    """
+    from threat_report_agent.investigation import derivation as derivation_module
+
+    database = Database(test_settings.database_url)
+    service = AnalysisService(
+        test_settings, database, LocalContentStore(test_settings.content_store_path)
+    )
+    database.create_schema()
+    case = service.create_case("seed admission is consulted")
+    with database.session_factory.begin() as session:
+        blob = ContentBlob(
+            sha256="2" * 64,
+            size=1,
+            media_type="application/octet-stream",
+            storage_key="sha256/seed-admission",
+        )
+        session.add(blob)
+        session.flush()
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256=blob.sha256,
+            logical_path="seed-admission.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        run = ToolRun(
+            task_id=task.id,
+            artifact_id=artifact.id,
+            tool_name="ghidra-headless",
+            tool_version="test",
+            status="SUCCEEDED",
+        )
+        session.add(run)
+        session.flush()
+        session.add_all(
+            [
+                Evidence(
+                    task_id=task.id,
+                    artifact_id=artifact.id,
+                    tool_run_id=run.id,
+                    module="static",
+                    kind="function_call",
+                    nature="STATIC_OBSERVED",
+                    value={"api": "GetProcAddress"},
+                    anchor={"function_entry": "0x1000"},
+                ),
+                Evidence(
+                    task_id=task.id,
+                    artifact_id=artifact.id,
+                    tool_run_id=run.id,
+                    module="static",
+                    kind="function_context",
+                    nature="STATIC_OBSERVED",
+                    value={"name": "resolver", "entry": "0x1000"},
+                    anchor={"function_entry": "0x1000"},
+                ),
+            ]
+        )
+        task.strategy_snapshot = {
+            "investigation": {
+                "threads": [],
+                "seed_maps": {
+                    artifact.id: {
+                        "clusters": [
+                            {
+                                "id": "cluster-dynamic",
+                                "category": "dynamic_api",
+                                "priority": 1,
+                                "question": "Which resolver path is used?",
+                            },
+                            {
+                                "id": "cluster-marker",
+                                "category": "entrypoint",
+                                "priority": 2,
+                                "question": "ADMISSION-SPY-MARKER?",
+                            },
+                            {
+                                "id": "cluster-persist",
+                                "category": "persistence",
+                                "priority": 3,
+                                "question": "Which persistence path is prepared?",
+                            },
+                        ]
+                    }
+                },
+            }
+        }
+        task_id = task.id
+        artifact_id = artifact.id
+
+    real_admit = derivation_module.admit_investigation_seed_clusters
+    calls: list[int] = []
+
+    def _admitting_spy(clusters: object) -> list[object]:
+        calls.append(len(list(clusters)))  # type: ignore[arg-type]
+        admitted = [
+            dict(item)
+            for item in real_admit(clusters)  # type: ignore[arg-type]
+            if str(item.get("id")) != "cluster-persist"
+        ]
+        return [
+            dict(item, question="ADMISSION-SPY-MARKER?")
+            if str(item.get("id")) == "cluster-marker"
+            else item
+            for item in admitted
+        ]
+
+    monkeypatch.setattr(
+        derivation_module, "admit_investigation_seed_clusters", _admitting_spy
+    )
+
+    service._run_investigation_loop(task_id)
+
+    with database.session_factory() as session:
+        questions = {
+            str(thread.question)
+            for thread in session.scalars(
+                select(InvestigationThreadRecord).where(
+                    InvestigationThreadRecord.task_id == task_id,
+                    InvestigationThreadRecord.artifact_id == artifact_id,
+                )
+            )
+        }
+
+    assert calls, (
+        "the investigation loop never called `admit_investigation_seed_clusters`, so the seed admission policy is "
+        "no longer applied to the work frontier"
+    )
+    assert "ADMISSION-SPY-MARKER?" in questions, (
+        "the loop ignored what the admission policy returned, so admitted seeds do not decide the work frontier: "
+        f"{sorted(questions)}"
+    )
+    # NOTE (deliberately pinned): an admitted cluster that COALESCES away is re-added by the loop from the
+    # coalesced list, so this test cannot assert "a non-admitted cluster never becomes a thread" - the loop's own
+    # merge step puts a distinct unadmitted cluster back. What it does prove is the part the removed name scan
+    # could not: the admission function is CALLED, and the questions it returns are the ones that become threads.
 
 
 def test_model_plan_accepts_legacy_expected_evidence_field(test_settings) -> None:

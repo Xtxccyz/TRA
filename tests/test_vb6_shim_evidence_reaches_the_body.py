@@ -17,12 +17,22 @@ These tests assert the PATH, not an identifier: the same contract tuple is requi
 adding a field at one hop alone fails. `test_the_carrier_reads_the_shims_own_evidence_method` additionally
 fails if hop 1 stops deriving from the shim's own publication method, which is what keeps the stated limits
 from drifting away from the numbers they bound.
+
+MIGRATED in P3.7 (this file's four `getsource` sites): the three hop tests used to grep each hop's SOURCE for
+the key names, and the carrier test grepped hop 1's source for `shim_state.as_evidence()`. A grep is satisfied
+by any mention and says nothing about what a reader receives, so all four sites are now BEHAVIOURAL: hop 1 is
+observed by running the REAL `_speakeasy_adapter` against a fake Speakeasy that fires one VB6 call, and hops 2
+and 3 by running the real projection and the real renderer over the event hop 1 actually published.
 """
 from __future__ import annotations
 
-import inspect
+import struct
+import sys
+import types
 
 from threat_report_agent import analyst_report, reporting, simulation_adapters
+from threat_report_agent.emulation import vb6_runtime_shim
+from threat_report_agent.emulation.policy import SimulationRequest
 
 #: The fields whose whole purpose is to stop a reader drawing a stronger conclusion than the record supports.
 #: `destination_observable` says the harness cannot see where a string is written; the pair fields say WHICH
@@ -37,6 +47,10 @@ CONTRACT_KEYS = (
 #: Text that exists ONLY inside an argument pair. If it ever appears in the body, the decoded payload records
 #: were pasted into the report - the exact regression an earlier revision of this section had to be cleaned of.
 PAYLOAD_TEXT = "SECRET-ARG-TEXT-DO-NOT-PUBLISH"
+
+#: The one pair the fake run below makes the REAL shim record, and the source-record address it came from.
+ARGUMENT_TEXT = "vb6-source-record-text"
+ARGUMENT_ADDRESS = 0x402C08
 
 
 def _observation(**overrides: object) -> dict[str, object]:
@@ -85,71 +99,192 @@ def _body_for(event: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _code_only(source: str) -> str:
-    """Strip comments from a function's source before asserting on it.
+# --------------------------------------------------------------------------------------------------
+# The path, observed as BEHAVIOUR: hop 1 runs for real, and hops 2-3 carry what hop 1 published.
+# --------------------------------------------------------------------------------------------------
 
-    MEASURED defect this fixes: every hop test below is a source grep, and a grep is satisfied by a COMMENT
-    that merely names the key. `.scratch/canfail-three-hop.py` caught this concretely - replacing
-    `shim_evidence = shim_state.as_evidence()` with `shim_evidence = {}` still passed, because the explanatory
-    comment above it contains the text `as_evidence()`. The probe was valid; the test was not.
 
-    The strip is deliberately simple and slightly over-eager: a full-line comment is dropped, and a trailing
-    `#` is cut when it is not preceded by an odd number of double quotes (i.e. it is outside a string, to a
-    first approximation). Over-stripping can only make these tests stricter, never more permissive, which is
-    the safe direction for a guard.
+class _FakeSpeakeasy:
+    """The Speakeasy surface `_speakeasy_adapter` uses, with exactly one VB6 runtime call to model.
+
+    It exists so hop 1 can be read as behaviour: the adapter is RUN, and the `vb6_shim` observation it
+    publishes is inspected, instead of grepping the adapter's source for the key names. The call is
+    dispatched the way Speakeasy dispatches an unimplemented API (`hook.cb(self, imp_api, None, argv)`),
+    so the recorded pair is produced by the production handler, not by a stub of it.
     """
-    kept: list[str] = []
-    for line in source.splitlines():
-        if line.lstrip().startswith("#"):
-            continue
-        cut = len(line)
-        for index, character in enumerate(line):
-            if character == "#" and line[:index].count('"') % 2 == 0:
-                cut = index
-                break
-        kept.append(line[:cut])
-    return "\n".join(kept)
+
+    def __init__(self, config: object = None, logger: object = None) -> None:
+        self.config = config
+        self.hooks: dict[tuple[str, str], object] = {}
+        encoded = ARGUMENT_TEXT.encode("utf-16-le")
+        self.memory = {
+            ARGUMENT_ADDRESS - 4: struct.pack("<I", len(encoded)),
+            ARGUMENT_ADDRESS: encoded,
+        }
+
+    def load_module(self, data: object = None) -> types.SimpleNamespace:
+        del data
+        # No `base`/`image_size`: `_speakeasy_start_address` declines, so `run_module` is the path taken.
+        return types.SimpleNamespace()
+
+    def add_api_hook(
+        self,
+        handler: object,
+        module: str = "",
+        api_name: str = "",
+        argc: int = 0,
+        call_conv: object = None,
+    ) -> object:
+        del argc, call_conv
+        self.hooks[(module, api_name)] = handler
+        return handler
+
+    def run_module(self, module: object) -> None:
+        del module
+        handler = self.hooks[("msvbvm60", "__vbastrcopy")]
+        handler(self, "__vbastrcopy", None, [])  # type: ignore[operator]
+
+    def get_report(self) -> dict[str, object]:
+        return {}
+
+    # --- the emulator surface the shim's handler reads ---------------------------------------------
+    def mem_read(self, address: int, size: int) -> bytes:
+        for base, payload in self.memory.items():
+            if base <= address and address + size <= base + len(payload):
+                return payload[address - base : address - base + size]
+        raise ValueError(f"unmapped 0x{address:x}")
+
+    def get_register_state(self) -> dict[str, str]:
+        return {"edx": hex(ARGUMENT_ADDRESS)}
 
 
-# --------------------------------------------------------------------------------------------------
-# The path: the same contract must be named at all three hops.
-# --------------------------------------------------------------------------------------------------
+def _run_adapter_once(monkeypatch) -> tuple[dict[str, object], object]:
+    """Run the REAL `_speakeasy_adapter` against the fake Speakeasy.
+
+    Returns the `vb6_shim` observation it published and the shim state that produced it, so a test can
+    compare what was published against the shim's own `as_evidence()` publication.
+    """
+    captured: list[object] = []
+    real_install = vb6_runtime_shim.install_vb6_shim
+
+    def install(se: object, **kwargs: object):
+        state, handlers = real_install(se, **kwargs)
+        captured.append(state)
+        return state, handlers
+
+    monkeypatch.setattr(vb6_runtime_shim, "install_vb6_shim", install)
+    fake_module = types.ModuleType("speakeasy")
+    fake_module.Speakeasy = _FakeSpeakeasy  # type: ignore[attr-defined]
+    fake_module.__file__ = ""
+    monkeypatch.setitem(sys.modules, "speakeasy", fake_module)
+
+    result = simulation_adapters._speakeasy_adapter(
+        SimulationRequest(
+            "speakeasy",
+            "sample.exe",
+            input_bytes=b"MZ" + b"\x00" * 64,
+            timeout_seconds=1,
+            instruction_budget=1000,
+            entry_address=0,
+        )
+    )
+    assert len(captured) == 1, "the adapter never installed the VB6 shim, so nothing below is reachable"
+    events = [item for item in result.observations if item.get("event") == "vb6_shim"]
+    assert events, f"the adapter published no `vb6_shim` observation: {result.observations}"
+    return events[-1], captured[0]
 
 
-def test_hop1_the_adapter_publishes_the_contract_keys() -> None:
-    source = _code_only(inspect.getsource(simulation_adapters._speakeasy_adapter))
-    missing = [key for key in CONTRACT_KEYS if f'"{key}"' not in source]
+def test_hop1_the_adapter_publishes_the_contract_keys(monkeypatch) -> None:
+    """Hop 1, as behaviour: run the adapter and read the event; grep the source for nothing."""
+    event, state = _run_adapter_once(monkeypatch)
+    shim_evidence = state.as_evidence()  # type: ignore[attr-defined]
+    # Positive control: the shim really did record the one pair this fixture dispatches, so the equality
+    # below is not an assertion about two empty values.
+    assert shim_evidence["argument_pairs_recorded"] == 1, "the fixture did not record the pair it dispatches"
+    assert shim_evidence["argument_pairs"], "the fixture recorded no pair, so hop 1 proves nothing"
+    missing = [key for key in CONTRACT_KEYS if key not in event]
     assert not missing, (
         f"the vb6_shim observation event does not carry {missing}; the fact cannot enter the record at all"
     )
+    assert {key: event[key] for key in CONTRACT_KEYS} == {
+        key: shim_evidence[key] for key in CONTRACT_KEYS
+    }, "the published event disagrees with the shim's own evidence, so the path is not a pass-through"
 
 
 def test_hop2_the_projection_whitelist_carries_the_contract_keys() -> None:
-    source = _code_only(inspect.getsource(reporting.build_emulation_status_projection))
-    missing = [key for key in CONTRACT_KEYS if f'"{key}"' not in source]
+    """Hop 2, as behaviour: the projection must hand the renderer the same four values it was given."""
+    event = _observation()
+    projection = reporting.build_emulation_status_projection(_evidence(event))
+    assert projection.get("results"), "the projection dropped the simulation_result entirely"
+    shim = projection["results"][0]["shim"]
+    missing = [key for key in CONTRACT_KEYS if key not in shim]
     assert not missing, (
         f"`shim_summary` is a whitelist and drops {missing}; a field added upstream alone never reaches "
         "the renderer"
     )
+    assert {key: shim[key] for key in CONTRACT_KEYS} == {
+        key: event[key] for key in CONTRACT_KEYS
+    }, "the `shim_summary` whitelist altered a contract value on its way to the renderer"
 
 
 def test_hop3_the_body_reads_the_contract_keys() -> None:
-    source = _code_only(inspect.getsource(analyst_report._emulation_status_section))
-    missing = [key for key in CONTRACT_KEYS if f'"{key}"' not in source]
-    assert not missing, f"the published chapter never reads {missing} from `shim`"
+    """Hop 3, as behaviour: changing any contract value must change the published body.
+
+    `.scratch/canfail-three-hop.py`'s lesson was that a grep is satisfied by a mention. This direction
+    cannot be satisfied by a mention: each key is moved to a different value and the rendered chapter
+    has to move with it, which only happens if the renderer actually READS the key.
+    """
+    baseline = _body_for(_observation())
+    varied = {
+        "destination_observable": _observation(destination_observable=True),
+        "argument_pairs": _observation(
+            argument_pairs=[{"address": "0xdeadbeef", "text": PAYLOAD_TEXT}]
+        ),
+        "argument_pairs_cap": _observation(argument_pairs_cap=7),
+        "argument_pairs_recorded": _observation(argument_pairs_recorded=5),
+    }
+    for key, event in varied.items():
+        assert _body_for(event) != baseline, (
+            f"changing `{key}` left the published chapter byte-identical: the renderer never reads it, "
+            "so the field cannot bound the number it was added to bound"
+        )
 
 
-def test_the_carrier_reads_the_shims_own_evidence_method() -> None:
+def test_the_carrier_reads_the_shims_own_evidence_method(monkeypatch) -> None:
     """A definition nobody calls is not evidence.
 
     The original defect: the fields were correct, tested, and unreachable. Hop 1 must derive them from
     `as_evidence()` so the stated limits cannot drift from the numbers they bound.
+
+    Behavioural discriminator: `as_evidence()` is replaced by a sentinel whose four contract values differ
+    from the honest ones the real state would report. If the carrier kept reading the shim's attributes
+    directly - or stopped calling the publication method at all - the sentinel could not reach the event.
     """
-    source = _code_only(inspect.getsource(simulation_adapters._speakeasy_adapter))
-    assert "shim_state.as_evidence()" in source, (
-        "the published carrier no longer CALLS the shim's own evidence method, so its fields are free to "
-        "drift from the observation it publishes"
+    sentinel = {
+        "destination_observable": True,
+        "argument_pairs": [{"address": "0xsentinel", "text": "sentinel"}],
+        "argument_pairs_cap": 7,
+        "argument_pairs_recorded": 4242,
+    }
+
+    def as_evidence(self: object) -> dict[str, object]:  # noqa: ARG001 - sentinel publication
+        return dict(sentinel)
+
+    monkeypatch.setattr(vb6_runtime_shim.Vb6ShimState, "as_evidence", as_evidence)
+    event, _state = _run_adapter_once(monkeypatch)
+    assert {key: event[key] for key in CONTRACT_KEYS} == sentinel, (
+        "the published carrier no longer derives its contract fields from the shim's own evidence method, "
+        "so its fields are free to drift from the observation it publishes"
     )
+    # The dependency is real and not incidental: with the publication method unavailable the carrier falls
+    # back to the honest defaults and LOSES the pair the state actually holds. A carrier that read the
+    # shim's attributes directly would keep the pair here, so this control is what makes the sentinel above
+    # a discriminator rather than a coincidence.
+    monkeypatch.setattr(vb6_runtime_shim.Vb6ShimState, "as_evidence", lambda self: {})
+    event_without, state = _run_adapter_once(monkeypatch)
+    assert state.argument_pairs, "the fixture recorded no pair, so this control proves nothing"  # type: ignore[attr-defined]
+    assert event_without["argument_pairs"] == [], "the pair survived without `as_evidence()`, so hop 1 does not use it"
+    assert event_without["argument_pairs_recorded"] == 0
 
 
 # --------------------------------------------------------------------------------------------------

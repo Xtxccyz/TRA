@@ -10,7 +10,6 @@ anything the pipeline can deliver and no real function is truncated.
 from __future__ import annotations
 
 from dataclasses import replace
-import inspect
 
 import pytest
 
@@ -136,20 +135,101 @@ def test_pcode_slice_is_not_pinned_at_128_operations(monkeypatch: pytest.MonkeyP
     assert instruction_derived["bounded"] is False
 
 
-def test_live_service_call_sites_use_the_setting() -> None:
-    """Regression guard for the three live call sites named in the defect.
+def test_live_service_call_sites_use_the_setting(test_settings, monkeypatch) -> None:
+    """Regression guard for the live call sites named in the defect.
 
-    MIGRATED in P3.3e's giant move: `_derive_investigation_observations` no longer holds a body in `service.py` (it is
-    a one-statement delegation), so `inspect.getsource` on the class returned the delegation and the assertion below
-    failed for the wrong reason. The guard's intent is unchanged - the live call site must read the setting instead of
-    a hard-coded step budget - so it now reads the implementation where it lives.
+    MIGRATED in P3.3e's giant move to the implementation's home, then CONVERTED in P3.7 from a source-text read
+    (`assert "StaticAbstractExecutor(max_steps=128)" not in source` + `assert
+    "static_abstract_execution_max_steps" in source`) into a BEHAVIOURAL one. The old form asserted that the
+    setting's NAME appears somewhere in two very large function bodies - a mention of the name satisfies it.
+    This runs `_record_ghidra_evidence`, which is one of the live call sites, with a configured budget that is
+    NOT the default and with `StaticAbstractExecutor` replaced by a spy, and asserts the executor the live path
+    actually constructs received the CONFIGURED value. A hard-coded budget (128 or otherwise) fails here.
     """
-    from threat_report_agent.investigation.derivation import _derive_investigation_observations
+    from threat_report_agent import service as service_module
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.database import Database
+    from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob, ToolRun
+    from threat_report_agent.service import AnalysisService
 
-    for method in (
-        _derive_investigation_observations,
-        AnalysisService._record_ghidra_evidence,
-    ):
-        source = inspect.getsource(method)
-        assert "StaticAbstractExecutor(max_steps=128)" not in source
-        assert "static_abstract_execution_max_steps" in source
+    #: Deliberately neither the default guard nor the old 128 cap, so a hard-coded value cannot match it.
+    configured_budget = 4_242
+    settings = replace(test_settings, static_abstract_execution_max_steps=configured_budget)
+    assert settings.static_abstract_execution_max_steps == configured_budget
+
+    seen: list[int] = []
+    real_executor = StaticAbstractExecutor
+
+    def _executor_spy(*, max_steps: int, **kwargs: object):
+        seen.append(max_steps)
+        return real_executor(max_steps=max_steps, **kwargs)
+
+    monkeypatch.setattr(service_module, "StaticAbstractExecutor", _executor_spy)
+
+    database = Database(settings.database_url)
+    store = LocalContentStore(settings.content_store_path)
+    service = AnalysisService(settings, database, store)
+    database.create_schema()
+    case = service.create_case("static abstract budget call site")
+    stored = store.put(b"MZ static fixture")
+    output: dict[str, object] = {
+        "functions": [
+            {
+                "name": "CRTStartup",
+                "entry": "0x140001420",
+                "entry_rva": 0x1420,
+                "references_from": [{"type": "call", "target_name": "__security_init_cookie"}],
+                "xrefs_to_entry": [],
+                "cfg_blocks": [],
+                "mnemonics": ["call"],
+                "instructions": [
+                    {"address": "0x140001420", "mnemonic": "MOV", "text": "MOV RCX, 0x1000"}
+                ],
+            }
+        ],
+        "symbols": [],
+    }
+    with database.session_factory.begin() as session:
+        session.add(
+            ContentBlob(
+                sha256=stored.sha256,
+                size=stored.size,
+                media_type="application/octet-stream",
+                storage_key=stored.storage_key,
+            )
+        )
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256=stored.sha256,
+            logical_path="fixture.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+            obligation="REQUIRED",
+        )
+        session.add(artifact)
+        session.flush()
+        tool_run = ToolRun(
+            task_id=task.id,
+            artifact_id=artifact.id,
+            tool_name="ghidra-headless",
+            tool_version="test",
+            status="SUCCEEDED",
+            parameters={},
+            environment={"sample_execution": False},
+            output=output,
+        )
+        session.add(tool_run)
+        session.flush()
+        service._record_ghidra_evidence(session, task, artifact, tool_run, output)
+
+    assert seen, (
+        "the Ghidra recording path never constructed a StaticAbstractExecutor, so this guard no longer covers "
+        "the call site it names"
+    )
+    assert set(seen) == {configured_budget}, (
+        "the live call site does not use the configured `static_abstract_execution_max_steps`: it passed "
+        f"{sorted(set(seen))} instead of {configured_budget}"
+    )

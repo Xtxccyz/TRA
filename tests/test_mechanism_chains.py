@@ -1,5 +1,3 @@
-import inspect
-
 from threat_report_agent.agents import StaticAnalysisAgent
 from threat_report_agent.prompts import PromptRegistry
 from threat_report_agent.static_analysis import (
@@ -186,31 +184,117 @@ def test_credible_creation_flags_rejects_timeout_and_infinite_immediates() -> No
     assert plausible_windows_process_creation_flags(0x000F4240)
 
 
-def test_trace_path_does_not_stamp_timeout_immediate_as_creation_flags() -> None:
+def test_trace_path_does_not_stamp_timeout_immediate_as_creation_flags(test_settings) -> None:
     """G1 §5.4: the TRACE_API_ARGUMENT add-site must consult the credibility gate.
 
-    MIGRATED in P3.3e's giant move, and the reason is the assertion itself: `inspect.getsource(AnalysisService)` read
-    the CLASS the add-site used to live in, so it broke the moment the giant moved out - exactly the hazard the P3.3e
-    design documents under "no test uses getsource on it" being a weaker mitigation than it reads (this site is listed
-    as NEGATIVE in `docs/p37-getsource-conversion-plan-20260922.md`). The import and the source target now point at the
-    add-site's NEW home. The assertion keeps its original strength: the credibility gate must be consulted AT the
-    add-site, and the old INFINITE/INVALID_HANDLE-only exclusion must stay gone. P3.7 still owns turning this into a
-    behavioural assertion; this step only moves it with the code.
+    MIGRATED in P3.3e's giant move to the add-site's NEW home, then CONVERTED to a BEHAVIOURAL assertion in P3.7
+    (the source-text form asserted `"plausible_traced_creation_flags(parsed_flags)" in source`, which read the
+    CLASS the add-site used to live in and broke the moment the giant moved out - exactly the hazard the P3.3e
+    design documents under "no test uses getsource on it" being a weaker mitigation than it reads; this site is
+    listed as NEGATIVE in `docs/p37-getsource-conversion-plan-20260922.md`).
+
+    Behavioural form: run the trace add-site and check what it PUBLISHES. The old exclusion only rejected
+    `0xFFFFFFFF`/`0xFFFFFFFE`, so `0x000f4240` - a WaitForSingleObject timeout whose bit 19 coincides with
+    EXTENDED_STARTUPINFO_PRESENT - used to become a `process_creation_flags` row. The assertion below is that a
+    timeout immediate is NOT stamped, while a credible `dwCreationFlags` immediate still is.
     """
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.database import Database
     from threat_report_agent.investigation.derivation import (
         _derive_investigation_observations,
         plausible_traced_creation_flags,
     )
+    from threat_report_agent.investigation import ActionSpec, ActionType
+    from threat_report_agent.service import AnalysisService
+    from types import SimpleNamespace
 
     assert plausible_traced_creation_flags(0x00080000) == 0x00080000
     assert plausible_traced_creation_flags(0x000F4240) is None
     assert plausible_traced_creation_flags(0xFFFFFFFF) is None
     assert plausible_traced_creation_flags(None) is None
 
-    source = inspect.getsource(_derive_investigation_observations)
-    assert "plausible_traced_creation_flags(parsed_flags)" in source
-    # The old INFINITE/INVALID_HANDLE-only exclusion must be gone.
-    assert "parsed_flags not in {0xFFFFFFFF, 0xFFFFFFFE}" not in source
+    service = AnalysisService(
+        test_settings,
+        Database(test_settings.database_url),
+        LocalContentStore(test_settings.content_store_path),
+    )
+
+    def _rows(instructions: list[dict[str, object]]) -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(
+                id="ctx-1",
+                artifact_id="artifact-1",
+                kind="function_context",
+                value={
+                    "name": "FUN_spawn",
+                    "entry": "0x401000",
+                    "call_targets": [{"target_name": "CreateProcessW", "from": "0x401020"}],
+                },
+                anchor={"function_entry": "0x401000"},
+            ),
+            SimpleNamespace(
+                id="ins-1",
+                artifact_id="artifact-1",
+                kind="function_instruction_window",
+                value={"entry": "0x401000", "instructions": instructions},
+                anchor={"function_entry": "0x401000"},
+            ),
+            SimpleNamespace(
+                id="call-1",
+                artifact_id="artifact-1",
+                kind="function_call",
+                value={"api": "CreateProcessW", "from": "0x401020"},
+                anchor={"function_entry": "0x401000", "callsite": "0x401020"},
+            ),
+        ]
+
+    def _flags(instructions: list[dict[str, object]]) -> list[str]:
+        action = ActionSpec(
+            id="trace-create-flags",
+            action_type=ActionType.TRACE_API_ARGUMENT,
+            thread_id="thread-1",
+            hypothesis_id="hyp-1",
+            artifact_id="artifact-1",
+            target_selector={"target": "CreateProcessW"},
+            source_evidence_ids=("ctx-1", "ins-1", "call-1"),
+        )
+        observations = _derive_investigation_observations(service, _rows(instructions), action)
+        return [
+            str(item["value"].get("creation_flags"))
+            for item in observations
+            if item["kind"] == "process_creation_flags"
+        ]
+
+    # A credible dwCreationFlags immediate (0x08000008) IS stamped at the add-site.
+    credible = _flags(
+        [
+            {"address": "0x401014", "text": "MOV dword ptr [RSP+0x28], 0x08000008"},
+            {"address": "0x401020", "text": "CALL CreateProcessW"},
+        ]
+    )
+    assert credible, (
+        "the add-site no longer stamps a credible dwCreationFlags immediate: " f"{credible}"
+    )
+    assert set(credible) == {"0x08000008"}, (
+        "a credible dwCreationFlags immediate was not the only value stamped at the add-site: " f"{credible}"
+    )
+    # A 1,000,000 ms WaitForSingleObject timeout is NOT stamped, even though bit 19 is set in it.
+    assert _flags(
+        [
+            {"address": "0x401014", "text": "MOV dword ptr [RSP+0x28], 0x000f4240"},
+            {"address": "0x401020", "text": "CALL CreateProcessW"},
+        ]
+    ) == [], (
+        "a WaitForSingleObject timeout immediate was stamped as dwCreationFlags at the TRACE add-site, so the "
+        "credibility gate is not consulted there"
+    )
+    # INFINITE must not be stamped either.
+    assert _flags(
+        [
+            {"address": "0x401014", "text": "MOV dword ptr [RSP+0x28], 0xffffffff"},
+            {"address": "0x401020", "text": "CALL CreateProcessW"},
+        ]
+    ) == []
 
 
 def test_unique_plausible_creation_flag_ignores_timeouts_and_mixed_immediates() -> None:

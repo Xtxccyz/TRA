@@ -1,4 +1,3 @@
-import inspect
 from types import SimpleNamespace
 
 from threat_report_agent.investigation.behavior_catalog import BehaviorCatalog
@@ -1726,17 +1725,137 @@ def test_ppid_how_does_not_treat_process32_import_listing_as_enumeration() -> No
     assert "0x09080008" not in blob.replace(" ", "")
 
 
-def test_record_ghidra_evidence_emits_symbols_before_persist_how_claims() -> None:
+def _record_ghidra_evidence_rows(
+    test_settings, output: dict[str, object]
+) -> list[object]:
+    """Run the real Ghidra evidence recording over a minimal task; return the persisted rows."""
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.database import Database
+    from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob, ToolRun
+
+    database = Database(test_settings.database_url)
+    store = LocalContentStore(test_settings.content_store_path)
+    service = AnalysisService(test_settings, database, store)
+    database.create_schema()
+    case = service.create_case("ghidra ranked symbols")
+    stored = store.put(b"MZ static fixture")
+    with database.session_factory.begin() as session:
+        session.add(
+            ContentBlob(
+                sha256=stored.sha256,
+                size=stored.size,
+                media_type="application/octet-stream",
+                storage_key=stored.storage_key,
+            )
+        )
+        task = AnalysisTask(case_id=case.id, lifecycle="RUNNING")
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            task_id=task.id,
+            content_sha256=stored.sha256,
+            logical_path="fixture.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+            obligation="REQUIRED",
+        )
+        session.add(artifact)
+        session.flush()
+        tool_run = ToolRun(
+            task_id=task.id,
+            artifact_id=artifact.id,
+            tool_name="ghidra-headless",
+            tool_version="test",
+            status="SUCCEEDED",
+            parameters={},
+            environment={"sample_execution": False},
+            output=output,
+        )
+        session.add(tool_run)
+        session.flush()
+        service._record_ghidra_evidence(session, task, artifact, tool_run, output)
+        session.flush()
+        rows = list(
+            session.query(Evidence).filter(Evidence.task_id == task.id).all()
+        )
+    return rows
+
+
+def test_record_ghidra_evidence_emits_symbols_before_persist_how_claims(
+    test_settings, monkeypatch
+) -> None:
+    """The ranking helper runs first, and persist HOW sees what it emitted.
+
+    Behavioural replacement for the former `getsource` ordering checks: the recorded evidence
+    handed to `_persist_how_claim_specs` must already contain the ranked symbol rows, the staged
+    claims must come after, and symbols must be emitted through the ranking helper (external
+    symbols first, non-dict entries ignored) rather than read straight out of `output["symbols"]`.
+    """
     from threat_report_agent.investigation.persist_how import PersistHow
 
-    helper = inspect.getsource(PersistHow.ranked_symbol_emissions)
-    stage = inspect.getsource(PersistHow.emit_ranked_symbols_then_stage)
-    source = inspect.getsource(AnalysisService._record_ghidra_evidence)
-    assert "Process32" in helper or "persist HOW" in helper
-    assert stage.index("ranked_symbol_emissions") < stage.index("_persist_how_claim_specs")
-    assert stage.index("_persist_how_claim_specs") < stage.index("_stage_persist_how_claims")
-    assert "_emit_ranked_symbols_then_stage" in source
-    assert 'output.get("symbols"' not in source
+    ranked = PersistHow.ranked_symbol_emissions(
+        {
+            "symbols": [
+                {"name": "internal", "external": False, "address": "140001000"},
+                {"name": "Process32FirstW", "external": True, "address": "140046000"},
+            ]
+        }
+    )
+    assert [kind for kind, _value, _anchor in ranked] == ["import_symbol", "export_symbol"]
+    assert ranked[0][1]["name"] == "Process32FirstW"
+    assert ranked[0][2] == {"type": "symbol_address", "address": "140046000"}
+
+    order: list[str] = []
+    symbol_kinds_seen_by_specs: list[str] = []
+    original_specs = PersistHow._persist_how_claim_specs
+    original_stage = PersistHow._stage_persist_how_claims
+
+    @classmethod
+    def spy_specs(cls, *, artifact_path: str, evidence):  # noqa: ANN001 - mirrors the real signature
+        order.append("specs")
+        symbol_kinds_seen_by_specs.extend(
+            str(getattr(item, "kind", ""))
+            for item in evidence
+            if str(getattr(item, "kind", "")) in {"import_symbol", "export_symbol"}
+        )
+        return original_specs(artifact_path=artifact_path, evidence=evidence)
+
+    @classmethod
+    def spy_stage(cls, pending_claims, how_specs, *, task_id: str, subject: str):  # noqa: ANN001
+        order.append("stage")
+        return original_stage(
+            pending_claims, how_specs, task_id=task_id, subject=subject
+        )
+
+    monkeypatch.setattr(PersistHow, "_persist_how_claim_specs", spy_specs)
+    monkeypatch.setattr(PersistHow, "_stage_persist_how_claims", spy_stage)
+
+    rows = _record_ghidra_evidence_rows(
+        test_settings,
+        {
+            "functions": [],
+            "symbols": [
+                {"name": "internal", "external": False, "address": "140001000"},
+                "not-a-symbol",
+                {"name": "Process32FirstW", "external": True, "address": "140046000"},
+            ],
+        },
+    )
+
+    assert order == ["specs", "stage"], (
+        "ranked symbols must be emitted before the persist HOW specs are computed, and the "
+        f"claims staged after: {order}"
+    )
+    assert symbol_kinds_seen_by_specs == ["import_symbol", "export_symbol"], (
+        "the persist HOW specs did not see the emitted ranked symbols: "
+        f"{symbol_kinds_seen_by_specs}"
+    )
+    emitted = [row for row in rows if str(row.kind) in {"import_symbol", "export_symbol"}]
+    assert [str(row.kind) for row in emitted] == ["import_symbol", "export_symbol"], (
+        "symbols must be emitted through the ranking helper (external first, non-dict entries "
+        f"dropped), not read straight from output['symbols']: {[row.kind for row in emitted]}"
+    )
+    assert emitted[0].value["name"] == "Process32FirstW"
 
 
 def test_ghidra_ranked_symbol_emissions_keep_process32_import() -> None:
@@ -1877,7 +1996,7 @@ def test_process_persist_claim_uses_command_flags_not_ppid_keywords() -> None:
     assert "FoxitPDFReader.exe" in _module_how_from_finding(finding)
 
 
-def test_persist_how_claim_specs_mint_process_dynamic_api_and_decode() -> None:
+def test_persist_how_claim_specs_mint_process_dynamic_api_and_decode(monkeypatch) -> None:
     """Kunglao DISPATCH_VERIFIER: recovered HOW facts become claims at persist."""
     process_trace = {
         "id": "trace-1",
@@ -2037,15 +2156,78 @@ def test_persist_how_claim_specs_mint_process_dynamic_api_and_decode() -> None:
     assert "key_table_modulo_xor_counter" in str(
         by_action["may_decode_configuration"]["mechanism"]
     )
-    record_source = inspect.getsource(AnalysisService._record_ghidra_evidence)
-    assert "_emit_ranked_symbols_then_stage" in record_source
-    from threat_report_agent.investigation.persist_how import PersistHow
+    from threat_report_agent.investigation.persist_how import (
+        PersistHow,
+        emit_ranked_symbols_then_stage,
+        stage_persist_how_claims,
+    )
 
-    stage_source = inspect.getsource(PersistHow._stage_persist_how_claims)
-    assert "persist_time_investigated_mechanism" in stage_source
-    emit_source = inspect.getsource(PersistHow.emit_ranked_symbols_then_stage)
-    assert "_persist_how_claim_specs" in emit_source
-    assert "_stage_persist_how_claims" in emit_source
+    # The staging helper must mint INVESTIGATED_MECHANISM CANDIDATEs - observed on the staged
+    # rows rather than read out of its body.
+    pending: list[tuple[object, object, object, object]] = []
+    stage_persist_how_claims(
+        pending, specs, task_id="task-symbols", subject="Resume.pdf.exe"
+    )
+    assert pending
+    assert {str(item[3]["claim_kind"]) for item in pending} == {
+        "persist_time_investigated_mechanism"
+    }, "the staged claims lost their persist-time claim kind"
+
+    # `emit_ranked_symbols_then_stage` must emit the ranked symbols first, compute the claim specs
+    # from that evidence, then stage the claims. All three steps are recorded on collaborators.
+    order: list[str] = []
+    emitted: list[object] = []
+    specs_evidence: list[object] = []
+    original_specs = PersistHow._persist_how_claim_specs
+    original_stage = PersistHow._stage_persist_how_claims
+
+    @classmethod
+    def spy_specs(cls, *, artifact_path: str, evidence):  # noqa: ANN001 - real signature
+        order.append("specs")
+        specs_evidence.extend(evidence)
+        return original_specs(artifact_path=artifact_path, evidence=evidence)
+
+    @classmethod
+    def spy_stage(cls, pending_claims, how_specs, *, task_id: str, subject: str):  # noqa: ANN001
+        order.append("stage")
+        return original_stage(
+            pending_claims, how_specs, task_id=task_id, subject=subject
+        )
+
+    def emit(
+        kind: str, value: dict[str, object], anchor: dict[str, object], **_kwargs: object
+    ) -> object:
+        order.append(f"emit:{kind}")
+        row = SimpleNamespace(id=f"ev-{len(emitted)}", kind=kind, value=value, anchor=anchor)
+        emitted.append(row)
+        return row
+
+    monkeypatch.setattr(PersistHow, "_persist_how_claim_specs", spy_specs)
+    monkeypatch.setattr(PersistHow, "_stage_persist_how_claims", spy_stage)
+    emit_ranked_symbols_then_stage(
+        {
+            "symbols": [
+                {"name": "internal", "external": False, "address": "140001000"},
+                {"name": "Process32FirstW", "external": True, "address": "140046000"},
+            ]
+        },
+        emit=emit,
+        extra_evidence=[],
+        emitted_evidence=emitted,
+        artifact_path="Resume.pdf.exe",
+        pending_claims=[],
+        task_id="task-symbols",
+        subject="Resume.pdf.exe",
+    )
+    assert order == ["emit:import_symbol", "emit:export_symbol", "specs", "stage"], order
+    assert [str(getattr(item, "kind", "")) for item in specs_evidence] == [
+        "import_symbol",
+        "export_symbol",
+    ], "the claim specs were computed before the ranked symbols were emitted"
+    # `_record_ghidra_evidence` must route through this helper rather than read `output["symbols"]`
+    # itself; that collaboration is asserted behaviourally (persisted import_symbol rows, external
+    # first, non-dict entries dropped) by
+    # `test_record_ghidra_evidence_emits_symbols_before_persist_how_claims` above.
 
 
 def test_persist_how_claim_specs_mint_named_api_without_module_input() -> None:

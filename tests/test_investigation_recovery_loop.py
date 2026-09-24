@@ -48,6 +48,30 @@ def test_how_timebox_defers_controlled_emulate_instead_of_static_boundary() -> N
     assert method == "STATIC_BOUNDARY"
 
 
+def test_investigation_loop_consults_the_timebox_disposition() -> None:
+    """P3.7, LEFT PENDING: the loop body must consult `how_timebox_disposition`.
+
+    This is the one `getsource` guard in this file that P3.7 did NOT convert, and the reason is recorded
+    rather than hidden. The behaviour it protects is "a timeboxed HOW seed is DEFERRED (next_method kept)
+    instead of being closed as STATIC_BOUNDARY", which is decided inside the loop's nested `park_unfinished`
+    in `investigation/derivation.py`. No test in this suite drives the loop to that call: reaching it needs a
+    seed cluster that resolves to a HOW playbook AND a `_persist_time_static_boundary` result whose gate
+    still has recoverable `missing` tokens, i.e. a new persist-time boundary fixture. The PREDICATE itself is
+    covered behaviourally by `test_how_timebox_defers_controlled_emulate_instead_of_static_boundary` above,
+    so this guard keeps only the wiring claim until that fixture exists (`docs/p37-getsource-conversion-plan-20260922.md`
+    §4.3: build the fixture first; a source guard may not simply be dropped).
+    """
+    import inspect
+
+    from threat_report_agent.investigation.derivation import _run_investigation_loop
+
+    loop_source = inspect.getsource(_run_investigation_loop)
+    assert "how_timebox_disposition" in loop_source, (
+        "the investigation loop no longer consults the timebox disposition, so a timeboxed HOW seed can be "
+        "closed as STATIC_BOUNDARY while recoverable slots remain"
+    )
+
+
 def test_decode_gap_still_queues_trace_after_candidate() -> None:
     actions = recovery_actions_for_gap(
         "DECODE_CONFIG",
@@ -261,26 +285,235 @@ def test_persist_skip_keeps_argument_trace_and_emulate() -> None:
     assert queued_emu.status == "QUEUED"
 
 
-def test_gap_driven_rounds_are_not_skipped_only_because_dsh_owns_chat() -> None:
-    import inspect
+def test_gap_driven_rounds_are_not_skipped_only_because_dsh_owns_chat(
+    test_settings, monkeypatch
+) -> None:
+    """With DSH owning the conversation, a backend gap-driven round must still RUN.
 
+    P3.7: this used to be a `getsource` NEGATIVE guard (`"dsh_conversation_owns_planning" not in` the
+    function's early section). The retired shortcut was `if settings.dsh_conversation_owns_planning: return []`,
+    which skipped the gap-driven rounds entirely. The premise is asserted (`dsh_conversation_owns_planning`
+    is the default), and the observable is that a round is planned AND recorded durably on the task - which
+    no early return can produce.
+    """
+    from dataclasses import replace
+
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.contracts import DynamicPlanAction
+    from threat_report_agent.database import Database
+    from threat_report_agent.models import AnalysisTask, Artifact, ContentBlob
+
+    settings = replace(test_settings, environment="development", model_calls_enabled=True)
+    assert settings.dsh_conversation_owns_planning is True, (
+        "this test measures the DSH-owned-planning configuration, so that default must hold"
+    )
+    database = Database(settings.database_url)
+    service = AnalysisService(
+        settings, database, LocalContentStore(settings.content_store_path)
+    )
+    database.create_schema()
+    case = service.create_case("gap rounds under DSH-owned planning")
+    with database.session_factory.begin() as session:
+        session.add(
+            ContentBlob(
+                sha256="8" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/gap-rounds",
+            )
+        )
+        task = AnalysisTask(
+            case_id=case.id,
+            lifecycle="RUNNING",
+            strategy_snapshot={
+                "investigation": {
+                    "work_ledger": [
+                        {
+                            "id": "thread-how",
+                            "thread_id": "thread-how",
+                            "status": "DEFERRED",
+                            "next_method": ActionType.CONTROLLED_EMULATE.value,
+                        }
+                    ]
+                }
+            },
+        )
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            id="artifact-gap-rounds",
+            task_id=task.id,
+            content_sha256="8" * 64,
+            logical_path="sample.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        task_id = task.id
+        artifact_id = artifact.id
+
+    proposal = DynamicPlanAction(
+        target_artifact_id=artifact_id,
+        action_type=ActionType.GET_XREFS_TO.value,
+        reason="close the deferred controlled-emulate seed from inside the image",
+        question="Which call sites reach the deferred seed?",
+        target_selector={"target": "GetProcAddress"},
+    )
+    planned_phases: list[str] = []
+
+    def record_planning(task_id: str, artifacts, artifact_ids, **kwargs):  # noqa: ANN001, ANN202
+        del task_id, artifacts, artifact_ids
+        planned_phases.append(str(kwargs.get("phase") or ""))
+        return [proposal], []
+
+    # The planner and the executor are the two hops this test is NOT about; the early-return guard is.
+    monkeypatch.setattr(service, "_run_model_planning", record_planning)
+    monkeypatch.setattr(service, "_run_investigation_loop", lambda task_id, **kwargs: [])
+
+    service._run_gap_driven_model_rounds(task_id)
+
+    assert planned_phases == ["post_investigation_gap_1"], (
+        "no gap-driven model round was planned while DSH owned the conversation: the retired "
+        "`dsh_conversation_owns_planning` shortcut is back"
+    )
+    with database.session_factory() as session:
+        planning = dict(
+            (session.get(AnalysisTask, task_id).strategy_snapshot or {}).get("dynamic_planning") or {}
+        )
+    assert planning.get("post_investigation_rounds") == 1, (
+        f"the round was planned but never recorded durably: {planning!r}"
+    )
+
+
+def test_emulation_informed_path_reverifies_how_on_the_rows_that_just_landed(
+    test_settings, monkeypatch
+) -> None:
+    """The emulation-informed path must REVERIFY HOW, and the reverification is the service's own hop.
+
+    P3.7: replaces two `getsource` PRESENCE guards - `"_reverify_how_after_emulation" in
+    getsource(run_emulation_informed_investigation)` and `"apply_emulation_reverification" in
+    getsource(AnalysisService._reverify_how_after_emulation)`. Both are read as behaviour here: the public
+    entry point is run against a real database with one real `simulation_result` row landing in between, and
+    the recorded call shows WHICH rows were handed to the reverification and that its verdict was persisted.
+    """
+    from dataclasses import replace
+
+    import threat_report_agent.service as service_module
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.database import Database
+    from threat_report_agent.models import (
+        AnalysisTask,
+        Artifact,
+        ContentBlob,
+        Evidence,
+        ToolRun,
+    )
     from threat_report_agent.task.analysis_task_orchestration import (
         run_emulation_informed_investigation,
     )
 
-    source = inspect.getsource(AnalysisService._run_gap_driven_model_rounds)
-    early = source.split("limitations: list[str] = []", 1)[0]
-    assert "dsh_conversation_owns_planning" not in early
-    # MIGRATED in P3.3f-2, the loop's move: the body this asserts on now lives in `investigation/derivation.py`, and
-    # `getsource` on the class would have read a one-statement delegation instead. Same guard, the implementation's home.
-    from threat_report_agent.investigation.derivation import _run_investigation_loop
+    settings = replace(test_settings, environment="development", model_calls_enabled=True)
+    database = Database(settings.database_url)
+    service = AnalysisService(settings, database, LocalContentStore(settings.content_store_path))
+    database.create_schema()
+    case = service.create_case("emulation-informed reverification")
+    with database.session_factory.begin() as session:
+        session.add(
+            ContentBlob(
+                sha256="7" * 64,
+                size=1,
+                media_type="application/octet-stream",
+                storage_key="sha256/informed-reverify",
+            )
+        )
+        task = AnalysisTask(
+            case_id=case.id,
+            lifecycle="RUNNING",
+            strategy_snapshot={
+                "investigation": {
+                    "mechanisms": [
+                        {
+                            "id": "mech-exec",
+                            "mechanism_type": "PROCESS_EXECUTION",
+                            "status": "CANDIDATE",
+                        }
+                    ]
+                }
+            },
+        )
+        session.add(task)
+        session.flush()
+        artifact = Artifact(
+            id="artifact-informed-reverify",
+            task_id=task.id,
+            content_sha256="7" * 64,
+            logical_path="sample.exe",
+            detected_type="pe",
+            role="EXECUTABLE",
+        )
+        session.add(artifact)
+        session.flush()
+        run = ToolRun(
+            task_id=task.id,
+            artifact_id=artifact.id,
+            tool_name="controlled-emulator",
+            tool_version="test",
+            status="SUCCEEDED",
+        )
+        session.add(run)
+        session.flush()
+        task_id = task.id
+        artifact_id = artifact.id
+        run_id = run.id
 
-    loop_source = inspect.getsource(_run_investigation_loop)
-    assert "how_timebox_disposition" in loop_source
-    emu_source = inspect.getsource(run_emulation_informed_investigation)
-    assert "_reverify_how_after_emulation" in emu_source
-    assert "apply_emulation_reverification" in inspect.getsource(
-        AnalysisService._reverify_how_after_emulation
+    def dispatch_post_static_emulation(inner_task_id: str) -> list[str]:
+        with database.session_factory.begin() as session:
+            session.add(
+                Evidence(
+                    id="sim-informed",
+                    task_id=inner_task_id,
+                    artifact_id=artifact_id,
+                    tool_run_id=run_id,
+                    module="emulation",
+                    kind="simulation_result",
+                    nature="EMULATION_OBSERVED",
+                    value={"status": "SUCCEEDED", "simulator": "unicorn"},
+                    anchor={},
+                )
+            )
+        return ["dispatched"]
+
+    recorded: list[tuple[list[dict[str, object]], list[dict[str, object]]]] = []
+    real_reverification = service_module.apply_emulation_reverification
+
+    def spy_reverification(mechanisms, evidence):  # noqa: ANN001, ANN202 - mirrors the real signature
+        recorded.append(([dict(item) for item in mechanisms], [dict(item) for item in evidence]))
+        return real_reverification(mechanisms, evidence)
+
+    monkeypatch.setattr(service, "_run_post_static_emulation", dispatch_post_static_emulation)
+    monkeypatch.setattr(service, "_run_investigation_loop", lambda task_id, **kwargs: [])
+    monkeypatch.setattr(service_module, "apply_emulation_reverification", spy_reverification)
+
+    run_emulation_informed_investigation(service, task_id, saturated=False)
+
+    assert len(recorded) == 1, (
+        "the emulation-informed path did not reverify HOW exactly once; a worker row that changes nothing "
+        "is exactly the regression these guards exist for"
+    )
+    mechanisms_arg, evidence_arg = recorded[0]
+    assert [item.get("id") for item in mechanisms_arg] == ["mech-exec"], mechanisms_arg
+    assert any(
+        row.get("kind") == "simulation_result"
+        and str((row.get("value") or {}).get("status") or "").upper() == "SUCCEEDED"
+        for row in evidence_arg
+    ), f"the reverification did not receive the simulation rows that just landed: {evidence_arg!r}"
+    with database.session_factory() as session:
+        stored = dict(
+            (session.get(AnalysisTask, task_id).strategy_snapshot or {}).get("investigation") or {}
+        )
+    assert (stored.get("mechanisms") or [{}])[0].get("verifier"), (
+        f"the reverification verdict was not written back to the task: {stored.get('mechanisms')!r}"
     )
 
 

@@ -228,8 +228,8 @@
     ]
   },
   "test_getsource_count": {
-    "reaching_a_private_member": 17,
-    "total": 39
+    "reaching_a_private_member": 0,
+    "total": 2
   },
   "threshold_comparisons": {
     "comparisons": [
