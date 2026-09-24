@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import zipfile
 import zlib
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 import py7zr

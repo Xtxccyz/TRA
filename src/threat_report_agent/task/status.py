@@ -4,6 +4,16 @@ from enum import StrEnum
 
 from threat_report_agent.product_certification import AnalysisResultClass
 
+# MOVED to `contracts.py` (P3.5-0 M-3) and re-exported with `X as X`, so `task.status`, the root `status` shim
+# and every existing importer keep the SAME objects. `contracts` is importable from every layer (plan 3.2), so the
+# direction is legal and no cycle is created.
+from threat_report_agent.contracts import (  # noqa: E402
+    TaskLifecycle as TaskLifecycle,
+    InvalidStateTransition as InvalidStateTransition,
+    TASK_TRANSITIONS as TASK_TRANSITIONS,
+    transition_task as transition_task,
+)
+
 AnalysisClass = AnalysisResultClass
 
 
@@ -12,15 +22,6 @@ class CaseStatus(StrEnum):
     ARCHIVED = "ARCHIVED"
 
 
-class TaskLifecycle(StrEnum):
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    WAITING_GATE = "WAITING_GATE"
-    PAUSED = "PAUSED"
-    FINALIZING = "FINALIZING"
-    SUCCEEDED = "SUCCEEDED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
 
 
 class ToolRunStatus(StrEnum):
@@ -65,44 +66,7 @@ class ReportStatus(StrEnum):
     PUBLISHED = "PUBLISHED"
 
 
-class InvalidStateTransition(ValueError):
-    pass
 
 
-TASK_TRANSITIONS: dict[TaskLifecycle, frozenset[TaskLifecycle]] = {
-    TaskLifecycle.PENDING: frozenset(
-        {
-            TaskLifecycle.RUNNING,
-            TaskLifecycle.WAITING_GATE,
-            TaskLifecycle.FAILED,
-            TaskLifecycle.CANCELLED,
-        }
-    ),
-    TaskLifecycle.RUNNING: frozenset(
-        {
-            TaskLifecycle.WAITING_GATE,
-            TaskLifecycle.PAUSED,
-            TaskLifecycle.FINALIZING,
-            TaskLifecycle.FAILED,
-            TaskLifecycle.CANCELLED,
-        }
-    ),
-    TaskLifecycle.WAITING_GATE: frozenset(
-        {TaskLifecycle.RUNNING, TaskLifecycle.PAUSED, TaskLifecycle.CANCELLED}
-    ),
-    TaskLifecycle.PAUSED: frozenset({TaskLifecycle.RUNNING, TaskLifecycle.CANCELLED}),
-    TaskLifecycle.FINALIZING: frozenset(
-        {TaskLifecycle.SUCCEEDED, TaskLifecycle.FAILED, TaskLifecycle.CANCELLED}
-    ),
-    TaskLifecycle.SUCCEEDED: frozenset(),
-    TaskLifecycle.FAILED: frozenset(),
-    TaskLifecycle.CANCELLED: frozenset(),
-}
 
 
-def transition_task(current: TaskLifecycle | str, target: TaskLifecycle | str) -> TaskLifecycle:
-    current_state = TaskLifecycle(current)
-    target_state = TaskLifecycle(target)
-    if target_state not in TASK_TRANSITIONS[current_state]:
-        raise InvalidStateTransition(f"{current_state.value} -> {target_state.value}")
-    return target_state

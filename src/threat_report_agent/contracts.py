@@ -232,13 +232,13 @@ class DynamicPlanAction(BaseModel):
             return value
         data = value
         notices: list[str] = []
-        for field, bound in cls._TRUNCATION_BOUNDS.items():
-            items = data.get(field)
+        for field_name, bound in cls._TRUNCATION_BOUNDS.items():
+            items = data.get(field_name)
             if isinstance(items, list) and len(items) > bound:
-                notices.append(f"{field}:{bound}/{len(items) - bound}")
+                notices.append(f"{field_name}:{bound}/{len(items) - bound}")
                 if data is value:
                     data = dict(value)
-                data[field] = items[:bound]
+                data[field_name] = items[:bound]
         if notices:
             existing = data.get("truncated_fields")
             carried = [str(item) for item in existing] if isinstance(existing, list) else []
@@ -582,3 +582,54 @@ class InvestigationResult:
     # ClaimGate acceptance: a target can be fully inspected and still stay
     # UNKNOWN because static evidence did not prove its mechanism.
     coverage: Mapping[str, object] = field(default_factory=dict)
+
+
+class TaskLifecycle(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    WAITING_GATE = "WAITING_GATE"
+    PAUSED = "PAUSED"
+    FINALIZING = "FINALIZING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+class InvalidStateTransition(ValueError):
+    pass
+
+TASK_TRANSITIONS: dict[TaskLifecycle, frozenset[TaskLifecycle]] = {
+    TaskLifecycle.PENDING: frozenset(
+        {
+            TaskLifecycle.RUNNING,
+            TaskLifecycle.WAITING_GATE,
+            TaskLifecycle.FAILED,
+            TaskLifecycle.CANCELLED,
+        }
+    ),
+    TaskLifecycle.RUNNING: frozenset(
+        {
+            TaskLifecycle.WAITING_GATE,
+            TaskLifecycle.PAUSED,
+            TaskLifecycle.FINALIZING,
+            TaskLifecycle.FAILED,
+            TaskLifecycle.CANCELLED,
+        }
+    ),
+    TaskLifecycle.WAITING_GATE: frozenset(
+        {TaskLifecycle.RUNNING, TaskLifecycle.PAUSED, TaskLifecycle.CANCELLED}
+    ),
+    TaskLifecycle.PAUSED: frozenset({TaskLifecycle.RUNNING, TaskLifecycle.CANCELLED}),
+    TaskLifecycle.FINALIZING: frozenset(
+        {TaskLifecycle.SUCCEEDED, TaskLifecycle.FAILED, TaskLifecycle.CANCELLED}
+    ),
+    TaskLifecycle.SUCCEEDED: frozenset(),
+    TaskLifecycle.FAILED: frozenset(),
+    TaskLifecycle.CANCELLED: frozenset(),
+}
+
+def transition_task(current: TaskLifecycle | str, target: TaskLifecycle | str) -> TaskLifecycle:
+    current_state = TaskLifecycle(current)
+    target_state = TaskLifecycle(target)
+    if target_state not in TASK_TRANSITIONS[current_state]:
+        raise InvalidStateTransition(f"{current_state.value} -> {target_state.value}")
+    return target_state
