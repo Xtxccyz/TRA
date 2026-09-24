@@ -25,7 +25,7 @@ from threat_report_agent.service import (
     _HOW_SEED_CATEGORIES,
     _seed_context_rows,
     _seed_playbook,
-    _scoped_investigation_action_key,
+    scoped_investigation_action_key,
 )
 
 
@@ -3014,7 +3014,7 @@ def test_persist_ready_emulation_actions_target_how_function_entry() -> None:
         hypothesis_id="hyp-process",
         artifact_id="artifact-resume",
         scheduled_keys={
-            _scoped_investigation_action_key(
+            scoped_investigation_action_key(
                 ActionType.CONTROLLED_EMULATE.value,
                 {"function_entry": "0x140004605", "target": "0x140004605"},
                 {},

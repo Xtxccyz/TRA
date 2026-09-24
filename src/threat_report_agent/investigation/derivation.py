@@ -158,7 +158,7 @@ from threat_report_agent.investigation.seed_support import (
     _evidence_anchor_keys,
     _evidence_api_symbols,
     _provenance_free_digest,
-    _scoped_investigation_action_key,
+    scoped_investigation_action_key,
     _seed_context_rows,
     _seed_playbook,
     admit_investigation_seed_clusters,
@@ -5544,7 +5544,7 @@ def _run_investigation_loop(
                     continue
                 queued_parameters = dict(queued.parameters or {})
                 queued_plan = queued_parameters.get("_analysis_plan", {})
-                queued_key = _scoped_investigation_action_key(
+                queued_key = scoped_investigation_action_key(
                     queued_type.value,
                     dict(queued.target_selector or {}),
                     queued_plan if isinstance(queued_plan, Mapping) else None,
@@ -5673,7 +5673,7 @@ def _run_investigation_loop(
                     # An incomplete model action must not abort the task;
                     # deterministic playbooks will schedule the next step.
                     continue
-                action_key = _scoped_investigation_action_key(
+                action_key = scoped_investigation_action_key(
                     str(raw_type),
                     raw_selector,
                     raw_action,
@@ -5773,7 +5773,7 @@ def _run_investigation_loop(
                 }
                 by_key.update(
                     {
-                        _scoped_investigation_action_key(
+                        scoped_investigation_action_key(
                             str(row.action_type),
                             dict(row.target_selector or {}),
                             (

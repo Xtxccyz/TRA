@@ -334,7 +334,7 @@ from threat_report_agent.investigation.seed_support import (
     _evidence_anchor_keys as _evidence_anchor_keys,
     _evidence_api_symbols as _evidence_api_symbols,
     _provenance_free_digest as _provenance_free_digest,
-    _scoped_investigation_action_key as _scoped_investigation_action_key,
+    scoped_investigation_action_key,
     _seed_context_rows as _seed_context_rows,
     _seed_playbook as _seed_playbook,
     _strip_provenance as _strip_provenance,
@@ -3943,7 +3943,7 @@ class AnalysisService:
         actions: list[ActionSpec] = []
         for entry in cls._persist_how_function_entries(evidence):
             selector = {"function_entry": entry, "target": entry}
-            key = _scoped_investigation_action_key(
+            key = scoped_investigation_action_key(
                 ActionType.CONTROLLED_EMULATE.value,
                 selector,
                 {},
@@ -6229,7 +6229,7 @@ class AnalysisService:
             (
                 action.target_artifact_id,
                 str(action.action_type),
-                _scoped_investigation_action_key(
+                scoped_investigation_action_key(
                     str(action.action_type),
                     dict(action.target_selector),
                     self._model_action_plan(action),
@@ -6260,7 +6260,7 @@ class AnalysisService:
             (
                 action.target_artifact_id,
                 str(action.action_type),
-                _scoped_investigation_action_key(
+                scoped_investigation_action_key(
                     str(action.action_type),
                     dict(action.target_selector),
                     self._model_action_plan(action),
@@ -6272,7 +6272,7 @@ class AnalysisService:
         for record in records:
             record_parameters = dict(record.parameters or {})
             record_plan = record_parameters.get("_analysis_plan", {})
-            key = _scoped_investigation_action_key(
+            key = scoped_investigation_action_key(
                 record.action_type,
                 dict(record.target_selector or {}),
                 record_plan if isinstance(record_plan, Mapping) else None,

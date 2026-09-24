@@ -8,7 +8,7 @@ of its readers behind.
 WHAT IT HOLDS, measured with `.scratch/p33f-sink-measure.py`: the seed-row selection and ranking helpers
 (`admit_investigation_seed_clusters`, `coalesce_investigation_seed_clusters`, `_seed_context_rows`, `how_seed_slot_rank`,
 `_seed_playbook`), the two budgets (`investigation_seed_step_budget`,
-`investigation_budget_charged_action_count`), the action/provenance keys (`_scoped_investigation_action_key`,
+`investigation_budget_charged_action_count`), the action/provenance keys (`scoped_investigation_action_key`,
 `_provenance_free_digest`), the evidence classification tables (`_evidence_anchor_keys`, `_evidence_api_symbols`) and
 `_strip_provenance` - twelve functions in all, with SEVEN module constants their closures need
 (`_SEED_CATEGORY_PLAYBOOKS`, `_ARTIFACT_WIDE_SCHEDULER_DIMENSIONS`, `_HOW_SLOT_RANK`, `_PLACEHOLDER_EMU_BUDGET_STATUSES`,
@@ -201,7 +201,9 @@ def _provenance_free_digest(item: object) -> str:
     ).hexdigest()
 
 
-def _scoped_investigation_action_key(
+
+
+def scoped_investigation_action_key(
     action_type: str,
     selector: Mapping[str, object],
     plan: Mapping[str, object] | None = None,
@@ -212,6 +214,11 @@ def _scoped_investigation_action_key(
     if scope:
         payload["action_scope"] = scope
     return canonical_action_key(action_type, payload)
+
+
+#: Backwards-compatible name, kept in place (P3.5-0/D-3). Callers outside this module use the PUBLIC name above; this
+#: alias exists so that anything still spelling the private name keeps working, and it is the SAME function object.
+_scoped_investigation_action_key = scoped_investigation_action_key
 
 
 def _seed_context_rows(
