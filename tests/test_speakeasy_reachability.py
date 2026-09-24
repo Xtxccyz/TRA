@@ -170,6 +170,20 @@ def test_granted_window_planning_asks_for_speakeasy(test_settings, monkeypatch) 
     body on `max_windows=4,` and looked for `allow_speakeasy=speakeasy` inside that slice; this asserts the same
     requirement at the only place that matters - the request.
     """
+    # THE PLAN CALL IS OBSERVED TOO, not only the request. MEASURED: the two are separate expressions fed by the
+    # same decision, so forcing the plan's argument to False used to leave this test green - the guard the pre-P3.7
+    # source-text check provided had stopped existing. The module object is imported explicitly because in this test
+    # body `service` is not the service module; patching the wrong name is what made two earlier attempts fail.
+    import threat_report_agent.service as svc
+
+    plan_decisions: list[object] = []
+    real_plan = svc.controlled_emulation_windows
+
+    def recording_plan(*args: object, **kwargs: object):
+        plan_decisions.append(kwargs.get("allow_speakeasy"))
+        return real_plan(*args, **kwargs)
+
+    monkeypatch.setattr(svc, "controlled_emulation_windows", recording_plan)
     request, _settings = _captured_request(test_settings, monkeypatch)
     parameters = request.parameters  # type: ignore[attr-defined]
 
@@ -181,6 +195,11 @@ def test_granted_window_planning_asks_for_speakeasy(test_settings, monkeypatch) 
     assert parameters["allow_speakeasy"] is True, (
         "the worker's request carries allow_speakeasy=False even though the operator allows Speakeasy and a "
         "full-PE window can be requested; the full-PE emulator is unreachable"
+    )
+    assert True in plan_decisions, (
+        f"the granted-window PLAN was built with allow_speakeasy={plan_decisions} although the operator allows "
+        "Speakeasy; building that plan with the decision hard-wired to False is the other half of the historical "
+        "defect - the full-PE window never enters the plan, so no request can honour it"
     )
 
 
