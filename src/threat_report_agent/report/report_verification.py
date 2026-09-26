@@ -122,8 +122,22 @@ def _document_identities(document: Mapping[str, Any]) -> tuple[str, dict[str, st
                     ):
                         sample = candidate.casefold()
                         break
+            if not sample and row_type == "pe_basics":
+                # MEASURED (2026-09-26): resolution used to accept ONLY an IOC row with a file-hash source, or a row
+                # typed identity/artifact. A document that carries the identity on the PE header row - the shape this
+                # repository's own fixtures use, and the shape of any document written before the IOC projection - then
+                # resolved NOTHING, so the row's own digest fell into `internal` and the self-check reported a rule
+                # built from the SAMPLE'S OWN HASH as an ERROR. A self-check that fires on a correct rule trains its
+                # reader to ignore it (the EC-2 lesson), and the plan's M06 makes this very check a gate.
+                candidate = row.get("sha256")
+                if isinstance(candidate, str) and re.fullmatch(r"[0-9a-fA-F]{64}", candidate):
+                    sample = candidate.casefold()
         for digest, label in _object_digests(row, row_type):
             internal.setdefault(digest, label)
+    if sample:
+        # The file's OWN digest is never an internal object: whichever row it was read from, a rule that uses it as a
+        # `sha256` indicator names the sample, which is exactly what an indicator is supposed to do.
+        internal.pop(sample, None)
     return sample, internal
 
 

@@ -22,6 +22,7 @@ text. These tests assert the values, not their presence.
 """
 from __future__ import annotations
 
+from threat_report_agent.report.report_verification import verify_report_correctness
 from threat_report_agent.report.reporting import (
     _named_digest_values,
     build_detection_rule_projection,
@@ -142,18 +143,21 @@ def test_a_resource_digest_never_reaches_the_rule_as_sha256() -> None:
 # ------------------------------------------------------------------------------------------------
 # The verifier itself.  A checker is only worth having if it catches the defect it was written for
 # and stays quiet on a correct artefact, so both directions are pinned here.
+#
+# THESE FOUR TESTS USED TO LOAD `.scratch/verify-report-correctness.py` AND CALL ITS `check_broken_indicators`,
+# which reached Postgres through `docker exec psql`. That made a tracked test depend on (a) a GITIGNORED file - absent
+# from any fresh checkout - and (b) a running container stack, and it graded the product with an oracle copy rather
+# than with the shipped checker. They now call `report.report_verification.verify_report_correctness`, which is the
+# module `report/revision_writer.py` actually runs, and every original assertion is kept.
 # ------------------------------------------------------------------------------------------------
 
-def _verifier():
-    import importlib.util
-    from pathlib import Path
-
-    path = Path(".scratch/verify-report-correctness.py")
-    spec = importlib.util.spec_from_file_location("verify_report_correctness", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+SAMPLE_IDENTITY_IOC = {
+    "type": "ioc",
+    "category": "sha256",
+    "value": SAMPLE_SHA,
+    "source": "static_triage/file_identity",
+    "confidence": "HIGH",
+}
 
 
 BAD_RULE_BODY = f"""
@@ -185,14 +189,13 @@ rule threat_static_comhost
 
 
 def test_the_verifier_flags_a_self_referential_and_resource_digest_indicator() -> None:
-    module = _verifier()
-    findings = module.Findings()
-    # The fixture mirrors the real document: `file_identity` for the sample AND the resource tree
-    # that owns the resource digest. Without the resource entry the verifier cannot know the digest
-    # is internal - which is exactly why the real capture flagged `$s0` as ERROR and `$s5` as WARN.
+    # The fixture mirrors the real document: the sample identity as the product projects it (an IOC row whose source is
+    # a file hash) AND the resource tree that owns the resource digest. Without the resource entry the verifier cannot
+    # know the digest is internal - which is exactly why the real capture flagged `$s0` as ERROR and `$s5` as WARN.
     document = {
         "modules": [
-            {"rows": [{"type": "pe_basics", "sha256": SAMPLE_SHA,
+            {"rows": [SAMPLE_IDENTITY_IOC,
+                      {"type": "pe_basics", "sha256": SAMPLE_SHA,
                        "md5": "be68ec2e1d56688ee411dd86e56b490c"}]},
             {"rows": [{"type": "pe_resources", "entries": [
                 {"type_id": 3, "name": "RT_ICON", "count": 9, "total_size": 172865,
@@ -203,10 +206,10 @@ def test_the_verifier_flags_a_self_referential_and_resource_digest_indicator() -
             ]}]},
         ]
     }
-    module.check_broken_indicators(BAD_RULE_BODY, document, "task-fixture", findings)
-    errors = [item for item in findings.items if item["severity"] == "ERROR"]
+    findings = verify_report_correctness(BAD_RULE_BODY, document)
+    errors = [item for item in findings if item["severity"] == "ERROR"]
     assert errors, "the verifier did not flag a rule whose `sha256` indicator is its own name suffix"
-    joined = " ".join(item["title"] + item["detail"] + item["evidence"] for item in findings.items)
+    joined = " ".join(item["title"] + item["detail"] + item["evidence"] for item in findings)
     assert PROJECTION_SHA[:16] in joined, "the self-referential indicator was not named"
     # The finding quotes the digest truncated (`168d16f912e21ee7d521f5d0...`), so match on the head
     # rather than the full value - the first version of this assertion failed on a working verifier.
@@ -218,17 +221,41 @@ def test_the_verifier_flags_a_self_referential_and_resource_digest_indicator() -
 
 def test_the_verifier_is_quiet_on_a_correct_rule() -> None:
     """A verifier that always fires trains the reader to ignore it - the EC-2 lesson."""
-    module = _verifier()
-    findings = module.Findings()
-    document = {"modules": [{"rows": [{"type": "pe_basics", "sha256": SAMPLE_SHA,
+    document = {"modules": [{"rows": [SAMPLE_IDENTITY_IOC,
+                                      {"type": "pe_basics", "sha256": SAMPLE_SHA,
                                        "md5": "be68ec2e1d56688ee411dd86e56b490c"}]}]}
-    module.check_broken_indicators(GOOD_RULE_BODY, document, "task-fixture", findings)
-    assert not [item for item in findings.items if item["severity"] == "ERROR"], (
-        f"the verifier reported errors on a correct rule: {findings.items}"
+    findings = verify_report_correctness(GOOD_RULE_BODY, document)
+    assert not [item for item in findings if item["severity"] == "ERROR"], (
+        f"the verifier reported errors on a correct rule: {findings}"
     )
     assert not any(
-        "sha256" in item["title"] for item in findings.items
-    ), f"the verifier questioned a correct file-hash indicator: {findings.items}"
+        "sha256" in item["title"] for item in findings
+    ), f"the verifier questioned a correct file-hash indicator: {findings}"
+
+
+def test_the_sample_identity_is_read_from_the_pe_header_row_when_there_is_no_ioc_row() -> None:
+    """MEASURED (2026-09-26): the identity used to be resolved ONLY from an IOC row with a file-hash source.
+
+    A document that carries it on the `pe_basics` row - the shape this file's fixtures use, and the shape of any
+    document written before the IOC projection existed - resolved NOTHING, so the row's own digest landed in `internal`
+    and the check reported a rule built from the SAMPLE'S OWN HASH as an ERROR. A gate that fires on a correct rule is
+    the EC-2 failure mode, and the plan's M06 makes this check a gate. The digest must also never be listed as an
+    internal object once it IS the sample identity.
+    """
+    without_ioc = {"modules": [{"rows": [{"type": "pe_basics", "sha256": SAMPLE_SHA}]}]}
+    findings = verify_report_correctness(GOOD_RULE_BODY, without_ioc)
+    assert not [item for item in findings if item["severity"] == "ERROR"], (
+        f"a rule built from the sample's own digest was flagged when the identity came from pe_basics: {findings}"
+    )
+    # The direction that must NOT change: a digest the document records for an INTERNAL object is still an error.
+    internal_only = {"modules": [{"rows": [
+        {"type": "pe_basics", "sha256": SAMPLE_SHA},
+        {"type": "pe_structure", "entries": [{"type": 3, "name": 5, "size": 16936, "sha256": RESOURCE_SHA}]},
+    ]}]}
+    body = f'rule r\n{{\n    strings:\n        $s5 = "{RESOURCE_SHA}"   // sha256\n    condition:\n        any of them\n}}'
+    assert [item for item in verify_report_correctness(body, internal_only) if item["severity"] == "ERROR"], (
+        "an internal object digest must still be reported"
+    )
 
 
 def test_the_verifier_accepts_a_stated_boundary_as_a_boundary() -> None:
@@ -238,22 +265,16 @@ def test_the_verifier_accepts_a_stated_boundary_as_a_boundary() -> None:
     `边界：以上为…19 条，PE 导入表共 136 条（差额为 …）` - a line that declares 136 and lists nothing,
     and is exactly right. Reporting it is the same defect the check exists to find.
     """
-    module = _verifier()
-    findings = module.Findings()
-    module.check_declared_counts(
+    findings = verify_report_correctness(
         "- 导入表模块清单（7 个）：`a.dll`（3）、`b.dll`（95）\n"
-        "- 边界：以上为按模块归并后的行为相关导入 19 条，PE 导入表共 136 条（差额为 CRT/运行时符号）。\n",
-        findings,
+        "- 边界：以上为按模块归并后的行为相关导入 19 条，PE 导入表共 136 条（差额为 CRT/运行时符号）。\n"
     )
-    assert not findings.items, f"a correctly stated boundary was reported: {findings.items}"
+    assert not findings, f"a correctly stated boundary was reported: {findings}"
 
 
 def test_the_verifier_flags_a_completeness_claim_with_a_short_list() -> None:
     """The other direction: claiming a total while listing fewer, with no boundary, is EC-4."""
-    module = _verifier()
-    findings = module.Findings()
-    module.check_declared_counts(
-        "完整清单，共 5 条：\n- `a`\n- `b`\n",
-        findings,
+    findings = verify_report_correctness("完整清单，共 5 条：\n- `a`\n- `b`\n")
+    assert [item for item in findings if item["ec"] == "EC-4"], (
+        "a completeness claim with a short list was not reported"
     )
-    assert findings.items, "a completeness claim with a short list was not reported"
