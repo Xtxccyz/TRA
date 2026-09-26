@@ -678,6 +678,26 @@ def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]
             violations.add("NEGATIVE_NODE_NOT_FAILED",
                            f"negative control {name or index!r} names node {node!r} which the evidence does not "
                            f"report as FAILED; the control may have run a different test")
+        # RESTORE INTEGRITY. MEASURED (P-1.3, finding F4): the can-fail harness raised `OSError [Errno 22]` while
+        # writing its byte snapshot back and left a mutation ON DISK - "instruction_observation_boundary": None in
+        # `reporting.py` - while the run reported success. A control that edits a product file and cannot show the
+        # file returned to its exact bytes is not a control; it is a worktree corruption with a pass verdict.
+        if "restore_is_byte_identical" in control and control.get("restore_is_byte_identical") is not True:
+            violations.add("NEGATIVE_RESTORE_NOT_PROVEN",
+                           f"negative control {name or index!r} records restore_is_byte_identical="
+                           f"{control.get('restore_is_byte_identical')!r}; an unrestored test tamper leaves a "
+                           f"mutation in the worktree")
+        if str(control.get("file") or "").strip():
+            before = str(control.get("sha256_before") or "").strip().lower()
+            restored = str(control.get("sha256_restored") or "").strip().lower()
+            if not (re.fullmatch(r"[0-9a-f]{64}", before) and re.fullmatch(r"[0-9a-f]{64}", restored)):
+                violations.add("NEGATIVE_RESTORE_NOT_PROVEN",
+                               f"negative control {name or index!r} tampers with {control.get('file')!r} but does "
+                               f"not carry both `sha256_before` and `sha256_restored` as 64-hex digests")
+            elif before != restored:
+                violations.add("NEGATIVE_RESTORE_NOT_PROVEN",
+                               f"negative control {name or index!r} restored {str(control.get('file'))!r} to "
+                               f"{restored[:16]} instead of its pre-tamper {before[:16]}")
 
 
 def _check_mechanism_coverage(violations: Violations, artifact: Mapping[str, Any]) -> None:
@@ -741,6 +761,7 @@ TAMPERS: tuple[tuple[str, str], ...] = (
     ("m4_disconnect_consumer_from_control", "M4"), ("m4_json_only_proof", "M4"),
     ("m5_publish_count_only", "M5"), ("m5_drop_expected_minus_actual", "M5"),
     ("negative_control_zero_exit", "M6"), ("negative_control_collection_error", "M6"),
+    ("negative_control_restore_not_proven", "M6"),
     ("ownership_overlap", "M6"),
     ("scope_escape", "M6"),
 )
@@ -802,6 +823,14 @@ def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifa
         control["exit_code"] = 4
         control["evidence"] = "ERROR tests/test_analyst_report_acceptance.py"
         control.pop("node", None)
+    elif name == "negative_control_restore_not_proven":
+        # The shape P-1.3's F4 produced: the control ran and failed as required, but the RESTORE did not complete,
+        # so the worktree still held the test tamper while the record claimed a pass.
+        control = need("negative_controls")[0]
+        control["file"] = "src/threat_report_agent/report/reporting.py"
+        control["sha256_before"] = "0" * 64
+        control["sha256_restored"] = "f" * 64
+        control["restore_is_byte_identical"] = False
     elif name == "ownership_overlap":
         ownership["overlap"] = [{"file": "src/threat_report_agent/service.py", "claimed_by": ["root", "T1/T2"]}]
         ownership["overlap_verdict"] = "OVERLAP - P-0.2 MUST NOT RUN"

@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.4`**；状态机当前允许：`['P-1.4']`
-- 代码提交 `git_head = 81101ce9c393bac870b9571ff649e9ecc6bc1126`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = cb7ea6d0452a0402caed500bc54fa6bbfb0994bb`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -84,7 +84,7 @@
 
 ```json
 {
-  "measured_at_head": "81101ce9c393bac870b9571ff649e9ecc6bc1126",
+  "measured_at_head": "cb7ea6d0452a0402caed500bc54fa6bbfb0994bb",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -98,7 +98,7 @@
 
 ```json
 {
-  "measured_at_head": "81101ce9c393bac870b9571ff649e9ecc6bc1126",
+  "measured_at_head": "cb7ea6d0452a0402caed500bc54fa6bbfb0994bb",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -206,6 +206,15 @@
   - 规则：**刻意不变**：脚本形态的 control 保留自己的非零约定（P-0.4 部署门 exit 2、P-1.1 错 revision SQL 探针 exit 3 都是真实对照）
   - 规则：新增自检 tamper `negative_control_collection_error`（M6）复现该坏形状并被拒绝
   - 对步骤状态的影响：无——instrument 变更，`current_step` 不变，未改动任何产品文件
+- **`a-negative-control-must-prove-it-restored-the-worktree`**（commit `pending (this commit)`）：负向对照必须证明它**把工作树还原到了原字节**。一个改变了产品文件却无法证明还原的 control 不是对照，而是「带着通过结论的工作树污染」。
+  - 实测：触发实测（P-1.3 自审 finding F4）：can-fail harness 在写回字节快照时抛 `OSError [Errno 22]`，把 `"instruction_observation_boundary": None` 留在了磁盘上的 `src/threat_report_agent/report/reporting.py` 里，而那次运行仍报告成功
+  - 实测：向后兼容实测：P-0.3/P-0.4/P-1.1/P-1.2/P-1.3 五个已记录 artifact 重新校验全部 exit 0；当前 15 条带 `restore_is_byte_identical` 的 control 全为 true，无误伤
+  - 实测：自检 15 项篡改全部被拒、0 跳过；`tests/test_ghidra_plan_preflight.py` 60 passed（上一轮 56）
+  - 规则：新增 `NEGATIVE_RESTORE_NOT_PROVEN`：`restore_is_byte_identical` 存在且不为 true 即拒绝
+  - 规则：命名了被改文件（`file`）的 control 必须同时带 `sha256_before` 与 `sha256_restored` 两个 64-hex 摘要
+  - 规则：两者必须相等——还原到别的字节同样是污染
+  - 规则：新增自检 tamper `negative_control_restore_not_proven`（M6）复现该形状并被拒绝
+  - 对步骤状态的影响：无——instrument 变更，`current_step` 仍为 P-1.4，未改动任何产品文件
 
 ## 六、后继者必须知道的事
 

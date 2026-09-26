@@ -239,6 +239,34 @@ def test_m6_accepts_a_script_control_with_its_own_non_zero_convention() -> None:
     assert _codes(_validate(artifact)) == set(), "a genuine script-shaped control was rejected by the new rule"
 
 
+def test_m6_blocks_a_control_that_restored_a_different_file() -> None:
+    """MEASURED (P-1.3, finding F4): a restore raised `OSError [Errno 22]` and left a mutation ON DISK while the
+    control still read as a pass. A control that edits a product file must show it returned to its exact bytes."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "restore_failed", "exit_code": 1, "file": "src/threat_report_agent/report/reporting.py",
+         "sha256_before": "0" * 64, "sha256_restored": "f" * 64, "restore_is_byte_identical": False,
+         "evidence": "FAILED tests/test_x.py::test_y - AssertionError: z"}])
+    codes = _codes(_validate(artifact))
+    assert "NEGATIVE_RESTORE_NOT_PROVEN" in codes, "an unrestored tamper was accepted as a negative control"
+
+
+def test_m6_blocks_a_tampered_file_with_no_restore_digests() -> None:
+    """Naming the file but recording no before/after digest is the same gap stated less loudly."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "no_digests", "exit_code": 1, "file": "src/threat_report_agent/report/reporting.py",
+         "evidence": "FAILED tests/test_x.py::test_y - AssertionError: z"}])
+    assert "NEGATIVE_RESTORE_NOT_PROVEN" in _codes(_validate(artifact))
+
+
+def test_m6_accepts_a_control_that_proves_its_restore() -> None:
+    """POSITIVE CONTROL: the shape P-1.3's fixed harness produces must pass."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "properly_restored", "exit_code": 1, "file": "src/threat_report_agent/report/reporting.py",
+         "sha256_before": "a" * 64, "sha256_restored": "a" * 64, "restore_is_byte_identical": True,
+         "evidence": "FAILED tests/test_x.py::test_y - AssertionError: z"}])
+    assert _codes(_validate(artifact)) == set(), "a properly restored control was rejected"
+
+
 def test_m6_blocks_an_ownership_overlap() -> None:
     ownership = json.loads(json.dumps(OWNERSHIP))
     ownership["overlap"] = [{"file": "src/threat_report_agent/service.py", "claimed_by": ["root", "T1/T2"]}]
