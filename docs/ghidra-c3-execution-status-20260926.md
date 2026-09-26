@@ -4,7 +4,8 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-0.3`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = 0dc7f8b6df961c5c7d330d61dfa376777e5c18da`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 3c443d38c82f5ca022740f4a1917225b842cd59b`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
 ## 一、开局 hook：P-0 的四个步骤
@@ -15,6 +16,7 @@
 | P-0.2 | complete | `.scratch/ghidra-c3/baseline/` | full suite captured to `pytest-full.txt` with exit code 1; 12 failure node(s); focused run exit 1; compileall exit 0. Manifest before 4e4558cab15f / after 550cb1e73b2a. |
 | P-0.3 | complete | `.scratch/ghidra-c3/preflight/P-0.3-artifact.json` | blocking preflight delivered: 11 self-test tamper(s) rejected with real non-zero exits, 2 skipped and covered by named unit tests; 12 negative control(s) recorded; M3 bound to a real SQL round trip against a schema created by the product's own `Database.create_schema()`. |
 | P-0.4 | complete | `.scratch/ghidra-c3/preflight/P-0.4-artifact.json` | call contract pinned without touching the gate: default services ['api', 'intake-worker', 'document-worker', 'parser-worker', 'script-worker', 'control-worker', 'emu-worker', 'ghidra-worker']; deployment BLOCKED (deployment_gate_head_unverified); 4 negative control(s) recorded. |
+| P-0.2-r2 | complete | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 12; NEW (regressions) = none; GONE (fixed) = ['tests/test_model_package_contract.py::test_no_production_module_imports_a_moved_model_module_by_its_old_path', 'tests/test_structure_diff_gate.py::test_a_pure_move_passes_the_surface_gate', 'tests/test_structure_diff_gate.py::test_the_surface_file_is_current']. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
 
@@ -24,16 +26,13 @@
 - 与结构计划基线的区别：the structure plan's own baseline is a DIFFERENT set (6 failed / 2358 passed / 3 skipped, recorded in `.scratch/structure-status.json`); this file's set is the main plan's and the two must never be conflated
 - 并发说明：the parallel behaviour tracks were editing this worktree while the suite ran, so P-0.2-r2 must re-measure once they stop and require the new node set to be a SUBSET of this one
 
-共 **12** 个失败节点：
+共 **9** 个失败节点：
 
 - `tests/test_analysis_api.py::test_end_to_end_static_analysis_and_report_revisions`
 - `tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start`
 - `tests/test_detection_rule_indicator_correctness.py::test_the_verifier_flags_a_self_referential_and_resource_digest_indicator`
 - `tests/test_detection_rule_indicator_correctness.py::test_the_verifier_is_quiet_on_a_correct_rule`
-- `tests/test_model_package_contract.py::test_no_production_module_imports_a_moved_model_module_by_its_old_path`
-- `tests/test_structure_diff_gate.py::test_a_pure_move_passes_the_surface_gate`
 - `tests/test_structure_diff_gate.py::test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap`
-- `tests/test_structure_diff_gate.py::test_the_surface_file_is_current`
 - `tests/test_t3_callback_fixture.py::test_t3_one_start_discovers_global_relation_for_behavior_explanation`
 - `tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer`
 - `tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives`
