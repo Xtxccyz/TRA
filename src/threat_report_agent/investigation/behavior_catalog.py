@@ -786,6 +786,117 @@ TypedRelationPredicate = RelationPredicate
 
 
 @dataclass(frozen=True)
+class CounterExample:
+    """A versioned minimal counter-example from the methodology contract.
+
+    Section 7 of the investigation plan states, for every behaviour contract,
+    the *minimal counter-example* that must not be accepted as that behaviour:
+    a resource API import alone, a once+run+delete task called durable
+    persistence, a same-process APC called remote injection, a runtime timing
+    query called anti-analysis.  Prose in ``forbidden_inferences`` documents
+    those limits but cannot enforce them, so every counter-example that can be
+    expressed as data is registered here and evaluated.
+
+    A counter-example matches when ONE evidence row satisfies every predicate
+    in ``row_predicates`` and at least one predicate in ``row_any_predicates``.
+    The conjunction on a single row is deliberate: the counter-example is "the
+    very row that supplies the required fact also says the claim does not
+    hold".  Matching rows are withheld from the contract's facts (see
+    :meth:`EvidenceContract.evaluate`), so they cannot be promoted, while an
+    independent row that carries the same fact honestly still can.
+
+    Predicates use the same typed matching as every other contract obligation -
+    exact normalized field values and explicit kinds - never substring
+    thresholds, so a value that merely mentions a word is not a match.
+    """
+
+    id: str
+    source: str
+    over_claim: str
+    row_predicates: tuple[EvidencePredicate, ...] = ()
+    row_any_predicates: tuple[EvidencePredicate, ...] = ()
+    version: str = "1.0.0"
+
+    def __post_init__(self) -> None:
+        if not self.id.strip():
+            raise ValueError("counter-example requires a stable id")
+        if not self.source.strip():
+            raise ValueError("counter-example requires its methodology source")
+        if not self.over_claim.strip():
+            raise ValueError("counter-example requires the over-claim it blocks")
+        if not self.row_predicates and not self.row_any_predicates:
+            raise ValueError("counter-example requires at least one typed row predicate")
+        ids = [item.id for item in (*self.row_predicates, *self.row_any_predicates)]
+        if len(ids) != len(set(ids)):
+            raise ValueError("counter-example predicate IDs must be unique")
+
+    def matches(self, evidence: Iterable[Mapping[str, object]]) -> tuple[str, ...]:
+        """Evidence row IDs that carry this counter-example pattern."""
+        matched: list[str] = []
+        for row in evidence:
+            if not isinstance(row, Mapping) or not row.get("id"):
+                continue
+            if not all(item.match_row(row) for item in self.row_predicates):
+                continue
+            if self.row_any_predicates and not any(
+                item.match_row(row) for item in self.row_any_predicates
+            ):
+                continue
+            matched.append(str(row["id"]))
+        return tuple(dict.fromkeys(matched))
+
+    def as_dict(self) -> dict[str, object]:
+        """Serialize the executable counter-example for catalog consumers."""
+        return {
+            "id": self.id,
+            "version": self.version,
+            "source": self.source,
+            "over_claim": self.over_claim,
+            "row_predicates": [item.as_dict() for item in self.row_predicates],
+            "row_any_predicates": [item.as_dict() for item in self.row_any_predicates],
+        }
+
+
+def counter_example(
+    counter_example_id: str,
+    source: str,
+    over_claim: str,
+    *,
+    all_of: Iterable[EvidencePredicate] = (),
+    any_of: Iterable[EvidencePredicate] = (),
+) -> CounterExample:
+    """Build one registered counter-example."""
+
+    return CounterExample(
+        id=counter_example_id,
+        source=source,
+        over_claim=over_claim,
+        row_predicates=tuple(all_of),
+        row_any_predicates=tuple(any_of),
+    )
+
+
+def _values_predicate(predicate_id: str, path: str, *values: object) -> EvidencePredicate:
+    """Exact normalized value match on one typed field."""
+    return EvidencePredicate(
+        id=predicate_id,
+        paths=(_parse_path(path),),
+        expected_values=tuple(values),
+    )
+
+
+def _any_field_values_predicate(
+    predicate_id: str, paths: Iterable[str], values: Iterable[object]
+) -> EvidencePredicate:
+    """Exact normalized value match on the first of several equivalent fields."""
+    return EvidencePredicate(
+        id=predicate_id,
+        paths=tuple(_parse_path(path) for path in paths),
+        expected_values=tuple(values),
+    )
+
+
+@dataclass(frozen=True)
 class ContractEvaluation:
     """Auditable result of evaluating all facts and relations in a contract."""
 
@@ -796,6 +907,11 @@ class ContractEvaluation:
     contradictions: tuple[str, ...] = ()
     checks: tuple[dict[str, object], ...] = ()
     reason: str = ""
+    # Counter-example IDs that matched this evidence window, kept on BOTH the
+    # accepted and the rejected result so a reader can tell "the pattern was
+    # present and independent evidence still closed the contract" from "the
+    # pattern was present and is exactly why the contract did not close".
+    counter_examples: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -806,6 +922,7 @@ class ContractEvaluation:
             "contradictions": list(self.contradictions),
             "checks": [dict(item) for item in self.checks],
             "reason": self.reason,
+            "counter_examples": list(self.counter_examples),
         }
 
 
@@ -818,6 +935,7 @@ class EvidenceContract:
     forbidden_inferences: tuple[str, ...] = ()
     fact_predicates: tuple[EvidencePredicate, ...] = ()
     relation_predicates: tuple[RelationPredicate, ...] = ()
+    counter_examples: tuple[CounterExample, ...] = ()
 
     def __post_init__(self) -> None:
         facts = tuple(str(item).strip() for item in self.required_facts if str(item).strip())
@@ -840,24 +958,85 @@ class EvidenceContract:
             if relation not in existing_relations:
                 relations.append(RelationPredicate(f"relation:{relation}", (relation,), require_same_object=True))
         object.__setattr__(self, "relation_predicates", tuple(relations))
+        counter_ids = [item.id for item in self.counter_examples]
+        if len(counter_ids) != len(set(counter_ids)):
+            raise ValueError("counter-example IDs must be unique within a contract")
+        # A counter-example must document a limit the contract itself states.
+        # Registering one without the matching forbidden inference would let
+        # the executable gate and the published contract drift apart.
+        unstated = [
+            item.id
+            for item in self.counter_examples
+            if not any(
+                _counter_example_documented(item, text)
+                for text in self.forbidden_inferences
+            )
+        ]
+        if unstated:
+            raise ValueError(
+                "counter-example requires a matching forbidden_inferences entry: "
+                + ", ".join(unstated)
+            )
 
     @property
     def predicates(self) -> tuple[EvidencePredicate | RelationPredicate, ...]:
         return (*self.fact_predicates, *self.relation_predicates)
+
+    def evaluate_counter_examples(
+        self, evidence: Iterable[Mapping[str, object]]
+    ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """Return ``(counter_example_id, matched_row_ids)`` for every match."""
+        rows = tuple(evidence)
+        found: list[tuple[str, tuple[str, ...]]] = []
+        for item in self.counter_examples:
+            ids = item.matches(rows)
+            if ids:
+                found.append((item.id, ids))
+        return tuple(found)
 
     def evaluate(self, evidence: Iterable[Mapping[str, object]]) -> ContractEvaluation:
         rows = tuple(evidence)
         checks: list[dict[str, object]] = []
         matched: list[str] = []
         missing: list[str] = []
+        matched_counter_examples = self.evaluate_counter_examples(rows)
+        blocked_rows = {
+            row_id
+            for _, row_ids in matched_counter_examples
+            for row_id in row_ids
+        }
+        for item in self.counter_examples:
+            ids = next(
+                (row_ids for ce_id, row_ids in matched_counter_examples if ce_id == item.id),
+                (),
+            )
+            checks.append(
+                {
+                    "id": item.id,
+                    "type": "counter_example",
+                    "passed": False,
+                    "blocked": bool(ids),
+                    "over_claim": item.over_claim,
+                    "source": item.source,
+                    "evidence_ids": list(ids)[:16],
+                }
+            )
+        # Rows that carry a registered counter-example cannot supply this
+        # contract's facts.  The pattern is present in the same row that would
+        # have proven the behaviour, so the row is not evidence for it: a
+        # once+delete task row cannot be the durable trigger, a runtime timing
+        # query row cannot be the anti-analysis gate probe.
+        usable_rows = tuple(
+            row for row in rows if str(row.get("id")) not in blocked_rows
+        )
         for predicate in self.fact_predicates:
-            result = predicate.evaluate(rows)
+            result = predicate.evaluate(usable_rows)
             checks.append({"id": predicate.id, "type": "fact", "passed": result.matched, "evidence_ids": list(result.matched_evidence_ids)[:16]})
             matched.extend(result.matched_evidence_ids)
             if not result.matched and predicate.required:
                 missing.append(predicate.id)
         for predicate in self.relation_predicates:
-            result = predicate.evaluate(rows)
+            result = predicate.evaluate(usable_rows)
             checks.append({"id": predicate.id, "type": "relation", "passed": result.matched, "evidence_ids": list(result.matched_evidence_ids)[:16]})
             matched.extend(result.matched_evidence_ids)
             if not result.matched and predicate.required:
@@ -865,11 +1044,28 @@ class EvidenceContract:
         contradictions = tuple(
             str(row.get("id")) for row in rows if row.get("id") and _is_contradiction_row(row)
         )
+        counter_ids = tuple(ce_id for ce_id, _ in matched_counter_examples)
         if contradictions:
-            return ContractEvaluation(False, "CONTRADICTED", tuple(dict.fromkeys(matched)), tuple(missing), contradictions, tuple(checks), "explicit contradictory evidence is present")
+            return ContractEvaluation(False, "CONTRADICTED", tuple(dict.fromkeys(matched)), tuple(missing), contradictions, tuple(checks), "explicit contradictory evidence is present", counter_ids)
+        if counter_ids and missing:
+            over_claims = "; ".join(
+                item.over_claim
+                for item in self.counter_examples
+                if item.id in counter_ids
+            )
+            return ContractEvaluation(
+                False,
+                "COUNTER_EXAMPLE",
+                tuple(dict.fromkeys(matched)),
+                tuple(missing),
+                (),
+                tuple(checks),
+                "registered counter-example withholds the evidence: " + over_claims,
+                counter_ids,
+            )
         if missing:
-            return ContractEvaluation(False, "UNKNOWN", tuple(dict.fromkeys(matched)), tuple(missing), (), tuple(checks), "typed evidence contract is incomplete")
-        return ContractEvaluation(True, "SUPPORTED_STATIC", tuple(dict.fromkeys(matched)), (), (), tuple(checks), "all typed facts and relations are present")
+            return ContractEvaluation(False, "UNKNOWN", tuple(dict.fromkeys(matched)), tuple(missing), (), tuple(checks), "typed evidence contract is incomplete", counter_ids)
+        return ContractEvaluation(True, "SUPPORTED_STATIC", tuple(dict.fromkeys(matched)), (), (), tuple(checks), "all typed facts and relations are present", counter_ids)
 
     def as_dict(self) -> dict[str, object]:
         """Return the complete, replayable contract definition."""
@@ -879,7 +1075,31 @@ class EvidenceContract:
             "forbidden_inferences": list(self.forbidden_inferences),
             "fact_predicates": [item.as_dict() for item in self.fact_predicates],
             "relation_predicates": [item.as_dict() for item in self.relation_predicates],
+            "counter_examples": [item.as_dict() for item in self.counter_examples],
         }
+
+
+def _counter_example_documented(item: CounterExample, text: str) -> bool:
+    """Whether one ``forbidden_inferences`` entry covers this counter-example.
+
+    The published limit and the executable gate must stay in step.  The link is
+    the documented over-claim text, compared on normalized words rather than a
+    substring so a reworded inference cannot accidentally certify a different
+    counter-example.
+    """
+    documented = _normalized_words(text)
+    if not documented:
+        return False
+    claim = _normalized_words(item.over_claim)
+    return bool(claim) and claim <= documented
+
+
+def _normalized_words(text: object) -> frozenset[str]:
+    return frozenset(
+        word
+        for word in re.split(r"[^a-z0-9]+", _norm(text))
+        if word
+    )
 
 
 def _is_contradiction_row(row: Mapping[str, object]) -> bool:
@@ -945,6 +1165,283 @@ _DECODE_OUTPUT_TO_PROCESS_COMMAND = _relation(
     required=False,
 )
 
+# --------------------------------------------------------------------------
+# Versioned minimal counter-examples (plan section 7, "最小反例" column).
+#
+# Each entry below is executable catalog data registered against a published
+# ``forbidden_inferences`` line on the entry it protects.  They name the row
+# that would otherwise have supplied a required fact, so the pattern the plan
+# calls an over-claim cannot reach SUPPORTED_STATIC or CANDIDATE.
+# --------------------------------------------------------------------------
+
+# Section 7 row 11 - "once+run+delete 自动称长驻".  The row that carries the
+# trigger is itself a one-shot task that deletes itself, so it is not evidence
+# of a durable trigger.  A separate Run-key row that really is durable is
+# untouched by this counter-example and can still close the contract.
+_CE_PERSISTENCE_ONE_SHOT = counter_example(
+    "ce:persistence:one-shot-trigger",
+    "plan section 7 row 11 (persistence minimal counter-example)",
+    "single execution plus delete is durable persistence",
+    all_of=(
+        EvidencePredicate.field("ce:persistence:trigger", "value.trigger"),
+        _values_predicate(
+            "ce:persistence:lifetime",
+            "value.lifetime",
+            "once",
+            "one-shot",
+            "one_shot",
+            "oneshot",
+            "single",
+            "single run",
+            "single-run",
+            "/sc once",
+            "run once",
+            "temporary",
+            "transient",
+        ),
+        EvidencePredicate.field("ce:persistence:cleanup", "value.cleanup"),
+    ),
+)
+
+# Section 7 row 5 - "同进程 APC、普通异步 I/O".  A cross-process claim needs an
+# explicit cross-process marker; a row that says the target is this process, or
+# that the scope is the same process, cannot supply ``target_process``.
+_CE_PROCESS_INJECTION_SAME_PROCESS = counter_example(
+    "ce:process-injection:same-process-target",
+    "plan section 7 row 5 (APC/remote injection minimal counter-example)",
+    "same-process call is injection",
+    all_of=(EvidencePredicate.field("ce:process-injection:target", "value.target_process"),),
+    any_of=(
+        _values_predicate(
+            "ce:process-injection:scope",
+            "value.process_scope",
+            "same_process",
+            "same-process",
+            "self",
+            "local",
+            "current_process",
+        ),
+        _values_predicate("ce:process-injection:cross-process-flag", "value.cross_process", False),
+        _values_predicate(
+            "ce:process-injection:self-target",
+            "value.target_process",
+            "self",
+            "current process",
+            "current_process",
+            "same process",
+            "local process",
+        ),
+    ),
+)
+
+# Section 7 row 8 / M06 "PPID 即注入".  A parent-process attribute row chooses a
+# parent; it is not a cross-address-space code transfer, so it cannot supply the
+# injection target.  Row 8's own counter-example is "只 OpenProcess", and §2.2
+# states PPID spoofing is parent attribute masquerading, not process injection.
+_CE_PROCESS_INJECTION_PPID_ONLY = counter_example(
+    "ce:process-injection:ppid-attribute-only",
+    "plan section 7 row 8 (process/PPID minimal counter-example) and M06 'PPID/APC as injection'",
+    "parent-process spoofing is not process injection",
+    all_of=(EvidencePredicate.field("ce:process-injection:ppid-target", "value.target_process"),),
+    any_of=(
+        _values_predicate(
+            "ce:process-injection:ppid-attribute",
+            "value.attribute",
+            "PROC_THREAD_ATTRIBUTE_PARENT_PROCESS",
+        ),
+        _api(
+            "ce:process-injection:ppid-api",
+            "UpdateProcThreadAttribute",
+            "InitializeProcThreadAttributeList",
+            "DeleteProcThreadAttributeList",
+        ),
+    ),
+)
+
+# Section 7 row 10 / M06 "网络即 C2".  A polling loop whose recovered handler
+# side effect is explicitly not a side effect is a retry or health check, not
+# command and control; that row cannot supply ``handler_side_effect``.
+_CE_COMMUNICATION_LOOP_HEALTH_CHECK = counter_example(
+    "ce:communication-loop:health-check-handler",
+    "plan section 7 row 10 (communication loop minimal counter-example) and M06 'network as C2'",
+    "a retry or health check handler is command and control",
+    all_of=(
+        _values_predicate(
+            "ce:communication-loop:non-effect",
+            "value.handler_side_effect",
+            "none",
+            "no side effect",
+            "no effect",
+            "no-op",
+            "noop",
+            "health check",
+            "healthcheck",
+            "keepalive",
+            "keep-alive",
+            "log only",
+            "status only",
+            "read only",
+        ),
+    ),
+)
+
+# Section 7 row 11 / M06 "注册表即持久化".  A row whose recovered trigger is a
+# configuration/session-scoped write, or that explicitly says it does not
+# autostart, is not a durable trigger.  The one-shot task shape is the separate
+# ``ce:persistence:one-shot-trigger`` above.
+_CE_PERSISTENCE_CONFIGURATION_TRIGGER = counter_example(
+    "ce:persistence:configuration-trigger",
+    "plan section 7 row 11 (persistence minimal counter-example) and M06 'task/registry as persistence'",
+    "a configuration value write is durable persistence",
+    all_of=(EvidencePredicate.field("ce:persistence:cfg-trigger", "value.trigger"),),
+    any_of=(
+        _any_field_values_predicate(
+            "ce:persistence:cfg-trigger-kind",
+            ("value.trigger_kind", "value.persistence_scope", "value.trigger_source"),
+            (
+                "configuration",
+                "config",
+                "settings",
+                "setting",
+                "preference",
+                "on_demand",
+                "on-demand",
+                "manual",
+                "session",
+                "user_session",
+                "process",
+                "volatile",
+            ),
+        ),
+        _values_predicate("ce:persistence:cfg-autostart", "value.autostart", False),
+    ),
+)
+
+# Section 7 row 4 - "只有 CreateThread；入口是普通 runtime worker".  A row whose
+# entry routine is declared to be the runtime's own thread bootstrap cannot
+# supply a behaviour's ``entry_routine``.
+_CE_THREAD_CALLBACK_RUNTIME_WORKER = counter_example(
+    "ce:thread-and-callback:runtime-worker-entry",
+    "plan section 7 row 4 (thread/callback minimal counter-example)",
+    "a runtime worker entry is a callback",
+    all_of=(
+        EvidencePredicate.field("ce:thread-and-callback:entry", "value.entry_routine"),
+        _any_field_values_predicate(
+            "ce:thread-and-callback:entry-kind",
+            ("value.entry_kind", "value.entry_role", "value.entry_source"),
+            (
+                "runtime",
+                "runtime_worker",
+                "runtime worker",
+                "crt",
+                "crt_thread",
+                "threadpool_worker",
+                "thread_pool_worker",
+            ),
+        ),
+    ),
+)
+
+# Section 7 row 12 - "Rust CRT/异常处理或系统查询自动称反分析".  A row whose
+# recovered gated behaviour is to continue is not a gate, so it cannot supply
+# the ``gated_behavior`` fact of an environment guard.
+_CE_ENVIRONMENT_GUARD_NON_GATING = counter_example(
+    "ce:environment-guard:non-gating-probe",
+    "plan section 7 row 12 (environment branch minimal counter-example)",
+    "environment API alone proves anti-analysis",
+    all_of=(
+        _values_predicate(
+            "ce:environment-guard:gated-behavior",
+            "value.gated_behavior",
+            "continue",
+            "none",
+            "no action",
+            "proceed",
+            "normal",
+            "not gated",
+            "ungated",
+        ),
+    ),
+)
+
+# Section 7 row 1 - "只看到资源 API 导入".  An import/string row naming a
+# resource API cannot supply the recovered resource bytes of the new
+# resource-extraction contract.
+_CE_RESOURCE_EXTRACTION_API_ONLY = counter_example(
+    "ce:resource-extraction:api-import-only",
+    "plan section 7 row 1 (resource extraction minimal counter-example)",
+    "resource API import alone proves resource extraction",
+    all_of=(
+        _values_predicate(
+            "ce:resource-extraction:import-kind",
+            "kind",
+            "import_symbol",
+            "import",
+            "string",
+            "api_import",
+        ),
+    ),
+    any_of=(
+        EvidencePredicate.api(
+            "ce:resource-extraction:resource-api",
+            (
+                "FindResourceA",
+                "FindResourceW",
+                "FindResourceExA",
+                "FindResourceExW",
+                "LoadResource",
+                "LockResource",
+                "SizeofResource",
+                "EnumResourceNamesA",
+                "EnumResourceNamesW",
+            ),
+        ),
+    ),
+)
+
+# Section 7 row 9 - "配置 URL 或 socket import，没有调用链".  A delete-API
+# import row is likewise not a self-delete, and a URL string is not a download.
+_CE_URL_STRING_ONLY = counter_example(
+    "ce:download-and-drop:url-string-only",
+    "plan section 7 row 9 (HTTP download minimal counter-example)",
+    "a URL string proves a download occurred",
+    all_of=(
+        _values_predicate(
+            "ce:download-and-drop:string-kind",
+            "kind",
+            "string",
+            "config_value",
+            "configuration",
+        ),
+        EvidencePredicate(
+            id="ce:download-and-drop:url",
+            paths=(("value", "url"), ("value", "endpoint")),
+            require_truthy=True,
+        ),
+    ),
+)
+
+_CE_SELF_DELETE_IMPORT_ONLY = counter_example(
+    "ce:self-delete:delete-import-only",
+    "plan section 7 row 6/11 (cleanup minimal counter-example)",
+    "a delete API import proves self-deletion",
+    all_of=(
+        _values_predicate(
+            "ce:self-delete:import-kind",
+            "kind",
+            "import_symbol",
+            "import",
+            "api_import",
+        ),
+    ),
+    any_of=(
+        EvidencePredicate.api(
+            "ce:self-delete:delete-api",
+            ("DeleteFileA", "DeleteFileW", "MoveFileExA", "MoveFileExW", "SetFileInformationByHandle"),
+        ),
+    ),
+)
+
 
 @dataclass(frozen=True)
 class BehaviorCatalogEntry:
@@ -969,6 +1466,17 @@ class BehaviorCatalogEntry:
     executor: SupportLevel = SupportLevel.SUPPORTED
     verifier: SupportLevel = SupportLevel.PARTIAL
     real_validation: SupportLevel = SupportLevel.NOT_VALIDATED
+    # Whether the declared behaviour-entry path
+    # (``MechanismPlaybookRegistry.behavior_entry`` -> ``Verifier._evaluate_playbook``
+    # -> ``verify_mechanism(entry.verifier_id)``) can actually reach this entry.
+    # B03: an entry that advertises a specialist the claim gate can never invoke
+    # must not describe itself as gated by it, and must record where the
+    # specialist IS invoked instead (``verifier_call_paths``).
+    verifier_reachable_from_entry_path: bool = True
+    # Concrete main-path call sites for the specialist, for entries whose
+    # specialist is invoked outside the behaviour-entry path.  Empty means the
+    # entry path above is the only recorded route.
+    verifier_call_paths: tuple[str, ...] = ()
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -984,6 +1492,21 @@ class BehaviorCatalogEntry:
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"invalid {field_name} support level: {value!r}") from exc
                 object.__setattr__(self, field_name, value)
+        object.__setattr__(
+            self,
+            "verifier_call_paths",
+            tuple(str(item).strip() for item in self.verifier_call_paths if str(item).strip()),
+        )
+        if (
+            self.verifier_id
+            and self.verifier is SupportLevel.SUPPORTED
+            and not self.verifier_reachable_from_entry_path
+            and not self.verifier_call_paths
+        ):
+            raise ValueError(
+                f"{self.id}: a specialist that no recorded main path can call "
+                "cannot be declared supported"
+            )
         object.__setattr__(
             self,
             "applicability",
@@ -1002,6 +1525,12 @@ class BehaviorCatalogEntry:
             "executable_contract": self.executable_contract.value,
             "executor": self.executor.value,
             "verifier": self.verifier.value,
+            "verifier_reachable_from_entry_path": self.verifier_reachable_from_entry_path,
+            "verifier_call_paths": (
+                list(self.verifier_call_paths)
+                if self.verifier_call_paths
+                else (["verifier.evaluate->_evaluate_playbook"] if self.verifier_id else [])
+            ),
             "real_validation": self.real_validation.value,
             "validation": self.real_validation.value,
         }
@@ -1039,13 +1568,23 @@ def _entry(
     applicability: Iterable[str] = ("pe", "script", "document"),
     fact_predicates: Iterable[EvidencePredicate] = (),
     relation_predicates: Iterable[RelationPredicate] = (),
+    counter_examples: Iterable[CounterExample] = (),
+    verifier_reachable_from_entry_path: bool = True,
+    verifier_call_paths: Iterable[str] = (),
 ) -> BehaviorCatalogEntry:
     return BehaviorCatalogEntry(
         id=entry_id,
         version="1.0.0",
         category=category,
         discovery_seeds=tuple(seeds),
-        contract=EvidenceContract(tuple(facts), tuple(relations), tuple(forbidden), tuple(fact_predicates), tuple(relation_predicates)),
+        contract=EvidenceContract(
+            tuple(facts),
+            tuple(relations),
+            tuple(forbidden),
+            tuple(fact_predicates),
+            tuple(relation_predicates),
+            tuple(counter_examples),
+        ),
         applicability=tuple(applicability),
         preferred_actions=tuple(actions),
         attack_candidates=tuple(attack),
@@ -1054,6 +1593,8 @@ def _entry(
         verifier_version="1.0.0" if verifier_id else None,
         verifier=verifier,
         executable_contract=executable_contract,
+        verifier_reachable_from_entry_path=verifier_reachable_from_entry_path,
+        verifier_call_paths=tuple(verifier_call_paths),
         notes=notes,
     )
 
@@ -1064,24 +1605,28 @@ def _standard_entries() -> tuple[BehaviorCatalogEntry, ...]:
     return (
         _entry("file-operations", "file", ("CreateFile", "WriteFile", "DeleteFile", "MoveFile"), ("path", "access", "buffer_source", "return_branch"), ("buffer_to_file_sink",), ("TRACE_API_ARGUMENT", "TRACE_RETURN_VALUE"), attack=("T1105",), aliases=("file-write",), forbidden=("filename string alone is a file operation",), fact_predicates=(_fact("path", "value.path", "value.file_path", "value.target_path"), _fact("access", "value.access", "value.desired_access"), _fact("size", "value.size", "value.length", required=False)), relation_predicates=(_relation("buffer_to_file_sink", "buffer_to_file_sink", source_paths=("value.source_buffer", "value.output_buffer"), target_paths=("value.target_file", "value.file_object")),)),
         _entry("file-metadata", "file_metadata", ("SetFileInformation", "SetFileAttributes", "timestomp", "ADS"), ("target", "attribute", "new_value", "condition"), ("metadata_to_target",), ("TRACE_API_ARGUMENT", "GET_DECOMPILE"), forbidden=("metadata API alone proves hiding",), notes="Discovery profile only; no dedicated verifier."),
-        _entry("registry-operations", "registry", ("RegOpenKey", "RegSetValue", "RegCreateKey", "RegDeleteKey"), ("hive", "key", "value_name", "type", "data", "return_branch"), ("handle_to_write",), ("TRACE_API_ARGUMENT", "TRACE_GLOBAL_USAGE"), aliases=("registry-modification",), forbidden=("registry API alone is persistence",), fact_predicates=(_fact("hive", "value.hive"), _fact("key", "value.key", "value.subkey"), _fact("value_name", "value.value_name", "value.name"), _fact("data", "value.data", "value.value_data")), relation_predicates=(_relation("handle_to_write", "handle_to_write", source_paths=("value.registry_handle", "value.handle"), target_paths=("value.registry_target", "value.key_object")),)),
-        _entry("process-creation", "process", ("CreateProcess", "ShellExecute", "WinExec"), ("image_or_command", "creation_flags", "return_branch"), ("command_to_process_sink",), ("TRACE_API_ARGUMENT", "EVALUATE_CONSTANT"), attack=("T1059",), aliases=("process-execution", "PROCESS_EXECUTION", "PROCESS_CREATION"), verifier_id="PROCESS_EXECUTION", verifier=SupportLevel.SUPPORTED, forbidden=("process import alone proves execution", "matching plaintext and command string is not a decode join"), fact_predicates=(_api("process_sink", "CreateProcessA", "CreateProcessW", "ShellExecuteA", "ShellExecuteW", "WinExec"), _fact("image_or_command", "value.image", "value.command", "value.command_line"), _fact("creation_flags", "value.creation_flags", "value.flags")), relation_predicates=(_relation("command_to_process_sink", "command_to_process_sink", source_paths=("value.command_buffer", "value.input_buffer"), target_paths=("value.process_sink", "value.target")), _DECODE_OUTPUT_TO_PROCESS_COMMAND)),
-        _entry("child-process-output", "process", ("CreatePipe", "PeekNamedPipe", "ReadFile", "redirected stdout", "redirected stderr"), ("child_process", "pipe_handle", "output_buffer", "consumer"), ("child_to_output_pipe",), ("GET_CALLEES", "TRACE_API_ARGUMENT", "TRACE_RETURN_VALUE"), aliases=("SHELL_OUTPUT", "shell-output"), verifier_id="SHELL_OUTPUT", verifier=SupportLevel.SUPPORTED, forbidden=("CreatePipe alone proves command execution",)),
+        _entry("registry-operations", "registry", ("RegOpenKey", "RegSetValue", "RegCreateKey", "RegDeleteKey"), ("hive", "key", "value_name", "type", "data", "return_branch"), ("handle_to_write",), ("TRACE_API_ARGUMENT", "TRACE_GLOBAL_USAGE"), aliases=("registry-modification", "registry-configuration", "REGISTRY_CONFIGURATION", "v3-registry-configuration"), forbidden=("registry API alone is persistence",), fact_predicates=(_fact("hive", "value.hive"), _fact("key", "value.key", "value.subkey"), _fact("value_name", "value.value_name", "value.name"), _fact("data", "value.data", "value.value_data")), relation_predicates=(_relation("handle_to_write", "handle_to_write", source_paths=("value.registry_handle", "value.handle"), target_paths=("value.registry_target", "value.key_object")),)),
+        _entry("process-creation", "process", ("CreateProcess", "ShellExecute", "WinExec"), ("image_or_command", "creation_flags", "return_branch"), ("command_to_process_sink",), ("TRACE_API_ARGUMENT", "EVALUATE_CONSTANT"), attack=("T1059",), aliases=("process-execution", "PROCESS_EXECUTION", "PROCESS_CREATION", "command-execution", "COMMAND_EXECUTION", "v3-command-execution"), verifier_id="PROCESS_EXECUTION", verifier=SupportLevel.SUPPORTED, forbidden=("process import alone proves execution", "matching plaintext and command string is not a decode join"), fact_predicates=(_api("process_sink", "CreateProcessA", "CreateProcessW", "ShellExecuteA", "ShellExecuteW", "WinExec"), _fact("image_or_command", "value.image", "value.command", "value.command_line"), _fact("creation_flags", "value.creation_flags", "value.flags")), relation_predicates=(_relation("command_to_process_sink", "command_to_process_sink", source_paths=("value.command_buffer", "value.input_buffer"), target_paths=("value.process_sink", "value.target")), _DECODE_OUTPUT_TO_PROCESS_COMMAND)),
+        _entry("child-process-output", "process", ("CreatePipe", "PeekNamedPipe", "ReadFile", "redirected stdout", "redirected stderr"), ("child_process", "pipe_handle", "output_buffer", "consumer"), ("child_to_output_pipe",), ("GET_CALLEES", "TRACE_API_ARGUMENT", "TRACE_RETURN_VALUE"), aliases=("SHELL_OUTPUT", "shell-output"), verifier_id="SHELL_OUTPUT", verifier=SupportLevel.SUPPORTED, verifier_reachable_from_entry_path=False, verifier_call_paths=("derivation.verify_mechanism(static_link_types['mechanism_shell_output_link'])", "investigation.apply_emulation_reverification(mechanism_type=SHELL_OUTPUT)"), forbidden=("CreatePipe alone proves command execution",), notes="B03: verify_shell_output_mechanism is registered and IS called on main paths, but no declared playbook resolves to this entry, so the behaviour-entry gate (Verifier.evaluate -> _evaluate_playbook) never evaluates this contract; the specialist is reached from static-link derivation instead."),
         _entry("parent-process-spoofing", "identity", ("PPID", "parent_process", "UpdateProcThreadAttribute", "PROC_THREAD_ATTRIBUTE_PARENT_PROCESS"), ("parent_selection", "access_mask", "attribute", "startup_info", "creation_flags"), ("parent_handle_to_attribute",), ("GET_CALLEES", "TRACE_API_ARGUMENT", "EVALUATE_CONSTANT"), attack=("T1134.004",), aliases=("PPID_SPOOFING", "PPID_SPOOF", "ppid-process-chain", "v3-ppid-spoof"), verifier_id="PPID_SPOOFING", verifier=SupportLevel.SUPPORTED, forbidden=("OpenProcess alone proves PPID spoofing"), relation_predicates=(_relation("parent_handle_to_attribute", "parent_handle_to_attribute", source_paths=("value.parent_handle", "value.source_handle"), target_paths=("value.attribute_handle", "value.target_handle")),)),
         _entry("identity-and-privilege", "identity", ("OpenProcessToken", "DuplicateToken", "AdjustTokenPrivileges", "CreateProcessWithToken"), ("token_source", "requested_privilege", "consumer", "return_branch"), ("token_to_consumer",), ("TRACE_API_ARGUMENT", "TRACE_RETURN_VALUE"), attack=("T1134",), forbidden=("token API alone proves privilege escalation",)),
-        _entry("thread-and-callback", "thread", ("CreateThread", "CreateRemoteThread", "QueueUserAPC", "TLS", "threadpool"), ("entry_routine", "parameter", "trigger", "lifetime"), ("routine_to_thread",), ("GET_CALLEES", "TRACE_API_ARGUMENT", "GET_CFG_SLICE"), attack=("T1055",), aliases=("THREAD_CALLBACK", "thread-callback"), verifier_id="THREAD_CALLBACK", verifier=SupportLevel.SUPPORTED, forbidden=("thread API alone proves injection",)),
-        _entry("process-injection", "process_manipulation", ("WriteProcessMemory", "CreateRemoteThread", "QueueUserAPC", "NtMapViewOfSection"), ("source_region", "target_process", "target_region", "entry_routine"), ("cross_process_code_flow",), ("TRACE_API_ARGUMENT", "GET_CALLEES"), attack=("T1055",), forbidden=("same-process call is injection", "APC alone is remote injection"), relation_predicates=(_relation("cross_process_code_flow", "cross_process_code_flow", source_paths=("value.source_region",), target_paths=("value.target_region",)),)),
-        _entry("memory-and-mapping", "memory", ("VirtualAlloc", "VirtualProtect", "MapViewOfFile", "WriteProcessMemory"), ("region_identity", "size", "protection", "entry_point"), ("region_to_execution",), ("TRACE_API_ARGUMENT", "GET_PCODE_SLICE"), attack=("T1055",), aliases=("memory-execution",), forbidden=("different regions may not be merged",)),
-        _entry("loader-and-api-resolution", "loader", ("LoadLibrary", "GetProcAddress", "API hash", "manual map"), ("module_input", "api_identity", "resolver", "consumer"), ("resolved_pointer_to_call",), ("GET_XREFS_TO", "TRACE_RETURN_VALUE"), aliases=("dynamic-api-resolution", "DYNAMIC_API_RESOLUTION", "v3-api-hash-resolver", "API_HASH_RESOLVER", "plugin-load", "PLUGIN_LOAD", "PLUGIN_MODULE_LOAD"), verifier_id="DYNAMIC_API_RESOLUTION", verifier=SupportLevel.SUPPORTED, forbidden=("resolver import alone proves API use",), relation_predicates=(_relation("resolved_pointer_to_call", "resolved_pointer_to_call", source_paths=("value.resolved_pointer", "value.output_buffer"), target_paths=("value.consumer_pointer", "value.input_buffer"), same_object=True),)),
+        _entry("thread-and-callback", "thread", ("CreateThread", "CreateRemoteThread", "QueueUserAPC", "TLS", "threadpool"), ("entry_routine", "parameter", "trigger", "lifetime"), ("routine_to_thread",), ("GET_CALLEES", "TRACE_API_ARGUMENT", "GET_CFG_SLICE"), attack=("T1055",), aliases=("THREAD_CALLBACK", "thread-callback"), verifier_id="THREAD_CALLBACK", verifier=SupportLevel.SUPPORTED, verifier_reachable_from_entry_path=False, verifier_call_paths=("investigation.apply_emulation_reverification(mechanism_type=THREAD_CALLBACK)", "derivation.verify_mechanism(playbook.mechanism_type)"), forbidden=("thread API alone proves injection", "a runtime worker entry is a callback"), counter_examples=(_CE_THREAD_CALLBACK_RUNTIME_WORKER,), notes="B03: verify_thread_callback_mechanism is registered and IS called on main paths, but no declared playbook resolves to this entry, so the behaviour-entry gate (Verifier.evaluate -> _evaluate_playbook) never evaluates this contract; the specialist is reached from emulation re-verification instead."),
+        _entry("process-injection", "process_manipulation", ("WriteProcessMemory", "CreateRemoteThread", "QueueUserAPC", "NtMapViewOfSection"), ("source_region", "target_process", "target_region", "entry_routine"), ("cross_process_code_flow",), ("TRACE_API_ARGUMENT", "GET_CALLEES"), attack=("T1055",), aliases=("PROCESS_INJECTION", "process_injection"), forbidden=("same-process call is injection", "APC alone is remote injection", "parent-process spoofing is not process injection"), relation_predicates=(_relation("cross_process_code_flow", "cross_process_code_flow", source_paths=("value.source_region",), target_paths=("value.target_region",)),), counter_examples=(_CE_PROCESS_INJECTION_SAME_PROCESS, _CE_PROCESS_INJECTION_PPID_ONLY)),
+        _entry("memory-and-mapping", "memory", ("VirtualAlloc", "VirtualProtect", "MapViewOfFile", "WriteProcessMemory"), ("region_identity", "size", "protection", "entry_point"), ("region_to_execution",), ("TRACE_API_ARGUMENT", "GET_PCODE_SLICE"), attack=("T1055",), aliases=("memory-execution", "memory-permission-change", "MEMORY_PERMISSION_CHANGE", "v3-memory-permission-change"), forbidden=("different regions may not be merged",)),
+        _entry("loader-and-api-resolution", "loader", ("LoadLibrary", "GetProcAddress", "API hash", "manual map"), ("module_input", "api_identity", "resolver", "consumer"), ("resolved_pointer_to_call",), ("GET_XREFS_TO", "TRACE_RETURN_VALUE"), aliases=("dynamic-api-resolution", "DYNAMIC_API_RESOLUTION", "v3-api-hash-resolver", "API_HASH_RESOLVER", "plugin-load", "PLUGIN_LOAD", "PLUGIN_MODULE_LOAD", "manual-pe-load", "MANUAL_PE_LOAD", "v3-manual-pe-load"), verifier_id="DYNAMIC_API_RESOLUTION", verifier=SupportLevel.SUPPORTED, forbidden=("resolver import alone proves API use",), relation_predicates=(_relation("resolved_pointer_to_call", "resolved_pointer_to_call", source_paths=("value.resolved_pointer", "value.output_buffer"), target_paths=("value.consumer_pointer", "value.input_buffer"), same_object=True),)),
         _entry("config-and-crypto", "config_crypto", ("decode", "decrypt", "XOR", "AES", "CryptDecrypt", "RC4"), ("input_bytes", "algorithm", "key_or_state", "output_bytes", "output_hash"), ("output_to_consumer",), ("DECODE_CANDIDATE", "TRACE_RETURN_VALUE"), aliases=("decode-payload", "xor-config-recovery", "v3-config-decoder", "v3-string-decoder", "DECODE_CONFIG", "CONFIG_DECODER"), verifier_id="DECODE_CONFIG", verifier=SupportLevel.SUPPORTED, forbidden=("hook success alone is plaintext", "high entropy alone proves encryption", "API co-occurrence is not a decode consumer", "function xref is not a decode consumer", "matching plaintext and command string is not a decode join"), relation_predicates=(_relation("output_to_consumer", "output_to_consumer", source_paths=("value.output_buffer",), target_paths=("value.input_buffer",), same_object=True), _DECODE_OUTPUT_TO_PROCESS_COMMAND)),
-        _entry("multi-stage-payload", "multi_stage", ("resource", "embedded", "decompress", "child payload", "drop"), ("parent_artifact", "child_hash", "transform", "entry_point"), ("parent_to_child",), ("READ_BYTES", "DECODE_CANDIDATE", "GET_FUNCTION"), attack=("T1027",), forbidden=("resource extraction alone proves execution",), relation_predicates=(_relation("parent_to_child", "parent_to_child", source_paths=("value.parent_object", "value.output_buffer"), target_paths=("value.child_object", "value.input_buffer")),)),
+        _entry("multi-stage-payload", "multi_stage", ("resource", "embedded", "decompress", "child payload", "drop"), ("parent_artifact", "child_hash", "transform", "entry_point"), ("parent_to_child",), ("READ_BYTES", "DECODE_CANDIDATE", "GET_FUNCTION"), attack=("T1027",), aliases=("MULTI_STAGE_PAYLOAD", "v3-multi-stage"), forbidden=("resource extraction alone proves execution",), relation_predicates=(_relation("parent_to_child", "parent_to_child", source_paths=("value.parent_object", "value.output_buffer"), target_paths=("value.child_object", "value.input_buffer")),)),
+        _entry("resource-extraction", "multi_stage", ("FindResource", "LoadResource", "LockResource", "SizeofResource", "resource section"), ("resource_id", "resource_type", "module", "byte_range", "length", "copy_output"), ("resource_bytes_to_consumer",), ("READ_BYTES", "GET_DATA_REFERENCES", "TRACE_API_ARGUMENT"), attack=("T1027",), aliases=("RESOURCE_EXTRACTION", "resource-extract"), forbidden=("resource API import alone proves resource extraction",), fact_predicates=(_fact("resource_id", "value.resource_id", "value.name_id", "value.name"), _fact("resource_type", "value.resource_type", "value.type"), _fact("module", "value.module", "value.module_name", "value.artifact"), _fact("byte_range", "value.byte_range", "value.resource_offset", "value.offset"), _fact("length", "value.length", "value.size"), _fact("copy_output", "value.output_buffer", "value.copied_bytes", "value.resource_bytes")), relation_predicates=(_relation("resource_bytes_to_consumer", "resource_bytes_to_consumer", source_paths=("value.output_buffer", "value.resource_bytes"), target_paths=("value.input_buffer", "value.consumer_buffer")),), counter_examples=(_CE_RESOURCE_EXTRACTION_API_ONLY,), notes="Section 7 row 1: the resource identity, its real byte range, the copied output and that output's consumer are separate obligations; seeing a resource API import is not one of them."),
+        _entry("download-and-drop", "multi_stage", ("URLDownloadToFile", "WinHttpReadData", "download", "drop", "write to temp"), ("source", "write_path", "write_api", "consumer"), ("download_to_file_sink",), ("TRACE_API_ARGUMENT", "GET_CALLEES", "TRACE_RETURN_VALUE"), attack=("T1105",), aliases=("DOWNLOAD_DROP", "download-drop", "v3-download-drop"), forbidden=("a URL string proves a download occurred",), relation_predicates=(_relation("download_to_file_sink", "download_to_file_sink", source_paths=("value.response_buffer", "value.output_buffer"), target_paths=("value.file_object", "value.target_file")),), counter_examples=(_CE_URL_STRING_ONLY,), notes="Section 7 row 9: the dropped file needs the transfer source, the write path, the write API and the file's consumer."),
         _entry("network-transport", "network", ("connect", "WinHttpSendRequest", "recv", "HTTP", "DNS"), ("role", "endpoint", "request", "response", "response_consumer"), ("response_to_consumer",), ("TRACE_API_ARGUMENT", "TRACE_RETURN_VALUE"), attack=("T1071",), aliases=("http-download", "HTTP_DOWNLOAD", "v3-network-transport", "NETWORK_TRANSPORT", "network-transport"), verifier_id="HTTP_DOWNLOAD", verifier=SupportLevel.SUPPORTED, forbidden=("URL/import alone proves active C2",), relation_predicates=(_relation("response_to_consumer", "response_to_consumer", source_paths=("value.response_buffer", "value.output_buffer"), target_paths=("value.consumer_buffer", "value.input_buffer"), same_object=True),)),
-        _entry("communication-loop", "network_loop", ("poll", "retry", "heartbeat", "jitter", "back-off"), ("time_state", "message_format", "handler"), ("network_path_to_loop",), ("GET_CFG_SLICE", "TRACE_GLOBAL_USAGE"), attack=("T1071",), forbidden=("ordinary retry is heartbeat", "Sleep is not C2 tasking"), fact_predicates=(_fact("back_edge", "value.back_edge", "value.loop", required=False), _fact("time_state", "value.time_state", "value.delay", "value.timeout"), _fact("message_format", "value.message_format", "value.protocol"), _fact("handler", "value.handler", "value.consumer"))),
+        _entry("communication-loop", "network_loop", ("poll", "retry", "heartbeat", "jitter", "back-off"), ("time_state", "message_format", "handler", "network_path", "handler_side_effect"), ("network_path_to_loop",), ("GET_CFG_SLICE", "TRACE_GLOBAL_USAGE"), attack=("T1071",), aliases=("COMMUNICATION_LOOP", "v3-communication-loop"), forbidden=("ordinary retry is heartbeat", "Sleep is not C2 tasking", "a retry or health check handler is command and control"), fact_predicates=(_fact("back_edge", "value.back_edge", "value.loop", required=False), _fact("time_state", "value.time_state", "value.delay", "value.timeout"), _fact("message_format", "value.message_format", "value.protocol"), _fact("handler", "value.handler", "value.consumer"), _fact("network_path", "value.network_path", "value.transport_call", "value.endpoint"), _fact("handler_side_effect", "value.handler_side_effect", "value.side_effect", "value.handler_output")), counter_examples=(_CE_COMMUNICATION_LOOP_HEALTH_CHECK,), notes="Section 7 row 10 requires the network path and the handler side effect, not only a timer and a message shape."),
+        _entry("network-listener", "network", ("bind", "listen", "accept", "WSAAccept", "socket listen"), ("server_role", "bind_endpoint", "accept_loop", "connection_consumer"), ("accept_to_handler",), ("TRACE_API_ARGUMENT", "GET_CALLEES"), attack=("T1095",), aliases=("NETWORK_LISTENER", "network-listener", "service-listen"), forbidden=("socket import alone proves a listener",), relation_predicates=(_relation("accept_to_handler", "accept_to_handler", source_paths=("value.accepted_socket", "value.connection_handle"), target_paths=("value.handler_handle", "value.consumer_handle")),), notes="Section 7 row 9 server half: bind/listen/accept and the accepted-connection consumer are separate obligations from the client transport."),
+        _entry("self-delete", "file", ("DeleteFile", "MoveFileEx", "SetFileInformationByHandle", "cleanup", "uninstall"), ("delete_target", "condition", "preceding_activity"), ("delete_to_self_target",), ("GET_CALLEES", "TRACE_API_ARGUMENT", "GET_CFG_SLICE"), aliases=("CLEANUP_SELF_DELETE", "cleanup-self-delete", "v3-cleanup-self-delete", "SELF_DELETE"), forbidden=("a delete API import proves self-deletion",), relation_predicates=(_relation("delete_to_self_target", "delete_to_self_target", source_paths=("value.delete_target_object", "value.source_object"), target_paths=("value.self_object", "value.target_object")),), counter_examples=(_CE_SELF_DELETE_IMPORT_ONLY,), notes="Section 7 row 6/11: a delete import is not a self-delete; the target identity, the condition and the preceding activity are separate facts."),
         _entry("command-dispatch", "command", ("opcode", "switch", "strcmp", "dispatcher"), ("input", "dispatch", "handler", "handler_side_effect"), ("input_to_handler",), ("GET_CFG_SLICE", "GET_CALLEES"), aliases=("v3-command-dispatch",), forbidden=("command string without dispatch proves backdoor",)),
-        _entry("persistence", "persistence", ("RunOnce", "CreateService", "schtasks", "startup folder"), ("trigger", "payload", "permission", "lifetime", "cleanup"), ("trigger_to_payload",), ("TRACE_API_ARGUMENT", "GET_CALLEES"), attack=("T1547",), aliases=("registry-persistence", "scheduled-task-execution", "v3-registry-persistence", "v3-scheduled-task", "v3-service"), forbidden=("single execution plus delete is durable persistence",)),
+        _entry("persistence", "persistence", ("RunOnce", "CreateService", "schtasks", "startup folder"), ("trigger", "payload", "permission", "lifetime", "cleanup"), ("trigger_to_payload",), ("TRACE_API_ARGUMENT", "GET_CALLEES"), attack=("T1547",), aliases=("registry-persistence", "scheduled-task-execution", "v3-registry-persistence", "v3-scheduled-task", "v3-service"), forbidden=("single execution plus delete is durable persistence", "a configuration value write is durable persistence"), counter_examples=(_CE_PERSISTENCE_ONE_SHOT, _CE_PERSISTENCE_CONFIGURATION_TRIGGER)),
         _entry("service-and-driver", "service_driver", ("CreateService", "StartService", "driver", "DeviceIoControl"), ("service_identity", "binary_path", "start_result", "ioctl"), ("service_to_payload",), ("TRACE_API_ARGUMENT", "GET_CALLEES"), attack=("T1543",), aliases=("service",), forbidden=("service-related strings alone prove persistence",)),
         _entry("host-discovery", "discovery", ("GetComputerName", "GetSystemInfo", "process enumeration", "security product"), ("probe", "collected_value", "consumer", "branch_effect"), ("probe_to_branch",), ("GET_CALLEES", "TRACE_API_ARGUMENT"), forbidden=("discovery API alone proves malicious intent",)),
-        _entry("environment-guard", "defense_evasion", ("IsDebuggerPresent", "GetTickCount", "sandbox", "VM"), ("probe_input", "comparison", "threshold", "gated_behavior"), ("probe_to_branch",), ("GET_CFG_SLICE", "EVALUATE_CONSTANT"), aliases=("v3-environment-guard", "ENVIRONMENT_GUARD"), verifier_id="ENVIRONMENT_GUARD", verifier=SupportLevel.SUPPORTED, forbidden=("environment API alone proves anti-analysis",), fact_predicates=(_api("probe_input", "GetTickCount64", "GetTickCount", "IsDebuggerPresent", "CheckRemoteDebuggerPresent", "GlobalMemoryStatus", "GlobalMemoryStatusEx", kinds=("function_call", "api_argument_trace")), _fact("comparison", "value.comparison", "value.threshold"), _fact("threshold", "value.threshold", "value.comparison"), _fact("gated_behavior", "value.gated_behavior", "value.return_branch", "value.exit")), relation_predicates=(_relation("probe_to_branch", "probe_to_branch", source_paths=("value.probe_input", "value.probe"), target_paths=("value.branch", "value.gated_behavior", "value.exit"), same_object=False, required=False),),),
+        _entry("environment-guard", "defense_evasion", ("IsDebuggerPresent", "GetTickCount", "sandbox", "VM"), ("probe_input", "comparison", "threshold", "gated_behavior"), ("probe_to_branch",), ("GET_CFG_SLICE", "EVALUATE_CONSTANT"), aliases=("v3-environment-guard", "ENVIRONMENT_GUARD"), verifier_id="ENVIRONMENT_GUARD", verifier=SupportLevel.SUPPORTED, forbidden=("environment API alone proves anti-analysis",), fact_predicates=(_api("probe_input", "GetTickCount64", "GetTickCount", "IsDebuggerPresent", "CheckRemoteDebuggerPresent", "GlobalMemoryStatus", "GlobalMemoryStatusEx", kinds=("function_call", "api_argument_trace")), _fact("comparison", "value.comparison", "value.threshold"), _fact("threshold", "value.threshold", "value.comparison"), _fact("gated_behavior", "value.gated_behavior", "value.return_branch", "value.exit")), relation_predicates=(_relation("probe_to_branch", "probe_to_branch", source_paths=("value.probe_input", "value.probe"), target_paths=("value.branch", "value.gated_behavior", "value.exit"), same_object=False, required=False),), counter_examples=(_CE_ENVIRONMENT_GUARD_NON_GATING,)),
         _entry("defense-evasion", "defense_evasion", ("ETW", "AMSI", "unhook", "self-modification", "timestomp"), ("target", "patch_or_change", "condition", "effect"), ("change_to_target",), ("READ_BYTES", "TRACE_API_ARGUMENT", "GET_PCODE_SLICE"), aliases=("etw-patch", "etw-amsi-patch", "v3-etw-amsi-patch", "ETW_PATCH", "ETW_AMSI_PATCH"), verifier_id="ETW_PATCH", verifier=SupportLevel.SUPPORTED, forbidden=("ETW/AMSI strings alone prove a patch", "DWORD value is not invented without evidence"), fact_predicates=(_fact("dword", "value.data", "value.dword", "value.value_data", required=False),)),
         _entry("defender-modification", "defense_evasion", ("DisableAntiSpyware", "MpPreference", "Windows Defender"), ("key", "value_name", "write_operation"), (), ("TRACE_API_ARGUMENT", "TRACE_GLOBAL_USAGE"), aliases=("DEFENDER_MODIFICATION",), forbidden=("Defender service killed", "complete disablement without value evidence", "DWORD value is not invented without evidence"), fact_predicates=(_fact("key", "value.key", "value.path", "value.subkey"), _fact("value_name", "value.value_name", "value.name"), _fact("write_operation", "value.api", "value.operation"), _fact("dword", "value.data", "value.dword", "value.value_data", required=False))),
         _entry("credentials-and-sensitive-data", "credentials", ("LSASS", "SAM", "DPAPI", "browser cookie", "keylog", "clipboard"), ("data_source", "access_method", "decryption", "consumer"), ("source_to_collection",), ("TRACE_API_ARGUMENT", "TRACE_RETURN_VALUE"), attack=("T1003",), forbidden=("DPAPI use alone proves credential theft",)),
@@ -1097,10 +1642,110 @@ def default_behavior_catalog() -> tuple[BehaviorCatalogEntry, ...]:
     return _standard_entries()
 
 
+# Compatibility record for legacy mechanism/profile IDs.  Every key below is a
+# real identifier declared by ``investigation.MechanismPlaybookRegistry`` (a
+# playbook ID, a ``mechanism_type`` or an older catalogue alias); catalogue
+# 1.0.0 left these unresolvable, so
+# ``MechanismPlaybookRegistry.behavior_entry`` fell back to "typed behaviour
+# contract is unavailable" for ten declared profiles.  Value is
+# ``(current behaviour id, catalogue version that first resolved it)``.  The
+# mapping is data, not a code branch, so a version bump keeps old stored IDs
+# resolvable and the compatibility claim is testable.
+LEGACY_BEHAVIOR_IDS: Mapping[str, tuple[str, str]] = {
+    "v3-download-drop": ("download-and-drop", "1.1.0"),
+    "DOWNLOAD_DROP": ("download-and-drop", "1.1.0"),
+    "download-drop": ("download-and-drop", "1.1.0"),
+    "v3-cleanup-self-delete": ("self-delete", "1.1.0"),
+    "CLEANUP_SELF_DELETE": ("self-delete", "1.1.0"),
+    "cleanup-self-delete": ("self-delete", "1.1.0"),
+    "v3-command-execution": ("process-creation", "1.1.0"),
+    "COMMAND_EXECUTION": ("process-creation", "1.1.0"),
+    "command-execution": ("process-creation", "1.1.0"),
+    "v3-memory-permission-change": ("memory-and-mapping", "1.1.0"),
+    "MEMORY_PERMISSION_CHANGE": ("memory-and-mapping", "1.1.0"),
+    "memory-permission-change": ("memory-and-mapping", "1.1.0"),
+    "v3-manual-pe-load": ("loader-and-api-resolution", "1.1.0"),
+    "MANUAL_PE_LOAD": ("loader-and-api-resolution", "1.1.0"),
+    "manual-pe-load": ("loader-and-api-resolution", "1.1.0"),
+    "v3-registry-configuration": ("registry-operations", "1.1.0"),
+    "REGISTRY_CONFIGURATION": ("registry-operations", "1.1.0"),
+    "registry-configuration": ("registry-operations", "1.1.0"),
+}
+
+# Main-path playbook profiles that deliberately do not resolve to a behaviour
+# entry, with the reason.  B02 requires the unknown mechanism to still enter
+# investigation; it also requires the unmapped set to be declared instead of
+# silently returning the legacy-threshold answer.
+UNMAPPED_PLAYBOOK_PROFILES: Mapping[str, str] = {
+    "generic-mechanism-investigation": "navigation profile with no trigger terms; never selected by best_match",
+    "entrypoint-timeline": "call-ordering profile, not a behaviour category; has no typed contract by design",
+}
+
+
+def verifier_reachability(
+    playbook_links: Iterable[tuple[str, str]],
+    entries: Iterable[BehaviorCatalogEntry] | None = None,
+) -> Mapping[str, tuple[str, ...]]:
+    """Verifier IDs the behaviour-entry path can reach, and via which profiles.
+
+    ``playbook_links`` are ``(playbook_id, mechanism_type)`` pairs from the
+    declared main-path profiles.  Resolution mirrors
+    ``MechanismPlaybookRegistry.behavior_entry``: the mechanism type is tried
+    first, then the playbook ID.  A verifier that appears in no value here is
+    never invoked from ``Verifier.evaluate`` -> ``_evaluate_playbook``, which
+    B03 treats as not implemented *for that gate*: the behaviour contract of
+    the affected entry is never evaluated either.  Such an entry must record
+    the main paths that do call its specialist in ``verifier_call_paths``
+    (``derive_static_mechanism_links`` link verification and
+    ``apply_emulation_reverification`` are the two in this tree), otherwise it
+    cannot claim supported verification.
+    """
+    catalog = entries if entries is not None else default_behavior_catalog()
+    by_key: dict[str, BehaviorCatalogEntry] = {}
+    for entry in catalog:
+        for key in (entry.id, entry.qualified_id, *entry.aliases):
+            by_key.setdefault(_norm(key), entry)
+    reached: dict[str, list[str]] = {}
+    for playbook_id, mechanism_type in playbook_links:
+        entry = by_key.get(_norm(mechanism_type)) or by_key.get(_norm(playbook_id))
+        if entry is None or not entry.verifier_id:
+            continue
+        reached.setdefault(entry.verifier_id, []).append(str(playbook_id))
+    return {key: tuple(dict.fromkeys(value)) for key, value in reached.items()}
+
+
+def unreachable_verifier_entries(
+    playbook_links: Iterable[tuple[str, str]],
+    entries: Iterable[BehaviorCatalogEntry] | None = None,
+) -> tuple[BehaviorCatalogEntry, ...]:
+    """Entries whose declared verifier the behaviour-entry path cannot call."""
+    catalog = tuple(entries if entries is not None else default_behavior_catalog())
+    reached = set(verifier_reachability(playbook_links, catalog))
+    return tuple(
+        entry
+        for entry in catalog
+        if entry.verifier_id and entry.verifier_id not in reached
+    )
+
+
+def unmapped_playbook_profiles(
+    playbook_links: Iterable[tuple[str, str]],
+    entries: Iterable[BehaviorCatalogEntry] | None = None,
+) -> tuple[str, ...]:
+    """Declared profiles whose IDs resolve to no catalogue behaviour."""
+    catalog = BehaviorCatalog(entries)
+    return tuple(
+        str(playbook_id)
+        for playbook_id, mechanism_type in playbook_links
+        if catalog.by_id(mechanism_type) is None and catalog.by_id(playbook_id) is None
+    )
+
+
 class BehaviorCatalog:
     """Immutable registry with stable IDs, aliases and deterministic digest."""
 
-    VERSION = "1.0.0"
+    VERSION = "1.1.0"
+    PREVIOUS_VERSIONS = ("1.0.0",)
 
     def __init__(self, entries: Iterable[BehaviorCatalogEntry] | None = None) -> None:
         self.entries = tuple(entries or default_behavior_catalog())
@@ -1115,6 +1760,15 @@ class BehaviorCatalog:
                 if previous is not None and previous.id != item.id:
                     raise ValueError(f"behavior catalog alias collision: {key}")
                 aliases[normalized] = item
+        for legacy_id, (current_id, _retired_in) in LEGACY_BEHAVIOR_IDS.items():
+            target = aliases.get(_norm(current_id))
+            if target is None:
+                raise ValueError(f"legacy behaviour id {legacy_id} points outside the catalogue")
+            normalized = _norm(legacy_id)
+            previous = aliases.get(normalized)
+            if previous is not None and previous.id != target.id:
+                raise ValueError(f"legacy behaviour id collision: {legacy_id}")
+            aliases[normalized] = target
         self._aliases = aliases
 
     def by_id(self, entry_id: str) -> BehaviorCatalogEntry | None:
@@ -1168,6 +1822,7 @@ class BehaviorCatalog:
                 "contract": item.contract.as_dict(),
                 "aliases": list(item.aliases),
                 "verifier_id": item.verifier_id,
+                "verifier_reachable_from_entry_path": item.verifier_reachable_from_entry_path,
                 "support": dict(item.support),
             }
             for item in self.entries
@@ -1177,6 +1832,7 @@ class BehaviorCatalog:
         return {
             "catalog_id": self.catalog_id,
             "version": self.VERSION,
+            "previous_versions": list(self.PREVIOUS_VERSIONS),
             "digest": self.digest,
             "entries": [
                 {
@@ -1191,12 +1847,16 @@ class BehaviorCatalog:
                     "required_relations": list(item.contract.required_relations),
                     "forbidden_inferences": list(item.contract.forbidden_inferences),
                     "contract": item.contract.as_dict(),
+                    "counter_examples": [
+                        counter.as_dict() for counter in item.contract.counter_examples
+                    ],
                     "preferred_actions": list(item.preferred_actions),
                     "attack_candidates": list(item.attack_candidates),
                     "alternatives": list(item.alternatives),
                     "aliases": list(item.aliases),
                     "verifier_id": item.verifier_id,
                     "verifier_version": item.verifier_version,
+                    "verifier_reachable_from_entry_path": item.verifier_reachable_from_entry_path,
                     "notes": item.notes,
                 }
                 for item in self.entries
@@ -1216,6 +1876,49 @@ class BehaviorCatalog:
             for item in self.entries
         )
 
+    def compatibility(self) -> dict[str, object]:
+        """Versioned compatibility record for stored/legacy behaviour IDs."""
+
+        return {
+            "catalog_id": self.catalog_id,
+            "version": self.VERSION,
+            "previous_versions": list(self.PREVIOUS_VERSIONS),
+            "legacy_ids": {
+                legacy: {"resolves_to": current, "since_version": since}
+                for legacy, (current, since) in LEGACY_BEHAVIOR_IDS.items()
+            },
+            "unmapped_playbook_profiles": dict(UNMAPPED_PLAYBOOK_PROFILES),
+        }
+
+    def verifier_reachability(
+        self, playbook_links: Iterable[tuple[str, str]]
+    ) -> Mapping[str, tuple[str, ...]]:
+        """Verifier IDs reachable from the declared main-path profiles."""
+
+        return verifier_reachability(playbook_links, self.entries)
+
+    def unreachable_verifier_entries(
+        self, playbook_links: Iterable[tuple[str, str]]
+    ) -> tuple[BehaviorCatalogEntry, ...]:
+        """Entries whose declared verifier no declared profile can call."""
+
+        return unreachable_verifier_entries(playbook_links, self.entries)
+
+    def counter_examples(
+        self,
+    ) -> tuple[dict[str, object], ...]:
+        """Every registered executable counter-example, with its owning entry."""
+
+        return tuple(
+            {
+                "entry_id": entry.id,
+                "entry_version": entry.version,
+                **item.as_dict(),
+            }
+            for entry in self.entries
+            for item in entry.contract.counter_examples
+        )
+
     def evaluate(self, entry_id: str, evidence: Iterable[Mapping[str, object]]) -> ContractEvaluation:
         entry = self.by_id(entry_id)
         if entry is None:
@@ -1228,9 +1931,12 @@ def evaluate_evidence_contract(contract: EvidenceContract, evidence: Iterable[Ma
 
 
 __all__ = [
-    "BehaviorCatalog", "BehaviorCatalogEntry", "ContractEvaluation", "EvidenceContract",
-    "EvidencePredicate", "RelationPredicate", "PredicateMatch", "SupportLevel",
+    "BehaviorCatalog", "BehaviorCatalogEntry", "ContractEvaluation", "CounterExample",
+    "EvidenceContract", "EvidencePredicate", "LEGACY_BEHAVIOR_IDS", "RelationPredicate",
+    "PredicateMatch", "SupportLevel", "UNMAPPED_PLAYBOOK_PROFILES",
     "TypedEvidencePredicate", "TypedFactPredicate", "TypedRelationPredicate",
-    "default_behavior_catalog", "evaluate_evidence_contract", "is_concrete_value",
-    "is_unknown_or_negative", "object_identity",
+    "counter_example", "default_behavior_catalog", "evaluate_evidence_contract",
+    "is_concrete_value", "is_unknown_or_negative", "object_identity",
+    "unmapped_playbook_profiles", "unreachable_verifier_entries",
+    "verifier_reachability",
 ]

@@ -1447,6 +1447,29 @@ def report_v3_quality_violations(document: dict[str, object]) -> list[str]:
             readiness == "READY_FOR_REPORT" or outcome == "COMPLETE"
         ):
             violations.append("analysis_quality critic is BLOCKED but report is marked complete/ready")
+        # M04: the readiness gate owns the "is this revision complete" claim.  A
+        # document that carries the gate verdict cannot contradict it, whatever
+        # stamped the outcome.
+        gate = quality.get("readiness_gate")
+        if isinstance(gate, dict):
+            gate_status = str(gate.get("status") or "").upper()
+            if gate_status in {"PARTIAL", "BOUNDED"} and (
+                readiness == "READY_FOR_REPORT" or outcome == "COMPLETE"
+            ):
+                violations.append(
+                    "M04 readiness gate is "
+                    + gate_status
+                    + " but report is marked "
+                    + ("READY_FOR_REPORT" if readiness == "READY_FOR_REPORT" else "COMPLETE")
+                    + "; publish it as PARTIAL/BOUNDED instead"
+                )
+        self_check = quality.get("m06_self_check")
+        if isinstance(self_check, dict) and str(self_check.get("status") or "").upper() == "BLOCKED":
+            downgraded = self_check.get("downgraded")
+            if isinstance(downgraded, list) and not downgraded:
+                violations.append(
+                    "M06 self-check is BLOCKED but no conclusion was downgraded or kept UNKNOWN/CANDIDATE"
+                )
     top_level_sections = document.get("report_sections")
     if isinstance(top_level_sections, list):
         sections = top_level_sections
@@ -2447,6 +2470,368 @@ _REPORT_UNKNOWN_PREFIXES = (
     "na",
 )
 
+# ---------------------------------------------------------------------------
+# M04 report readiness gate + M06 adversarial self-check.
+#
+# The V3 contract already listed the eight behavior-template slots, but it
+# accepted ANY non-empty string in each of them and it had no document-level
+# verdict.  Two defects followed from that:
+#
+#   * a slot could hold a bare `UNKNOWN`/`N/A` with no reason, which reads as a
+#     recovered fact to a template checker and as an unexplained hole to an
+#     analyst;
+#   * a document whose core findings were incomplete still reached revision
+#     creation carrying `analysis_outcome=COMPLETE`, because the only signal
+#     was per-finding and nothing downgraded the document.
+#
+# M06 adds the second obligation: before a high-value conclusion enters a
+# report revision, the adversarial over-claim check must be a TRACEABLE
+# artefact (persisted with the revision), must cover the six named
+# evidence-to-behaviour leaps, and a conclusion that fails it must be
+# downgraded rather than left closed or HIGH.
+# ---------------------------------------------------------------------------
+
+#: The M04 behavior template.  Singlar key = document field, value = the label
+#: used in the named UNKNOWN marker (`UNKNOWN(condition not recovered ...)`).
+BEHAVIOR_TEMPLATE_SLOTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("what", ("what", "statement")),
+    ("how", ("how", "transformation_or_control", "mechanism")),
+    ("target", ("target", "object")),
+    ("condition", ("condition", "conditions")),
+    ("output", ("output", "outputs")),
+    ("consumer", ("consumer", "consumers")),
+    ("evidence", ("evidence_ids", "supporting_evidence_ids")),
+    ("unknown", ("unknowns", "limitations", "missing")),
+)
+
+#: A slot may be absent, but not SILENTLY absent: the row must say which slot is
+#: missing and what would be needed.  A bare marker is not an explanation.
+_SLOT_REASON_MARKERS: tuple[str, ...] = (
+    "not recovered",
+    "unrecovered",
+    "missing",
+    "not applicable",
+    "n/a",
+    "requires",
+    "needed",
+    "unavailable",
+    "not observed",
+    "no evidence",
+    "unsupported",
+    "blocked",
+)
+
+#: The six evidence-to-behaviour leaps M06 requires the self-check to cover.
+#: `rule_id` is the identifier recorded in the artefact; `over_claim` is what a
+#: reader must not be told when the check fails.
+M06_SELF_CHECK_RULES: tuple[dict[str, str], ...] = (
+    {
+        "rule_id": "API_IS_BEHAVIOR",
+        "over_claim": "an API or string name presented as a recovered behavior",
+        "required": "how + condition + output + consumer + evidence",
+    },
+    {
+        "rule_id": "NETWORK_IS_C2",
+        "over_claim": "a network endpoint or API presented as live C2 / beaconing",
+        "required": "loop/back-edge + protocol or tasking + response consumer",
+    },
+    {
+        "rule_id": "REGISTRY_IS_PERSISTENCE",
+        "over_claim": "a scheduled task or registry key presented as persistence",
+        "required": "trigger + payload + lifetime/re-execution relation",
+    },
+    {
+        "rule_id": "PROCESS_API_IS_INJECTION",
+        "over_claim": "a process/thread/APC API or PPID string presented as injection",
+        "required": "cross-process target + source/target region relation",
+    },
+    {
+        "rule_id": "COLLECTION_IS_EXFILTRATION",
+        "over_claim": "collection presented as exfiltration",
+        "required": "collection source + staging + network sink relation",
+    },
+    {
+        "rule_id": "SIMULATION_IS_RUNTIME",
+        "over_claim": "an emulation/stub result presented as observed runtime behaviour",
+        "required": "EMULATION_OBSERVED nature, explicitly labelled as isolated emulation",
+    },
+)
+
+#: Readiness states.  `PARTIAL` is an unmet slot/source obligation; `BOUNDED` is
+#: an honest-but-limited report (static boundary, blocked S4, downgraded
+#: over-claim); `READY` means the M04 template is satisfied for every core
+#: finding.  `PARTIAL` outranks `BOUNDED`.
+READINESS_STATUSES: tuple[str, ...] = ("READY", "BOUNDED", "PARTIAL")
+
+#: Statuses that may carry a HIGH/CRITICAL severity into a revision.
+_SEVERITY_BEARING_STATUSES = frozenset({*_BEHAVIOR_CLOSED_STATUSES, "CANDIDATE", "INFERRED", "OBSERVED"})
+
+#: Statuses that count as a recorded S4 orchestration closure for M06.
+_S4_CLOSURE_STATUSES = frozenset({"CLOSED", "NOT_APPLICABLE", "RECORDED"})
+
+
+def _normalized_slot_name(value: object) -> str:
+    return str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+
+
+def _slot_reason_is_recorded(slot: str, reasons: Iterable[object]) -> bool:
+    """Whether the row STATES why this slot is empty (M04: N/A, never invented).
+
+    The reason must name the slot AND carry an explanation marker, so a generic
+    "runtime execution and intent are not observed" cannot silently justify
+    every open slot.  `condition not recovered from available static evidence`
+    is an explanation; a bare `condition` is not.
+    """
+    target = _normalized_slot_name(slot)
+    for raw in reasons:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        folded = text.casefold()
+        if target not in _normalized_slot_name(text):
+            continue
+        if any(marker in folded for marker in _SLOT_REASON_MARKERS):
+            return True
+    return False
+
+
+def _behavior_template_slot(
+    row: Mapping[str, object],
+    keys: Sequence[str],
+) -> tuple[str, str]:
+    """Classify one template slot as ``value`` / ``explained_unknown`` / ``unexplained``."""
+    for key in keys:
+        if key not in row:
+            continue
+        value = row.get(key)
+        if _report_has_semantic_value(value):
+            return "value", ""
+        if isinstance(value, str):
+            # A non-empty string here is a MARKER (`UNKNOWN(...)`, `N/A`), not a
+            # reason: it says the slot is open without saying which slot or why.
+            # Empty/whitespace is simply absent.  Only a real explanation - which
+            # `_slot_reason_is_recorded` looks for in the row's reason list -
+            # turns this into an accepted not-applicable slot.
+            return "explained_unknown" if value.strip() else "unexplained", (
+                "" if value.strip() else f"{key} is empty"
+            )
+        if _report_has_value(value):
+            return "explained_unknown", f"{key}: {str(value)[:120]}"
+        if key == "evidence_ids":
+            return "unexplained", "evidence_ids is empty"
+        if key in {"sources", "source_ids"}:
+            return "unexplained", f"{key} is empty"
+        return "explained_unknown", ""
+    return "unexplained", f"{keys[0]} is absent"
+
+
+def _row_unknown_reasons(row: Mapping[str, object]) -> list[str]:
+    reasons: list[str] = []
+    for key in ("unknowns", "limitations", "missing"):
+        reasons.extend(str(item) for item in _report_values(row.get(key)) if str(item).strip())
+    return reasons
+
+
+def _gate_row_identity(row: Mapping[str, object], index: int) -> str:
+    # `relation_id` precedes `claim_id`: a relation row carries both, and M06
+    # records its over-claim hits under this same identity, so an edge that is
+    # blocked must be addressable by its own id rather than by its Claim.
+    return str(
+        row.get("relation_id")
+        or row.get("finding_id")
+        or row.get("id")
+        or row.get("mechanism_id")
+        or row.get("claim_id")
+        or f"row-{index}"
+    )
+
+
+def _gate_row_is_core(row: Mapping[str, object]) -> bool:
+    """A core finding is a closed behavior/security conclusion of this revision."""
+    row_type = str(row.get("type") or "")
+    if row_type not in {"behavior_finding", "security_finding"}:
+        return False
+    status = str(
+        row.get("finding_status") or row.get("status") or row.get("verdict") or ""
+    ).upper()
+    return status in _BEHAVIOR_CLOSED_STATUSES
+
+
+def _gate_row_is_high_value(row: Mapping[str, object]) -> bool:
+    if str(row.get("type") or "") not in {"behavior_finding", "security_finding"}:
+        return False
+    severity = str(row.get("severity") or row.get("risk") or "").upper()
+    if severity in {"HIGH", "CRITICAL"}:
+        return True
+    status = str(
+        row.get("finding_status") or row.get("status") or row.get("verdict") or ""
+    ).upper()
+    return status in _BEHAVIOR_CLOSED_STATUSES
+
+
+def _s4_closure_recorded(quality: Mapping[str, object]) -> tuple[bool, list[str]]:
+    """M06: is every high-value item's S4 orchestration state recorded?
+
+    A thread records itself through `analysis_quality.s4_orchestration` (the
+    same rows the live writer consumes).  `deep_analysis_metrics` does not emit
+    a row when the run had no investigation thread at all, which is exactly the
+    case where nothing recorded S4 - hence the explicit check rather than a
+    truthiness test on the list.
+    """
+    rows = quality.get("s4_orchestration")
+    if not isinstance(rows, list) or not rows:
+        return False, ["no S4 orchestration state recorded"]
+    open_rows: list[str] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        status = str(row.get("status") or "").upper()
+        if status and status not in _S4_CLOSURE_STATUSES:
+            open_rows.append(f"{row.get('thread_id') or 'thread'}={status or 'UNRECORDED'}")
+    if open_rows:
+        return False, open_rows
+    return True, []
+
+
+def _document_rows(document: Mapping[str, object]) -> list[Mapping[str, object]]:
+    return [
+        row
+        for module in document.get("modules") or []
+        if isinstance(module, Mapping)
+        for row in module.get("rows") or []
+        if isinstance(row, Mapping)
+    ]
+
+
+def _stamp_quality(document: dict[str, object]) -> dict[str, object]:
+    quality = document.get("analysis_quality")
+    if not isinstance(quality, dict):
+        quality = {}
+        document["analysis_quality"] = quality
+    for module in document.get("modules") or []:
+        if not isinstance(module, dict):
+            continue
+        for row in module.get("rows") or []:
+            if isinstance(row, dict) and row.get("type") == "analysis_quality":
+                row["readiness_gate"] = quality.get("readiness_gate")
+                row["m06_self_check"] = quality.get("m06_self_check")
+                row["behavior_edge_gate"] = quality.get("behavior_edge_gate")
+                row["readiness"] = quality.get("readiness")
+                row["critic"] = quality.get("critic")
+    return quality
+
+
+def _write_readiness_gate(document: dict[str, object], gate: dict[str, object]) -> None:
+    quality = _stamp_quality(document)
+    quality["readiness_gate"] = gate
+    # `_apply_honest_analysis_outcome` (service) derives PARTIAL from a
+    # non-READY readiness, so an unmet gate also survives the live revision
+    # writer which runs after this builder.
+    if str(gate.get("status") or "").upper() != "READY":
+        quality["readiness"] = "BOUNDED_WITH_LIMITATIONS"
+    # Re-stamp: the module-row copy above was written before the verdict existed.
+    _stamp_quality(document)
+    outcome = str(document.get("analysis_outcome") or "").upper()
+    if outcome == "COMPLETE" and str(gate.get("status") or "").upper() == "PARTIAL":
+        document["analysis_outcome"] = "PARTIAL"
+
+
+def behavior_report_readiness_gate(document: Mapping[str, object]) -> dict[str, object]:
+    """M04/M06 readiness verdict for one report document.
+
+    Every core Finding must carry What / How / Target / Condition / Output /
+    Consumer / Evidence / Unknown.  A slot may be genuinely not applicable, but
+    then the row must SAY so; an empty or bare-marker slot is an unmet gate.
+    A HIGH-value conclusion also needs its S4 orchestration state recorded
+    before it can enter a revision.  When the gate is unmet the status is
+    ``PARTIAL``/``BOUNDED`` rather than a silently complete report.
+    """
+    rows = _document_rows(document)
+    core: list[dict[str, object]] = []
+    overclaim_downgraded = document.get("_m06_downgraded_row_ids")
+    downgraded_ids = (
+        {str(item) for item in overclaim_downgraded}
+        if isinstance(overclaim_downgraded, (list, tuple, set, frozenset))
+        else set()
+    )
+    for index, row in enumerate(rows, start=1):
+        status = str(
+            row.get("finding_status") or row.get("status") or row.get("verdict") or ""
+        ).upper()
+        if str(row.get("type") or "") not in {"behavior_finding", "security_finding"}:
+            continue
+        reasons = _row_unknown_reasons(row)
+        missing: list[str] = []
+        unexplained: list[str] = []
+        for slot, keys in BEHAVIOR_TEMPLATE_SLOTS:
+            verdict, detail = _behavior_template_slot(row, keys)
+            if verdict == "value":
+                continue
+            if verdict == "explained_unknown" or _slot_reason_is_recorded(slot, reasons):
+                continue
+            missing.append(slot)
+            unexplained.append(detail or f"{slot} is empty")
+        if not missing:
+            continue
+        identity = _gate_row_identity(row, index)
+        # M06 and M04 meet here: a conclusion the self-check already downgraded
+        # is no longer a closed core finding, so its open slots are recorded as
+        # a downgrade rather than as an unexplained core obligation.
+        entry = {
+            "finding_id": identity,
+            "status": status or "UNRECORDED",
+            "missing_slots": missing,
+            "unexplained": unexplained,
+        }
+        if identity in downgraded_ids and status not in _BEHAVIOR_CLOSED_STATUSES:
+            entry["disposition"] = "DOWNGRADED_BY_M06_SELF_CHECK"
+        core.append(entry)
+
+    unexplained_core = [item for item in core if not item.get("disposition")]
+    high_value = [row for row in rows if _gate_row_is_high_value(row)]
+    s4_ok, s4_gaps = _s4_closure_recorded(
+        document.get("analysis_quality") if isinstance(document.get("analysis_quality"), Mapping) else {}
+    )
+    if unexplained_core:
+        status = "PARTIAL"
+    elif not s4_ok and high_value:
+        status = "BOUNDED"
+    else:
+        status = "READY"
+
+    summary = {
+        "READY": "every core finding carries the M04 behavior template",
+        "BOUNDED": "readiness is bounded: " + "; ".join(s4_gaps[:4]),
+        "PARTIAL": "PARTIAL: core findings have unexplained template slots: "
+        + ", ".join(
+            f"{item['finding_id']}[{'+'.join(item['missing_slots'])}]" for item in unexplained_core[:6]
+        ),
+    }[status]
+    return {
+        "requirement": "M04",
+        "status": status,
+        "complete": status == "READY",
+        "core_requirements": [
+            {"slot": slot, "field": keys[0]} for slot, keys in BEHAVIOR_TEMPLATE_SLOTS
+        ],
+        "core_findings_checked": sum(
+            1
+            for row in rows
+            if str(row.get("type") or "") in {"behavior_finding", "security_finding"}
+        ),
+        "core_findings_incomplete": core,
+        "unexplained_core_findings": [item["finding_id"] for item in unexplained_core],
+        "high_value_findings": len(high_value),
+        "s4_orchestration_recorded": s4_ok,
+        "s4_orchestration_gaps": s4_gaps,
+        "summary": summary,
+        "rules": [
+            "a template slot may be absent but not silently absent: the row must state the slot and why",
+            "not-applicable slots are reported as N/A with a reason, never invented",
+            "an unmet gate is reported as PARTIAL/BOUNDED, never as a silently complete report",
+        ],
+    }
+
 
 def _report_is_injects_self_loop(row: Mapping[str, object]) -> bool:
     """Same-artifact INJECTS is not a cross-process injection edge."""
@@ -2496,6 +2881,387 @@ def _report_has_semantic_value(value: object) -> bool:
     if isinstance(value, (list, tuple, set)):
         return any(_report_has_semantic_value(item) for item in value)
     return True
+
+
+_M06_RUNTIME_CLAIM_RE = re.compile(
+    r"已运行|已执行成功|运行时确认"
+    r"|(?<!not )(?<!never )(?<!was not )"
+    r"(?:runtime confirmed|executed successfully|actual runtime|runtime observed)",
+    re.IGNORECASE,
+)
+
+
+def _overclaim_text(row: Mapping[str, object]) -> str:
+    """Flatten the fields an over-claim conclusion actually asserts."""
+    fields = (
+        "what", "how", "mechanism", "statement", "security_meaning", "target",
+        "inputs", "transformation_or_control", "conditions", "outputs", "consumers",
+        "condition", "output", "consumer", "side_effects", "loop", "unknowns",
+        "semantic_interpretation", "relation_type", "source_artifact_id",
+        "target_artifact_id", "source_object", "target_object", "parent", "parent_image",
+    )
+    return " ".join(
+        str(row.get(key) or "") for key in fields
+    ).casefold()
+
+
+def _overclaim_field_present(row: Mapping[str, object], keys: Sequence[str]) -> bool:
+    for key in keys:
+        if _report_has_semantic_value(row.get(key)):
+            return True
+    return False
+
+
+def _overclaim_hits(rows: Iterable[Mapping[str, object]]) -> list[dict[str, object]]:
+    """The six M06 leaps, evaluated once per row.
+
+    This is deliberately a GATE, not a classifier: a hit means the row must be
+    downgraded or acquire the missing typed relation.  It never promotes.
+    """
+    hits: list[dict[str, object]] = []
+    for index, row in enumerate(rows, start=1):
+        row_type = str(row.get("type") or "")
+        relation_type = str(row.get("relation_type") or row.get("relation") or "").upper()
+        if row_type not in {
+            "behavior_finding", "security_finding", "mechanism_candidate",
+            "mechanism_link", "mechanism_observation", "analytical_claim",
+            "behavior_relation",
+        } and relation_type not in {"INJECTS", "INJECT"}:
+            continue
+        identity = _gate_row_identity(row, index)
+        text = _overclaim_text(row)
+        natures = " ".join(
+            str(item) for item in _report_values(row.get("evidence_natures"))
+        ).upper()
+        for key in ("nature", "evidence_nature", "execution_context"):
+            natures += " " + str(row.get(key) or "").upper()
+
+        def add(rule_id: str, missing: Sequence[str], detail: str) -> None:
+            hits.append({
+                "rule_id": rule_id,
+                "row_id": identity,
+                "row_type": row_type or relation_type,
+                "status": "BLOCKED",
+                "missing": list(missing),
+                "detail": detail,
+                "action": "DOWNGRADE_OR_RECOVER_TYPED_EVIDENCE",
+                "reason": next(
+                    item["over_claim"] for item in M06_SELF_CHECK_RULES if item["rule_id"] == rule_id
+                ),
+            })
+
+        # -- API or string treated as behaviour --------------------------------
+        what = str(row.get("what") or row.get("statement") or "").strip()
+        seed_only = bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{2,}", what, re.IGNORECASE)) or bool(
+            re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*[AW]?", what, re.IGNORECASE)
+        )
+        if seed_only and not (
+            _overclaim_field_present(row, ("how", "transformation_or_control", "mechanism"))
+            and _overclaim_field_present(row, ("condition", "conditions"))
+            and _overclaim_field_present(row, ("output", "outputs"))
+            and _overclaim_field_present(row, ("consumer", "consumers"))
+        ):
+            add(
+                "API_IS_BEHAVIOR",
+                ["how", "condition", "output", "consumer"],
+                f"what is the bare API/string seed {what!r}",
+            )
+
+        # -- network / registry / persistence ---------------------------------
+        c2_tokens = ("active c2", "beacon", "heartbeat", "command and control", "c2 channel", "c2 通道")
+        if any(token in text for token in c2_tokens):
+            loop_markers = ("loop", "back-edge", "back edge", "poll", "jitter", "tasking", "response consumer")
+            if not any(marker in text for marker in loop_markers):
+                add("NETWORK_IS_C2", ["loop_or_back_edge", "protocol_or_tasking", "response_consumer_relation"], "C2 wording without a recovered loop")
+        persistence_tokens = ("persistence", "persist", "持久化", "驻留")
+        persistence_targets = ("registry", "runonce", "run key", "scheduled task", "schtasks", "service", "startup", "启动项", "计划任务", "注册表")
+        if any(token in text for token in persistence_tokens) and any(
+            token in text for token in persistence_targets
+        ):
+            missing = [marker for marker in ("trigger", "lifetime", "payload") if marker not in text]
+            if not any(marker in text for marker in ("trigger", "lifetime", "re-execution", "reexecution")):
+                missing.append("trigger_to_payload_relation")
+            add("REGISTRY_IS_PERSISTENCE", missing, "registry/task row asserted as persistence")
+
+        # -- process/thread/APC/PPID as injection ------------------------------
+        injection_tokens = (
+            "process injection", "remote injection", "injected into", "process hollowing",
+            "apc injection", "queueuserapc", "ntqueueapcthread", "queue apc",
+            "same-process apc", "same process apc", "ppid spoof", "ppid spoofing",
+            "远程注入", "注入",
+        )
+        is_injects_self_loop = (
+            relation_type in {"INJECTS", "INJECT"}
+            and bool(str(row.get("source_artifact_id") or row.get("source_object") or "").strip())
+            and str(row.get("source_artifact_id") or row.get("source_object") or "").strip()
+            == str(row.get("target_artifact_id") or row.get("target_object") or "").strip()
+        )
+        if is_injects_self_loop:
+            add("PROCESS_API_IS_INJECTION", ["distinct_target_artifact", "cross_process_target"], "INJECTS edge has no distinct target")
+        elif any(token in text for token in injection_tokens):
+            required = ("cross_process", "target_process", "source_region", "target_region")
+            missing = [marker for marker in required if marker not in text]
+            if missing:
+                add("PROCESS_API_IS_INJECTION", missing, "process/APC/PPID wording without a cross-process relation")
+
+        # -- collection as exfiltration ---------------------------------------
+        if "exfiltration" in text or "exfiltrated" in text or "外传" in text:
+            required = ("collection_source", "staging", "network_sink")
+            missing = [marker for marker in required if marker not in text]
+            add("COLLECTION_IS_EXFILTRATION", missing + ["collected_to_network_relation"], "collection asserted as exfiltration")
+
+        # -- emulation / stub as a real runtime observation --------------------
+        # The wording must be AFFIRMATIVE.  A static report legitimately says
+        # 「样本未运行」/「not executed」, which contains the same token and must
+        # not be read as an over-claim - a gate that fires on the honest
+        # boundary statement would train the reader to ignore it.
+        runtime_hit = _M06_RUNTIME_CLAIM_RE.search(text) is not None
+        if runtime_hit and not (
+            "EMULATION_OBSERVED" in natures or "DYNAMIC_OBSERVED" in natures
+        ):
+            add("SIMULATION_IS_RUNTIME", ["EMULATION_OBSERVED evidence nature or real runtime provenance"], "runtime wording without observed provenance")
+    return hits
+
+
+def _row_failed_rules(hits: Iterable[Mapping[str, object]]) -> dict[str, list[str]]:
+    failed: dict[str, list[str]] = {}
+    for hit in hits:
+        failed.setdefault(str(hit.get("row_id") or ""), []).append(str(hit.get("rule_id") or ""))
+    return failed
+
+
+def _write_m06_self_check(document: dict[str, object]) -> None:
+    """M06: degrade any conclusion that fails the adversarial self-check.
+
+    The check is recorded as a structured, revision-scoped artefact
+    (`analysis_quality.m06_self_check`) rather than being left as the model's
+    private reasoning, and a failing conclusion loses its closed status and its
+    severity instead of being reported as established behavior.
+    """
+    rows = _document_rows(document)
+    hits = _overclaim_hits(rows)
+    failed = _row_failed_rules(hits)
+    downgraded: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        identity = _gate_row_identity(row, 0)
+        rules = failed.get(identity)
+        if not rules:
+            continue
+        status = str(
+            row.get("finding_status") or row.get("status") or row.get("verdict") or ""
+        ).upper()
+        next_status = "UNKNOWN" if "INJECTS_SELF_LOOP" in rules or "PROCESS_API_IS_INJECTION" in rules else "CANDIDATE"
+        # `_gate_row_identity` is also the key M06 used, so the comparison above is exact.
+        blocked_closed = status in _BEHAVIOR_CLOSED_STATUSES
+        blocked_severity = str(row.get("severity") or row.get("risk") or "").upper() in {"HIGH", "CRITICAL"}
+        if not blocked_closed and not blocked_severity and status == next_status:
+            continue
+        marker = (
+            "UNKNOWN(M06 self-check failed: "
+            + ", ".join(sorted(set(rules)))
+            + "; typed relation missing)"
+        )
+        unknowns = [item for item in _report_values(row.get("unknowns")) if str(item).strip()]
+        if marker not in unknowns:
+            unknowns.append(marker)
+        row["finding_status"] = next_status
+        row["status"] = next_status
+        row["verdict"] = next_status
+        row["validation_status"] = next_status
+        row["severity"] = "UNASSESSED"
+        row["unknowns"] = unknowns
+        row["maliciousness_assessment"] = (
+            "not_assessed" if next_status == "UNKNOWN" else "candidate_security_relevant_behavior"
+        )
+        row["m06_self_check_downgrade"] = True
+        downgraded.append({
+            "finding_id": identity,
+            "previous_status": status or "UNRECORDED",
+            "status": next_status,
+            "rules": sorted(set(rules)),
+        })
+    checks = [
+        {
+            "rule_id": rule["rule_id"],
+            "over_claim": rule["over_claim"],
+            "required": rule["required"],
+            "status": "BLOCKED" if any(hit["rule_id"] == rule["rule_id"] for hit in hits) else "CHECKED",
+            "hits": [hit["row_id"] for hit in hits if hit["rule_id"] == rule["rule_id"]],
+        }
+        for rule in M06_SELF_CHECK_RULES
+    ]
+    artefact = {
+        "requirement": "M06",
+        "gate": True,
+        "traceable": True,
+        "rules_covered": [rule["rule_id"] for rule in M06_SELF_CHECK_RULES],
+        "checks": checks,
+        "hits": hits,
+        "downgraded": downgraded,
+        "status": "BLOCKED" if hits else "PASS",
+        "note": (
+            "A failing conclusion is downgraded to UNKNOWN/CANDIDATE and its severity is "
+            "cleared; this artefact is persisted with the revision, not left as model reasoning."
+        ),
+    }
+    quality = _stamp_quality(document)
+    quality["m06_self_check"] = artefact
+    critic = quality.get("critic")
+    if not isinstance(critic, dict):
+        critic = {}
+        quality["critic"] = critic
+    critic["self_check"] = artefact
+    if hits:
+        existing = critic.get("overclaim_checks")
+        merged = list(existing) if isinstance(existing, list) else []
+        merged.extend(
+            {
+                "rule_id": hit["rule_id"],
+                "row_id": hit["row_id"],
+                "status": hit["status"],
+                "missing": hit["missing"],
+                "action": hit["action"],
+                "reason": hit["reason"],
+                "source": "M06_SELF_CHECK",
+            }
+            for hit in hits
+        )
+        critic["overclaim_checks"] = merged
+        if str(critic.get("status") or "").upper() != "BLOCKED":
+            critic["status"] = "BLOCKED"
+    document["_m06_downgraded_row_ids"] = [item["finding_id"] for item in downgraded]
+    if downgraded and str(document.get("analysis_outcome") or "").upper() == "COMPLETE":
+        document["analysis_outcome"] = "PARTIAL"
+
+
+def _stamp_behavior_readiness(document: dict[str, object]) -> dict[str, object]:
+    """M06 then M04, in that order, and persist both verdicts on the revision."""
+    _write_m06_self_check(document)
+    downgraded_ids = list(document.pop("_m06_downgraded_row_ids", []) or [])
+    _write_edge_gate(document)
+    gate = behavior_report_readiness_gate(document)
+    gate["m06_downgraded_findings"] = downgraded_ids
+    _write_readiness_gate(document, gate)
+    return gate
+
+
+def _edge_basis(row: Mapping[str, object]) -> str:
+    """B05: the stated basis of a graph edge.
+
+    An edge whose basis is ``UNSTATED`` may not be presented as a supported
+    relation: the reader cannot tell "recovered from this instruction window"
+    from "the two rows appeared in the same function".
+    """
+    basis = str(row.get("basis") or row.get("basis_kind") or row.get("evidence_basis") or "").strip()
+    if basis:
+        return basis.upper()
+    if _report_ids(row.get("evidence_ids")):
+        return "EVIDENCE"
+    if _report_ids(row.get("claim_ids")) or row.get("claim_id"):
+        return "CLAIM"
+    return "UNSTATED"
+
+
+def _string_fact_summary_check(document: Mapping[str, object]) -> dict[str, object]:
+    """B05: no string/API fact may be summarised as behaviour.
+
+    MEASURED class this exists for: a bare API name (or a recovered string)
+    reaching the executive summary as though the behaviour had been recovered.
+    A string fact is a SEED; it may appear as an indicator or a lead, never as
+    the summary's answer to "what does it do".
+    """
+    coverage = document.get("analysis_coverage")
+    coverage = coverage if isinstance(coverage, Mapping) else {}
+    seeds: list[str] = [str(item) for item in _report_values(coverage.get("string_only_claims")) if str(item).strip()]
+    facts = document.get("string_facts")
+    fact_labels: set[str] = set()
+    if isinstance(facts, Mapping):
+        for item in _report_values(facts.get("facts")):
+            if isinstance(item, Mapping):
+                value = str(item.get("value") or "").strip()
+                if value:
+                    fact_labels.add(value)
+    else:
+        for module in document.get("modules") or []:
+            if not isinstance(module, Mapping):
+                continue
+            for row in module.get("rows") or []:
+                if isinstance(row, Mapping) and row.get("type") == "string_fact":
+                    value = str(row.get("value") or "").strip()
+                    if value:
+                        fact_labels.add(value)
+    prompt = document.get("analysis_prompt")
+    prompt = prompt if isinstance(prompt, Mapping) else {}
+    summary_texts = [str(prompt.get("summary") or "")]
+    for module in document.get("modules") or []:
+        if not isinstance(module, Mapping):
+            continue
+        if str(module.get("id") or "") == "executive_summary":
+            summary_texts.append(str(module.get("summary") or ""))
+    summary = " ".join(summary_texts).casefold()
+    hits = [
+        label for label in sorted(set(seeds) | fact_labels)
+        if label and label.casefold() in summary
+    ]
+    return {
+        "rule": "string_or_api_is_not_a_summary_behaviour",
+        "status": "BLOCKED" if hits else "PASS",
+        "summary_only_facts": hits[:16],
+        "checked": len(set(seeds) | fact_labels),
+    }
+
+
+def behavior_report_edge_gate(document: Mapping[str, object]) -> dict[str, object]:
+    """B05: every projected graph edge carries a stated basis.
+
+    The edge itself is not deleted: an edge derived from a Claim is still shown,
+    explicitly labelled ``CLAIM``, and an edge with nothing behind it is
+    recorded as ``UNSTATED`` instead of being rendered as a supported relation.
+    """
+    edges: list[dict[str, object]] = []
+    unbacked: list[str] = []
+    for index, row in enumerate(_document_rows(document), start=1):
+        if str(row.get("type") or "") != "behavior_relation":
+            continue
+        identity = _gate_row_identity(row, index)
+        basis = _edge_basis(row)
+        record = {
+            "relation_id": identity,
+            "relation_type": str(row.get("relation_type") or row.get("relation") or ""),
+            "basis": basis,
+            "evidence_ids": _report_ids(row.get("evidence_ids"))[:8],
+            "claim_ids": _report_ids(
+                [row.get("claim_id"), *_report_ids(row.get("claim_ids"))]
+            )[:8],
+        }
+        edges.append(record)
+        if basis == "UNSTATED":
+            unbacked.append(identity)
+    return {
+        "requirement": "B05",
+        "status": "BOUNDED" if unbacked else "PASS",
+        "edges": edges,
+        "edges_without_basis": unbacked,
+        "summary_string_check": _string_fact_summary_check(document),
+        "rule": "an edge with no Evidence, Claim or typed basis is labelled UNSTATED, never rendered as supported",
+    }
+
+
+def _write_edge_gate(document: dict[str, object]) -> None:
+    gate = behavior_report_edge_gate(document)
+    quality = _stamp_quality(document)
+    quality["behavior_edge_gate"] = gate
+    for module in document.get("modules") or []:
+        if not isinstance(module, dict):
+            continue
+        for row in module.get("rows") or []:
+            if not isinstance(row, dict) or row.get("type") != "behavior_relation":
+                continue
+            row["basis"] = _edge_basis(row)
+    if str(gate.get("status")) != "PASS" and str(document.get("analysis_outcome") or "").upper() == "COMPLETE":
+        document["analysis_outcome"] = "PARTIAL"
 
 
 def _report_is_attribution(source: Mapping[str, object], claim: Any | None = None) -> bool:
@@ -9665,7 +10431,83 @@ def build_report_document(
     if callsite_flag_projection:
         document["creation_flags_callsite"] = callsite_flag_projection
     _stamp_one_round_readiness(document)
+    # M04/M06 run LAST so they judge the assembled revision: every behavior
+    # finding, security finding and critic row is already projected, and the
+    # verdict they stamp is the one the revision carries.
+    _stamp_behavior_readiness(document)
     return document
+
+
+def _gate_section_markdown(document: Mapping[str, object]) -> str:
+    """The M04 / M06 verdicts, written into the artefact a reviewer reads.
+
+    These are GATES, not the model's private reasoning, so they are published:
+    a reader must be able to see that a revision is PARTIAL because a core
+    finding has an unexplained template slot, which high-value conclusions the
+    adversarial self-check downgraded and on which rule, and whether the S4
+    orchestration state was recorded before the revision was composed.
+    """
+    quality = document.get("analysis_quality")
+    if not isinstance(quality, Mapping):
+        return ""
+    gate = quality.get("readiness_gate")
+    self_check = quality.get("m06_self_check")
+    lines = ["", "### M04 报告就绪门 / M06 对抗式自检", ""]
+    if isinstance(gate, Mapping):
+        lines.append(f"- M04 status: **{gate.get('status') or 'UNRECORDED'}**")
+        lines.append(
+            "- M04 requirement: What / How / Target / Condition / Output / Consumer / "
+            "Evidence / Unknown，缺项必须写明原因（N/A + 理由），不得编造。"
+        )
+        incomplete = gate.get("core_findings_incomplete")
+        if isinstance(incomplete, list) and incomplete:
+            for item in incomplete[:8]:
+                if not isinstance(item, Mapping):
+                    continue
+                slots = "+".join(str(slot) for slot in item.get("missing_slots") or [])
+                disposition = str(item.get("disposition") or "UNEXPLAINED")
+                lines.append(
+                    f"- M04 open slot: `{item.get('finding_id')}` [{slots}] -> {disposition}"
+                )
+        if gate.get("s4_orchestration_recorded") is False:
+            lines.append(
+                "- M06 S4: 未记录编排闭合状态 -> "
+                + "; ".join(str(item) for item in (gate.get("s4_orchestration_gaps") or [])[:4])
+            )
+        else:
+            lines.append("- M06 S4: 高价值结论的编排闭合状态已记录。")
+    else:
+        lines.append("- M04 status: **UNRECORDED**（未运行报告就绪门）")
+    if isinstance(self_check, Mapping):
+        lines.append(f"- M06 self-check: **{self_check.get('status') or 'UNRECORDED'}**")
+        checks = self_check.get("checks")
+        if isinstance(checks, list):
+            for item in checks:
+                if not isinstance(item, Mapping):
+                    continue
+                if str(item.get("status") or "").upper() == "BLOCKED":
+                    lines.append(
+                        f"- M06 BLOCKED `{item.get('rule_id')}`: "
+                        f"{item.get('over_claim')}；需要 {item.get('required')}；"
+                        f"命中 {', '.join(str(hit) for hit in (item.get('hits') or [])[:4])}"
+                    )
+        downgraded = self_check.get("downgraded")
+        if isinstance(downgraded, list):
+            for item in downgraded[:8]:
+                if not isinstance(item, Mapping):
+                    continue
+                lines.append(
+                    f"- M06 降级: `{item.get('finding_id')}` {item.get('previous_status')} -> "
+                    f"{item.get('status')}（{', '.join(str(rule) for rule in item.get('rules') or [])}）"
+                )
+            if not downgraded and str(self_check.get("status") or "").upper() == "BLOCKED":
+                lines.append(
+                    "- M06 失败但没有结论被降级：该报告不得把失败结论当作已确认行为。"
+                )
+    else:
+        lines.append("- M06 self-check: **UNRECORDED**（未运行对抗式自检）")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def render_ledger_markdown(document: dict[str, object]) -> str:

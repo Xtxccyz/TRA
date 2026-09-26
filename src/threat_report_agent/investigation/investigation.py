@@ -5566,24 +5566,32 @@ def verify_environment_guard_mechanism(
     )
 
 
+# The registered specialist verifiers, keyed by canonical mechanism type.  This
+# is the single source of truth for `verify_mechanism`; keeping it a module
+# constant lets the B03 reachability contract be checked instead of asserted in
+# prose.  ``PROCESS_CREATION`` is a compatibility key for the same verifier as
+# ``PROCESS_EXECUTION`` and no catalogue entry declares it, so it is reachable
+# only through a direct caller.
+MECHANISM_VERIFIERS: dict[str, Callable[[Iterable[Mapping[str, object]]], MechanismVerification]] = {
+    "DECODE_CONFIG": verify_xor_mechanism,
+    "DYNAMIC_API_RESOLUTION": verify_dynamic_api_mechanism,
+    "PPID_SPOOFING": verify_ppid_mechanism,
+    "ETW_PATCH": verify_etw_mechanism,
+    "HTTP_DOWNLOAD": verify_http_download_mechanism,
+    "SHELL_OUTPUT": verify_shell_output_mechanism,
+    "PROCESS_EXECUTION": verify_process_execution_mechanism,
+    "PROCESS_CREATION": verify_process_execution_mechanism,
+    "THREAD_CALLBACK": verify_thread_callback_mechanism,
+    "ENVIRONMENT_GUARD": verify_environment_guard_mechanism,
+}
+
+
 def verify_mechanism(mechanism_type: str, evidence: Iterable[Mapping[str, object]]) -> MechanismVerification:
     """Dispatch to the release verifier for a canonical mechanism type."""
-    verifiers = {
-        "DECODE_CONFIG": verify_xor_mechanism,
-        "DYNAMIC_API_RESOLUTION": verify_dynamic_api_mechanism,
-        "PPID_SPOOFING": verify_ppid_mechanism,
-        "ETW_PATCH": verify_etw_mechanism,
-        "HTTP_DOWNLOAD": verify_http_download_mechanism,
-        "SHELL_OUTPUT": verify_shell_output_mechanism,
-        "PROCESS_EXECUTION": verify_process_execution_mechanism,
-        "PROCESS_CREATION": verify_process_execution_mechanism,
-        "THREAD_CALLBACK": verify_thread_callback_mechanism,
-        "ENVIRONMENT_GUARD": verify_environment_guard_mechanism,
-    }
     name = str(mechanism_type).upper()
     if name == "DECODE_CONFIG" and _has_cryptoapi_decode_evidence(evidence):
         return verify_cryptoapi_decode_mechanism(evidence)
-    verifier = verifiers.get(name)
+    verifier = MECHANISM_VERIFIERS.get(name)
     if verifier is None:
         return MechanismVerification(
             str(mechanism_type), "UNKNOWN", False, (), (),

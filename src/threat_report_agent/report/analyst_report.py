@@ -5675,18 +5675,42 @@ def render_official_markdown(document: Mapping[str, object]) -> str:
     """Analyst-facing GET markdown. Never includes the V3 ledger."""
 
     revision = _authoritative_revision_id(document)
+    # M04: the readiness gate owns the completeness claim on the reader's surface.
+    # `build_report_document` already degrades the outcome, but the official body
+    # can also be rendered from a document assembled elsewhere, and a gate that
+    # only holds on one producer is not a gate.  An unmet verdict is therefore
+    # stated as PARTIAL here, next to the line that declares the task outcome.
+    quality = document.get("analysis_quality")
+    quality = quality if isinstance(quality, Mapping) else {}
+    readiness_gate = quality.get("readiness_gate")
+    readiness_gate = readiness_gate if isinstance(readiness_gate, Mapping) else {}
+    gate_status = str(readiness_gate.get("status") or "").upper()
+    outcome = str(document.get("analysis_outcome") or "UNKNOWN")
+    if gate_status in {"PARTIAL", "BOUNDED"}:
+        outcome = "PARTIAL"
     meta = [
         "# 静态分析报告",
         "",
         f"- 案件：`{document.get('case_id', 'unknown')}`",
         f"- 任务：`{document.get('task_id', 'unknown')}`",
-        f"- 任务结果：**{document.get('analysis_outcome') or 'UNKNOWN'}**",
+        f"- 任务结果：**{outcome}**",
         f"- 分析类别：**{document.get('analysis_class') or 'UNKNOWN'}**",
         "- 样本执行：**否**",
         "- 完整沙箱动态分析：**否**",
     ]
     if revision:
         meta.append(f"- 报告修订：`{revision}`")
+    if gate_status:
+        meta.append(
+            f"- M04 报告就绪门：**{gate_status}**"
+            + (
+                "（存在未解释的核心 Finding 槽位；部分结论已被 M06 自检降级）"
+                if gate_status == "PARTIAL"
+                else "（就绪但有明确边界，例如 S4 编排状态或静态边界）"
+                if gate_status == "BOUNDED"
+                else ""
+            )
+        )
     lines = [
         *meta,
         "",
@@ -5980,6 +6004,51 @@ _COMPOSE_ABSENCE_CLASS_NAMES: tuple[tuple[str, tuple[str, ...]], ...] = (
 # How far after a denial marker an enumeration of missing classes may reach.
 _ABSENCE_ENUMERATION_CHARS = 120
 
+#: Prefix the renderer writes on every operational-limitation bullet
+#: (`f"- {item}"` where `item` is the pipeline's own notice).
+_OPERATIONAL_LIMITATION_BULLET_PREFIX = "[pipeline]"
+
+
+def _operational_limitation_bullets(source: str) -> list[str]:
+    """The concrete limitation bullets inside the operational block of ``source``.
+
+    WHY THE GATE NEEDS THE BULLETS AND NOT THE HEADING.  `compose_gate_violations`
+    has always rejected a draft whose text omits `OPERATIONAL_LIMITATIONS_HEADING`.
+    MEASURED hole in that rule: the gate compares the HEADING only, so a draft that
+    keeps the heading and deletes every bullet under it passed unchanged - the
+    reader then sees 「运行过程中的限制（与样本行为无关）：」 followed by nothing,
+    which is the same information loss the rule exists to prevent, wearing the
+    marker that is supposed to prove the information survived.
+
+    The bullets are read from the block body rather than rebuilt from a template,
+    so a limitation phrased differently is still recognised; a bullet whose text
+    is altered is reported as a rewrite rather than silently accepted.
+    """
+    text = str(source or "")
+    marker = text.find(OPERATIONAL_LIMITATIONS_HEADING)
+    if marker < 0:
+        return []
+    body = text[marker + len(OPERATIONAL_LIMITATIONS_HEADING):]
+    bullets: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if bullets:
+                # A blank line after bullets ends the block; a blank line before
+                # them is just the separator the renderer writes.
+                break
+            continue
+        if not stripped.startswith(("-", "*", "•")):
+            break
+        bullet = stripped.lstrip("-*•").strip()
+        if bullet:
+            bullets.append(bullet)
+    return bullets
+
+
+def _normalized_bullet(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+
 # Words that mean the draft is DISCLOSING the class rather than denying it.  Without
 # this, 「已恢复 C2 端点 …。未观察到运行时外联」 reads as a denial because 未观察到
 # follows the class name; the affirmation in between is what distinguishes them.
@@ -6109,6 +6178,26 @@ def compose_gate_violations(draft: str, fragments: str) -> list[str]:
         violations.append(
             "draft omits the pipeline's operational limitations, which the composed fragments carry"
         )
+    elif OPERATIONAL_LIMITATIONS_HEADING in source:
+        # The heading is necessary but NOT sufficient.  A draft can keep the
+        # heading and drop every bullet under it, which loses exactly the
+        # information the rule above exists to protect while satisfying it.
+        bullets = _operational_limitation_bullets(source)
+        if bullets:
+            draft_bullets = {
+                _normalized_bullet(item) for item in _operational_limitation_bullets(text)
+            }
+            missing = [
+                bullet for bullet in bullets
+                if _normalized_bullet(bullet) not in draft_bullets
+                and _normalized_bullet(bullet) not in text.casefold()
+            ]
+            if missing:
+                violations.append(
+                    "draft keeps the operational-limitations heading but drops "
+                    f"{len(missing)} of {len(bullets)} limitation bullets: "
+                    + " | ".join(item[:70] for item in missing[:4])
+                )
     # CANDIDATE/UNKNOWN must not be restated as established fact.
     if "CANDIDATE" in source.upper() or "UNKNOWN(" in source.upper():
         folded = text.casefold()
@@ -6353,7 +6442,6 @@ __all__ = [
     "AnalystChapterDraft",
     "AnalystReportPlanEnvelope",
     "AnalystTopic",
-    "UNMATCHED_CATEGORY_TEMPLATE",
     "apply_model_topic_plan",
     "compact_analyst_context",
     "compose_gate_violations",

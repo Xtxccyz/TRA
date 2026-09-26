@@ -40,11 +40,11 @@
     "prompts/analyst-report-system-v1.md": "7a662ad27b4b13a1",
     "prompts/manifest.json": "673adc95d31ef2a4",
     "prompts/planning-system-v1.md": "0484b46e13fc055c",
-    "prompts/static-analysis-system-v1.md": "d0525bfad2b2f32c",
+    "prompts/static-analysis-system-v1.md": "4b584a3d4bd9c0c0",
     "prompts/triage-system-v1.md": "28820d17a605ca71"
   },
   "report_schema": {
-    "count": 35,
+    "count": 36,
     "headings": [
       "# 静态分析报告",
       "## 1. Executive Assessment",
@@ -70,6 +70,7 @@
       "### Finding",
       "### Function-Level Semantic Recovery",
       "### IOC / 指标速查",
+      "### M04 报告就绪门 / M06 对抗式自检",
       "### Model-Synthesized Candidates",
       "### Static API Argument Recovery",
       "### Static Abstract Execution Prediction",
@@ -420,6 +421,7 @@
     "_MODEL_CANDIDATE_LIMIT": "12",
     "_MODEL_EVIDENCE_LIMIT": "12",
     "_MODEL_EVIDENCE_VALUE_LIMIT": "640",
+    "_OPERATIONAL_LIMITATION_BULLET_PREFIX": "'[pipeline]'",
     "_PACKED_IMPORT_LIMIT": "8",
     "_PAYLOAD_STRIP_MIN_CHARS": "200",
     "_PMA_PLAN_FACT_LIMIT": "512",
