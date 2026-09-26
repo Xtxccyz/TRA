@@ -279,6 +279,25 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=1G,mode=1777
+    # P-1.4: BOUNDED CONTAINER LOGS, with the source of the numbers stated rather than invented.
+    #
+    # WHY THIS BLOCK EXISTS AT ALL: Docker's default `json-file` driver applies NO rotation - `max-size`/`max-file`
+    # are unset, so a worker that logs continuously grows its log file until the disk fills, and there is no
+    # documented retention at all. Naming the values in the compose file is what gives the retention a
+    # CONFIGURATION SOURCE, which is what the plan's P-1.4 asks for.
+    #
+    # WHY IT IS NOT THE DURABLE COPY: this service is `read_only: true` with a tmpfs `/tmp`, so nothing written
+    # inside the container survives a rebuild. The emulator diagnostic that P-1.4 adds is therefore persisted as an
+    # Evidence row in Postgres, not as a log line; this block only bounds the noise the container emits.
+    #
+    # WHERE 10m x 3 COMES FROM: it is the same order of magnitude as this service's own tmpfs allowance (1G) and
+    # small enough that the whole stack's logs stay inside a few hundred MB. It is stated as a DECISION with a
+    # rationale, not as a measured requirement - the plan requires a configured source, not a derived constant.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     security_opt:
       - no-new-privileges:true
     cap_drop:

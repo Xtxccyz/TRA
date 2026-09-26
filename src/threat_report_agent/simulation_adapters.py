@@ -12,16 +12,22 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 import binascii
+import contextvars
+from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
 import importlib.util
 import json
 import os
+import re
 import subprocess
+import sys
 import tempfile
+import threading
 import time
+import uuid
 from pathlib import Path
-from typing import Callable, Iterable, Mapping
+from typing import Callable, Iterable, Iterator, Mapping
 
 
 # P3.3 layer item 2: the PURE policy cluster moved to `emulation/policy.py` (a module `investigation/` may
@@ -1136,6 +1142,401 @@ def _simulation_instruction_budget_for(payload_size: int, configured: int = 0) -
     return max(int(configured or 0), min(derived, _SIMULATION_BUDGET_CEILING))
 
 
+# -------------------------------------------------------------------------------------------------------------------
+# P-1.4: the emu-worker diagnostic channel - capture the fd2 / ctypes traceback around the emulator call.
+#
+# WHY THE OS DESCRIPTOR AND NOT `contextlib.redirect_stderr`. The defect this channel exists for is printed by a
+# NATIVE layer: when an exception escapes a Python callback, CPython's ctypes call path runs `PyErr_Print()`, which
+# writes "Traceback (most recent call last): ..." to the C-level `stderr` stream and then SWALLOWS it (the callback
+# returns a default value and the emulation continues). Reassigning `sys.stderr` in Python is not the write that
+# layer makes; only the OS-level descriptor 2 is. MEASURED model of the real defect: Speakeasy crashing inside its own
+# unmapped-memory handler (the `get_peb_ldr` AttributeError on `None`), recorded in
+# `tests/test_empty_emulator_report_is_not_success.py:1-22` (evidence rows d8482e84-307a-40db-bf01-24484dd3e4df and
+# 5658b631-f652-4b9a-91fe-337e35e57eae, task 87da6bd0-12fc-40ca-8d86-a7b0665d559e). The CONSEQUENCE was already
+# classified (`_speakeasy_stop` -> FAILED / EMULATOR_NO_REPORT); the TEXT was thrown away. This keeps the text, as an
+# OBSERVATION.
+#
+# AN OBSERVATION, NEVER A CLAIM. Nothing in this block writes a `Claim`, a `Finding` or a behaviour bucket. The
+# observation carries `is_claim: False` and nature `DIAGNOSTIC_OBSERVATION`, its `event`/`kind` match none of
+# `SimulationResult._observation_buckets`' markers (measured by a unit test, not by inspection), and the OFFICIAL
+# body may cite only its SUMMARY - exception type, last frame, byte counts - never the raw stderr text.
+#
+# THE BOUND IS CONFIGURED, NOT INVENTED. What is retained is bounded by `request.max_output_bytes`, which is the
+# product's configured per-run output budget (`config.py::Settings.simulation_max_output_bytes`, env
+# `SIMULATION_MAX_OUTPUT_BYTES`, default 65536) copied onto the request by
+# `emulation/policy.py::request_for_granted_window`, and by an operator override read at call time. The observation
+# records the bound, its source, how many bytes were captured, how many were retained, and the IDENTITY of every line
+# the bound removed - a bound whose remainder is unstated reads as completeness.
+# -------------------------------------------------------------------------------------------------------------------
+
+#: The event name of the diagnostic observation. It deliberately matches NONE of the marker terms in
+#: `SimulationResult._observation_buckets`: an emulator's own traceback is not an observed sample behaviour, and a
+#: substring that happened to match would publish stderr text as runtime evidence (EC-2).
+EMULATOR_STDERR_EVENT = "emulator_stderr"
+
+#: The nature carried on every diagnostic observation. This is not `EMULATION_OBSERVED` and not a Claim nature: the
+#: text is the SIMULATOR's fault report about itself, and it is never evidence about the sample.
+EMULATOR_STDERR_NATURE = "DIAGNOSTIC_OBSERVATION"
+
+#: The value domain of a bound whose numbers have a configuration source (see `_emulator_stderr_text_bound`).
+EMULATOR_STDERR_BOUND_SOURCE = (
+    "config.py::Settings.simulation_max_output_bytes (env SIMULATION_MAX_OUTPUT_BYTES, default 65536) copied onto "
+    "the request by emulation/policy.py::request_for_granted_window, capped by the named ceiling "
+    "simulation_adapters.py::_EMULATOR_STDERR_TEXT_CEILING"
+)
+
+#: Operator override for the retained diagnostic text, read at call time so a deployment can tighten it without a code
+#: change. Named here, and `_emulator_stderr_text_bound` records which of the two sources produced the value it used.
+EMULATOR_STDERR_BOUND_ENV = "THREAT_AGENT_EMULATOR_STDERR_TEXT_BYTES"
+
+#: A named CEILING over the configured budget. The configured budget (65536 bytes) is the whole per-run output budget
+#: shared with `output_bytes`, and the emulation payload is the return value of a Temporal activity whose measured
+#: limit is 2 MiB; spending a fortieth of it on one traceback is a deliberate bound rather than an accident, and the
+#: observation states how many bytes the bound removed.
+_EMULATOR_STDERR_TEXT_CEILING = 4096
+
+#: How many removed-line IDENTITIES the boundary record enumerates before it says it is a sample. The COUNT is always
+#: exact; the list says of itself that it is truncated, so a reader cannot mistake it for the whole remainder.
+_EMULATOR_STDERR_IDENTITY_SAMPLE = 16
+
+#: fd 2 is PROCESS-GLOBAL. Two emulation runs in one worker process would interleave their stderr into one buffer and
+#: either run could be attributed the other's text, so the capture WINDOW itself is serialized. The cost is stated
+#: plainly: concurrent emulations in one process take turns on this lock, i.e. the run holds the worker for the length
+#: of its emulator call. That is the price of a correct attribution, and the alternative (per-run buffers multiplexed
+#: onto one descriptor) cannot be done without a native thread-aware tee.
+_EMULATOR_STDERR_CAPTURE_LOCK = threading.Lock()
+
+_TRACEBACK_HEADER = "Traceback (most recent call last)"
+_FRAME_LINE = re.compile(r'^\s*File "(?P<path>[^"]+)", line (?P<line>\d+)(?:, in (?P<function>\S+))?')
+_EXCEPTION_LINE = re.compile(
+    r"^(?P<type>[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Exit|Interrupt|Warning|Fault|Iteration))\b\s*:?\s*(?P<message>.*)$"
+)
+
+
+@dataclass(frozen=True)
+class EmulatorDiagnosticBinding:
+    """The row identity an emulator diagnostic belongs to, when a caller can supply it.
+
+    THE ADAPTER SEAM DOES NOT SEE THESE VALUES. A `SimulationRequest` carries the granted bytes, the simulator and the
+    worker identity - not the task, the report revision, the worker attempt or the database timestamps, which live
+    further out in the pipeline. This type is the CARRIER for a caller that has them (the worker wrapper), and every
+    observation states which fields were bound and which were not, so an unbound observation reports an EMPTY task id
+    rather than inventing one. In the live pipeline the durable binding is the row the observation is persisted in:
+    `evidence.task_id` / `evidence.anchor.content_sha256` / `evidence.tool_run_id` -> `tool_runs.started_at` and
+    `tool_runs.finished_at` -> `analysis_tasks.started_at` / `analysis_failures.attempt_number`, all reachable by SQL
+    from the observation (see the P-1.4 step artifact's `task_revision_content_records`).
+    """
+
+    task_id: str = ""
+    revision_id: str = ""
+    content_sha256: str = ""
+    worker_attempt: int = 0
+    started_at: str = ""
+    finished_at: str = ""
+    source: str = "unbound"
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "task_id": self.task_id,
+            "revision_id": self.revision_id,
+            "content_sha256": self.content_sha256,
+            "worker_attempt": self.worker_attempt,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "source": self.source,
+        }
+
+
+#: PER-CONTEXT, NOT PER-PROCESS. `ContextVar` is the reason two tasks in one process cannot be attributed each
+#: other's diagnostics even while the fd 2 window is serialized: a thread (or an async task) that bound its own row
+#: identity reads back its own, and a thread that bound nothing reads back nothing. MEASURED by the two-thread test in
+#: `tests/test_failed_tool_run_status_reaches_the_official_body.py`.
+_EMULATOR_DIAGNOSTIC_BINDING: contextvars.ContextVar[EmulatorDiagnosticBinding | None] = contextvars.ContextVar(
+    "emulator_diagnostic_binding", default=None
+)
+
+
+@contextmanager
+def bind_emulator_diagnostic_context(
+    binding: EmulatorDiagnosticBinding,
+) -> Iterator[EmulatorDiagnosticBinding]:
+    """Bind the row identity an emulator diagnostic belongs to, for THIS context only.
+
+    The worker wrapper (the process that really knows the task/revision/attempt it is executing) calls this around its
+    emulator call. Nothing else writes it, and the token is always reset, so a binding cannot leak into the next run
+    in the same thread.
+    """
+    token = _EMULATOR_DIAGNOSTIC_BINDING.set(binding)
+    try:
+        yield binding
+    finally:
+        _EMULATOR_DIAGNOSTIC_BINDING.reset(token)
+
+
+def emulator_diagnostic_binding() -> EmulatorDiagnosticBinding | None:
+    """The binding visible to the CURRENT context, or None when no caller bound one."""
+    return _EMULATOR_DIAGNOSTIC_BINDING.get()
+
+
+def _emulator_stderr_text_bound(request: SimulationRequest) -> int:
+    """The retained-byte bound for one diagnostic text, from a CONFIGURATION source.
+
+    Order of precedence, both sources named:
+      1. `EMULATOR_STDERR_BOUND_ENV` - the operator override (read here, at call time);
+      2. `request.max_output_bytes` - the product's configured per-run output budget, capped by
+         `_EMULATOR_STDERR_TEXT_CEILING`.
+    A value below 1 falls through to the next source rather than producing an empty record, because an empty record
+    would read as "the emulator printed nothing".
+    """
+    override = str(os.environ.get(EMULATOR_STDERR_BOUND_ENV) or "").strip()
+    if override:
+        try:
+            configured = int(override)
+        except ValueError:
+            configured = 0
+        if configured > 0:
+            return configured
+    budget = int(getattr(request, "max_output_bytes", 0) or 0)
+    if budget <= 0:
+        budget = _EMULATOR_STDERR_TEXT_CEILING
+    return min(budget, _EMULATOR_STDERR_TEXT_CEILING)
+
+
+def _bounded_stderr_lines(captured: bytes, bound: int) -> tuple[list[str], dict[str, object]]:
+    """Split the captured text at the byte bound and record BOTH directions of the difference.
+
+    The identity of a line is `line:<index>:<sha256[:12]>`: the index keeps two identical lines apart (a traceback
+    repeats frames) and the digest makes the identity checkable against the text. Returns the retained lines and an
+    M5-shaped boundary record: the enumerated set, the retrieved set and both differences, never a bare count.
+    """
+    text = captured.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    identities = [
+        f"line:{index}:{hashlib.sha256(line.encode('utf-8', errors='replace')).hexdigest()[:12]}"
+        for index, line in enumerate(lines)
+    ]
+    kept: list[str] = []
+    used = 0
+    for line in lines:
+        cost = len(line.encode("utf-8", errors="replace")) + 1
+        if used + cost > bound:
+            break
+        kept.append(line)
+        used += cost
+    retrieved = identities[: len(kept)]
+    removed = identities[len(kept):]
+    boundary: dict[str, object] = {
+        "name": "emulator.stderr_lines",
+        "identity_key": "line|index|sha256_12",
+        "cap": int(bound),
+        "cap_source": EMULATOR_STDERR_BOUND_SOURCE,
+        "enumerated_count": len(identities),
+        "retrieved_count": len(retrieved),
+        "unexpanded_count": len(removed),
+        "enumerated_set": identities[:_EMULATOR_STDERR_IDENTITY_SAMPLE],
+        "retrieved_set": retrieved[:_EMULATOR_STDERR_IDENTITY_SAMPLE],
+        "expected_minus_actual": removed[:_EMULATOR_STDERR_IDENTITY_SAMPLE],
+        "actual_minus_expected": [],
+        "identity_lists_are_samples": True,
+        "identity_sample_cap": _EMULATOR_STDERR_IDENTITY_SAMPLE,
+    }
+    return kept, boundary
+
+
+def _last_traceback_frame(text: str) -> dict[str, object]:
+    """The LAST `File "...", line N, in F` frame of a traceback - the frame the error actually came from."""
+    frame: dict[str, object] = {}
+    for line in text.splitlines():
+        match = _FRAME_LINE.match(line)
+        if match:
+            frame = {
+                "file": Path(match.group("path") or "").name,
+                "line": int(match.group("line") or 0),
+                "function": str(match.group("function") or ""),
+            }
+    return frame
+
+
+def _last_exception_line(text: str) -> tuple[str, str]:
+    """The exception TYPE and MESSAGE of the final line, when that line is shaped like an exception."""
+    for line in reversed(text.splitlines()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = _EXCEPTION_LINE.match(stripped)
+        if match:
+            return match.group("type"), match.group("message").strip()
+        return "", ""
+    return "", ""
+
+
+class _EmulatorStderrCapture:
+    """One captured fd 2 window. `capture()` fills `captured`; `observation()` turns it into a record."""
+
+    __slots__ = (
+        "capture_id", "started_at", "finished_at", "elapsed_ms", "captured",
+        "monotonic_started", "monotonic_finished",
+    )
+
+    def __init__(self) -> None:
+        self.capture_id = uuid.uuid4().hex
+        self.started_at = ""
+        self.finished_at = ""
+        self.elapsed_ms = 0
+        self.captured = b""
+        self.monotonic_started = 0.0
+        self.monotonic_finished = 0.0
+
+    def observation(
+        self,
+        request: SimulationRequest,
+        *,
+        start_address: int | None = None,
+        error: BaseException | None = None,
+    ) -> dict[str, object] | None:
+        """The structured record for this window, or None when a NORMAL run produced nothing to record.
+
+        `None` for a silent window is the point: a run that writes nothing to fd 2 and raises nothing creates NO error
+        observation, so the absence of one is a statement about the run rather than a gap in the channel.
+        """
+        captured = self.captured or b""
+        if not captured and error is None:
+            return None
+        text = captured.decode("utf-8", errors="replace")
+        bound = _emulator_stderr_text_bound(request)
+        kept, boundary = _bounded_stderr_lines(captured, bound)
+        exception_type, exception_message = _last_exception_line(text)
+        frame = _last_traceback_frame(text)
+        traceback_recognised = _TRACEBACK_HEADER in text
+        raised = f"{type(error).__name__}: {error}".strip() if error is not None else ""
+        binding = emulator_diagnostic_binding()
+        record: dict[str, object] = {
+            "event": EMULATOR_STDERR_EVENT,
+            "kind": "diagnostic",
+            "nature": EMULATOR_STDERR_NATURE,
+            # The plan's rule, as a FIELD rather than a promise: this text is an observation about the simulator and
+            # never a Claim about the sample. There is no claim id to attach because none is ever created here.
+            "is_claim": False,
+            "claim_id": None,
+            "capture_id": self.capture_id,
+            "captured_at": {
+                "started_at": self.started_at,
+                "finished_at": self.finished_at,
+                "elapsed_ms": self.elapsed_ms,
+                "clock": "utc wall clock for the capture window; the durable start/finish pair is the ToolRun row",
+            },
+            "bytes_captured": len(captured),
+            "captured_sha256": hashlib.sha256(captured).hexdigest(),
+            "traceback_recognised": traceback_recognised,
+            "exception_type": exception_type,
+            "exception_message": exception_message[:240],
+            "traceback_last_frame": frame,
+            "raised_in_window": raised[:240],
+            "stderr_text_bound": boundary,
+            "text_truncated": bool(boundary["unexpanded_count"]),
+            "text_excerpt": "\n".join(kept),
+            "binding": {
+                **(
+                    binding.as_dict()
+                    if binding is not None
+                    else EmulatorDiagnosticBinding(
+                        source="unbound at the adapter seam: no caller bound a row identity for this context"
+                    ).as_dict()
+                ),
+                # Measured AT THIS SEAM, so the record is identifiable even when no caller bound a task id.
+                "simulator": str(request.simulator or ""),
+                "request_input_sha256": str(request.input_sha256 or ""),
+                "granted_input_bytes": len(request.input_bytes or b""),
+                "granted_input_sha256": hashlib.sha256(request.input_bytes or b"").hexdigest(),
+                "entry_address": hex(int(start_address or request.entry_address or 0)),
+                "worker_identity": str(request.worker_identity or ""),
+                "worker_image_digest": str(request.worker_image_digest or ""),
+            },
+        }
+        record["is_error_observation"] = bool(traceback_recognised or exception_type or raised)
+        return record
+
+
+def _utc_now_text() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@contextmanager
+def _capture_emulator_stderr() -> Iterator[_EmulatorStderrCapture]:
+    """Redirect the PROCESS-GLOBAL fd 2 into an UNNAMED temp file for the duration of the emulator call.
+
+    Serialized by `_EMULATOR_STDERR_CAPTURE_LOCK` (fd 2 is shared by every thread in the process). The original
+    descriptor is restored in a `finally`, so a raising emulator cannot leave the process writing its stderr into a
+    closed file - MEASURED risk: an unrestored fd 2 makes every later log line vanish, which is a worse failure than
+    the one this channel diagnoses. The buffer is a `TemporaryFile`: unnamed, unlinked on close, and therefore not a
+    file a rebuild could lose - the DURABLE copy is the Evidence row the observation is persisted in.
+    """
+    capture = _EmulatorStderrCapture()
+    with _EMULATOR_STDERR_CAPTURE_LOCK:
+        # The WINDOW starts when the descriptor is really this run's, not when the object was constructed: otherwise
+        # `elapsed_ms` would include the time spent queueing for the lock and a reader could not tell the emulator's
+        # own duration from the channel's serialization cost.
+        capture.monotonic_started = time.monotonic()
+        capture.started_at = _utc_now_text()
+        # Flush what Python already buffered BEFORE the swap, so text written by an earlier, unrelated run is not
+        # attributed to this window.
+        _flush_stderr()
+        with tempfile.TemporaryFile() as buffer:
+            saved = os.dup(2)
+            try:
+                os.dup2(buffer.fileno(), 2)
+                try:
+                    yield capture
+                finally:
+                    # Flush Python's own view of stderr INSIDE the window: `sys.stderr` writes to fd 2, and a ctypes
+                    # `PyErr_Print()` goes there too, so both must be on disk before the buffer is read.
+                    _flush_stderr()
+                    os.dup2(saved, 2)
+            finally:
+                os.close(saved)
+            buffer.seek(0)
+            capture.captured = buffer.read()
+        capture.monotonic_finished = time.monotonic()
+    capture.finished_at = _utc_now_text()
+    capture.elapsed_ms = int((capture.monotonic_finished - capture.monotonic_started) * 1000)
+
+
+def _flush_stderr() -> None:
+    try:
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001 - a stderr that cannot be flushed must not fail the emulation
+        pass
+
+
+def _emulator_diagnostic_summary(observation: Mapping[str, object] | None) -> str:
+    """The ONE bounded line the official limitation is allowed to cite.
+
+    The raw text stays in the observation. What is published is the exception type, the last frame and the message -
+    enough for a reader to know WHAT faulted and WHERE, and deliberately not the whole traceback: stderr is untrusted
+    simulator output and publishing it verbatim would put an unlabelled narrative into the report body.
+    """
+    if not isinstance(observation, Mapping) or not observation.get("is_error_observation"):
+        return ""
+    parts: list[str] = []
+    exception_type = str(observation.get("exception_type") or "").strip()
+    message = str(observation.get("exception_message") or "").strip()
+    raised = str(observation.get("raised_in_window") or "").strip()
+    if exception_type:
+        parts.append(f"{exception_type}: {message}" if message else exception_type)
+    elif raised:
+        parts.append(raised)
+    frame = observation.get("traceback_last_frame")
+    if isinstance(frame, Mapping) and frame.get("file"):
+        parts.append(
+            f"last frame {frame.get('file')}:{frame.get('line')} in {frame.get('function') or '?'}"
+        )
+    parts.append(
+        f"{int(observation.get('bytes_captured') or 0)} byte(s) on fd 2, traceback recognised="
+        f"{bool(observation.get('traceback_recognised'))}"
+    )
+    return "; ".join(part for part in parts if part)[:400]
+
+
 def _speakeasy_adapter(request: SimulationRequest) -> SimulationResult:
     """Emulate granted PE bytes with Mandiant Speakeasy. Never opens sample_path."""
     guarded = _input_guard(request, "speakeasy")
@@ -1261,10 +1662,26 @@ def _speakeasy_adapter(request: SimulationRequest) -> SimulationResult:
             # constructor (`0x40d2c0`) executes 1,028 `__vbaStrCopy` calls whose arguments the shim can
             # now decode (`arguments_seen` 2 -> 1028 once the register ABI was fixed).
             start_address = _speakeasy_start_address(request, module)
-            if start_address is not None:
-                _speakeasy_run_from_address(se, module, start_address)
-            else:
-                se.run_module(module)
+            # P-1.4: BOTH branches run inside the fd 2 capture. The plan names `se.run_module`, but a granted start
+            # address takes the OTHER branch, and a channel that only watched one of them would be blind on exactly
+            # the runs that reach real code (`_speakeasy_run_from_address`).
+            diagnostic: dict[str, object] | None = None
+            with _capture_emulator_stderr() as capture:
+                try:
+                    if start_address is not None:
+                        _speakeasy_run_from_address(se, module, start_address)
+                    else:
+                        se.run_module(module)
+                except BaseException as exc:  # noqa: BLE001 - the record must exist on BOTH paths
+                    # The window is closed with the fd 2 bytes already read, and the diagnostic is appended BEFORE
+                    # the raise so the caller's own `except` publishes it with the FAILED result instead of losing it.
+                    diagnostic = capture.observation(request, start_address=start_address, error=exc)
+                    if diagnostic is not None:
+                        observations.append(diagnostic)
+                    raise
+            diagnostic = capture.observation(request, start_address=start_address)
+            if diagnostic is not None:
+                observations.append(diagnostic)
             report = se.get_report() if hasattr(se, "get_report") else {}
         report = report if isinstance(report, Mapping) else {}
         apis = []
@@ -1433,6 +1850,16 @@ def _speakeasy_adapter(request: SimulationRequest) -> SimulationResult:
             )
         elif observed_clause:
             limitations = (observed_clause,)
+        # P-1.4: the OFFICIAL limitation cites the diagnostic SUMMARY. Without this the fd 2 traceback would be an
+        # Evidence-only fact and the limitation would keep naming the symptom (`EMULATOR_NO_REPORT`) while the cause
+        # sat unread one row away. What is cited is the summary, never the raw text, and the observation it comes from
+        # is labelled `is_claim: False`.
+        diagnostic_summary = _emulator_diagnostic_summary(diagnostic)
+        if diagnostic_summary:
+            limitations = (
+                *limitations,
+                f"emulator stderr diagnostic (observation, not a claim): {diagnostic_summary}",
+            )
         return SimulationResult(
             status,
             "speakeasy",
