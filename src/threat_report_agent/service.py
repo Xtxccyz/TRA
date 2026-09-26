@@ -505,6 +505,17 @@ _IN_FLIGHT_TASK_LIFECYCLES = frozenset(
     }
 )
 
+#: The bound on the EXCEPTION TEXT half of an unreadable-emulator-output limitation. Module level and named, so a
+#: reader can find the number and so the M5 record can publish what it removes.
+#:
+#: MEASURED (P-1.5): the previous site truncated the WHOLE captured string - `f"{type(exc).__name__}: {exc}"[:200]` -
+#: and the storage key was not in it at all. An operator could see that something was unreadable but could not tell
+#: WHICH object, so the one action the message exists to enable (go and read that key) was impossible from the
+#: published record. The key is the ACTIONABLE half and the exception text is the CONTEXT half, so the cut now falls
+#: on the context half only: `_emulation_read_error_text` bounds the exception first and appends the key AFTER the
+#: cut. A truncated key would be worse than a truncated message - it would look actionable and not be.
+_EMULATION_READ_ERROR_TEXT_LIMIT = 200
+
 
 def analysis_intent_question(question: object) -> bool:
     """True when the user asked to start one bounded static analysis pass."""
@@ -10605,8 +10616,16 @@ class AnalysisService:
                         raw_results = payload.get("results")
                         if isinstance(raw_results, list):
                             results = [item for item in raw_results if isinstance(item, dict)]
+                # `json.JSONDecodeError` is a SUBCLASS of `ValueError`, so listing it beside `ValueError` is
+                # redundant. It is kept deliberately: it is already on the in-flight record, removing it would be an
+                # unrelated edit inside this step's one line, and the tuple's behaviour is identical either way.
                 except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-                    output_read_error = f"{type(exc).__name__}: {exc}"[:200]
+                    # The storage key is preserved WITH the exception. MEASURED (P-1.5): the captured string was
+                    # `f"{type(exc).__name__}: {exc}"[:200]`, which names neither the object nor the bucket path, so
+                    # "could not be read" was published without the one field that lets a reader go and look.
+                    output_read_error = self._emulation_read_error_text(
+                        exc, response.output_storage_key
+                    )
                     results = []
             status = response.status
             error = response.error
@@ -15120,6 +15139,41 @@ class AnalysisService:
         except Exception:
             # The audit write must never be the reason a report fails to publish.
             pass
+
+    @staticmethod
+    def _emulation_read_error_text(exc: BaseException, storage_key: str) -> str:
+        """The published reason an emulator output could not be read: the EXCEPTION and the STORAGE KEY.
+
+        MEASURED gap this closes (P-1.5). The site that catches the content-store read failure used to capture
+
+            f"{type(exc).__name__}: {exc}"[:200]
+
+        and `response.output_storage_key` was simply absent from it. The limitation a reader then saw said that
+        *something* was unreadable but not *which object*, so the one action the message exists to enable - go and
+        read that key - was impossible from the published record. The plan's word for this step is explicit:
+        保留异常和 storage key.
+
+        THE BOUND AND WHERE THE CUT FALLS. The old `[:200]` cut the whole string, and it was an unannounced bound:
+        a long path or a long bucket name would silently remove the tail. Here the cut falls on the EXCEPTION TEXT
+        ONLY and the key is appended after it, because the two halves are not equally replaceable:
+
+          * the key is ACTIONABLE and is the shorter of the two (the product's own content-addressed keys are 64
+            hex characters inside a 2/2 split, i.e. 71 characters; an S3 tool-run key is bounded by
+            `ToolRunRequest.output_storage_key`'s 512-character field limit but in practice is
+            `tool-runs/<uuid>/output.json`, 49 characters). A truncated key is worse than a truncated message: it
+            looks actionable and is not, and it would send an operator to a path that does not exist.
+          * the exception text is CONTEXT. Its head is what a reader needs (the type, the errno, the leading
+            phrase); its tail is a path the key already carries.
+
+        `storage_key` is typed `str` rather than `str | None` on purpose: the caller reaches this branch only under
+        `if response.output_storage_key:`, so an unreadable-but-keyless row cannot be produced from here. The
+        `json.JSONDecodeError` beside `ValueError` at the call site is redundant (`JSONDecodeError` IS a
+        `ValueError`); kept, because removing it is an unrelated change and the behaviour is identical.
+        """
+        text = f"{type(exc).__name__}: {exc}"
+        if len(text) > _EMULATION_READ_ERROR_TEXT_LIMIT:
+            text = text[:_EMULATION_READ_ERROR_TEXT_LIMIT]
+        return f"{text} [storage_key={storage_key}]"
 
     @staticmethod
     def _emulation_fallback_payload(output_read_error: str | None) -> dict[str, object]:

@@ -304,6 +304,7 @@
       "len(set(all_ids)) >= request.candidate_limit",
       "len(steps) >= self.max_steps",
       "len(tables) >= max_tables",
+      "len(text) > _EMULATION_READ_ERROR_TEXT_LIMIT",
       "max_active_threads < 1",
       "max_clusters is None",
       "max_consecutive_no_gain < 1",
@@ -375,7 +376,7 @@
       "virtual >= max(raw * 2, raw + _VIRTUAL_OVER_RAW_MIN_DELTA)",
       "walked < max_records"
     ],
-    "count": 140
+    "count": 141
   },
   "validator_thresholds": {
     "BSTR_MAX_CHARS": "4096",
@@ -402,6 +403,7 @@
     "_CATALOG_HOW_SEED_SCAN_LIMIT": "2048",
     "_CLAIM_EVIDENCE_SAMPLE_LIMIT": "12",
     "_CONFIG_CONSUMER_SEED_KIND_LIMITS": "{'decode_result': 256, 'value_flow': 256, 'data_reference': 512, 'api_argument_trace': 256, 'resolved_api': 256, 'process_creation_flags': 32}",
+    "_EMULATION_READ_ERROR_TEXT_LIMIT": "200",
     "_ENVIRONMENT_GUARD_INVALID_THRESHOLDS": "frozenset({0, 4294967295, 4294967294})",
     "_ENVIRONMENT_GUARD_THRESHOLD_NAMES": "frozenset({'threshold', 'comparison', 'tick_threshold', 'memory_threshold', 'uptime', 'dwtotalphys', 'ulltotalphys'})",
     "_INVESTIGATION_EXECUTION_EVIDENCE_LIMIT": "20000",

@@ -87,6 +87,9 @@ from threat_report_agent.simulation_adapters import (
     emulator_diagnostic_binding,
 )
 from threat_report_agent.static.evidence_index import evidence_search_keys
+# P-1.5: the result type the emulation branch branches on. Imported here rather than inside the fixture so a
+# rename in the product breaks the import loudly instead of raising `NameError` from inside a fake executor.
+from threat_report_agent.tools.tool_execution import ToolRunResult
 
 #: The four statuses this step names, each with the error category the pipeline records for it. `FAILED` carries
 #: a NULL error on purpose: the projection must still name the status instead of inventing a reason.
@@ -1474,3 +1477,600 @@ def test_a_diagnostic_free_run_adds_nothing_to_any_of_those_channels(
     assert body.strip(), "the clean run published no body"
     assert P14_SUMMARY_MARKER not in body and P14_RAW_TRACEBACK_MARKER not in body
     assert "[pipeline]" in body, "the operational-limitations block vanished for the clean task"
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# P-1.5: an unreadable emulator output must NAME the object it could not read.
+#
+# MEASURED gap this block closes. `service.py` reads the isolated emulator's output back through the content store,
+# and the failure branch used to capture
+#
+#     output_read_error = f"{type(exc).__name__}: {exc}"[:200]
+#
+# which contains the exception and NOT `response.output_storage_key`. The published limitation therefore told an
+# operator that *something* was unreadable but not *which object*, so the one action such a message exists to enable -
+# go and read that key - was impossible from the record. The plan's word for this step is explicit: preserve the
+# exception AND the storage key.
+#
+# WHAT IS REAL IN THE MEASUREMENT: a REAL `analyze_submission` produces the task, the artifact, the ContentBlob and a
+# first published revision; a REAL `AnalysisService.run_controlled_emulator` call runs the real window plan, the real
+# policy decisions and the real read; the content store is a transparent decorator over the product's own
+# `LocalContentStore` that lets the emulator's output be SEALED and then DESTROYS that one object before the product
+# reads it back, so the read raises a real `FileNotFoundError` or a real `ValueError: content store hash mismatch`; a
+# SECOND revision is published through the product's own `_freeze_snapshot` -> `create_report_revision` path, and both
+# the stored Markdown and a re-render of the same revision are read back by REAL SQL. Only the Temporal TRANSPORT is
+# replaced, because no Temporal server runs on this host.
+# ---------------------------------------------------------------------------------------------------------------
+P15_FABRICATED_ATTEMPT_LINE = "isolated emulation was still attempted"
+P15_NO_GRANT_SENTENCE = "static recovery did not yield a bounded start-routine window"
+P15_UNREADABLE = "EMULATION_OUTPUT_UNREADABLE"
+
+
+def p15_settings(root: Path) -> Settings:
+    """The P-1.2 settings, plus ONLY the switches that select the isolated-worker emulation branch."""
+    from dataclasses import replace
+
+    return replace(
+        probe_settings(root, "p15"),
+        tool_execution_mode="temporal",
+        simulation_profile="controlled-worker-v1",
+        simulation_allowed_simulators=("unicorn", "speakeasy"),
+        simulation_worker_identity="p15-unreadable-output-worker",
+        simulation_worker_image_digest="sha256:" + "1" * 64,
+        simulation_allow_local_process=False,
+    )
+
+
+class P15SealingContentStore:
+    """The product's `LocalContentStore`, whose sealed emulation object is DESTROYED before it is read back.
+
+    MEASURED why the destruction is keyed on the PAYLOAD and not on the key: the product seals tool output under a key
+    this test would have to guess, and a decorator that guessed it would be measuring the guess. This one watches the
+    BYTES that go in, records the key the product actually used, and then - for the emulation payload only - deletes
+    or corrupts the object that was just written, so the read the product performs really fails, on really absent or
+    really mismatched bytes.
+
+    The store is otherwise transparent: `put`, `read`, `delete` and `put_immutable` all delegate to the real store, so
+    every other stage of the product sees exactly the bytes it would see in production.
+    """
+
+    def __init__(self, inner: LocalContentStore, *, mode: str) -> None:
+        assert mode in {"missing", "corrupt", "intact"}
+        self.inner = inner
+        self.mode = mode
+        self.emulation_key: str = ""
+        self.reads: list[str] = []
+        self.destroyed: list[str] = []
+
+    def _seal(self, content: bytes, key: str) -> None:
+        if self.mode == "intact" or self.emulation_key:
+            return
+        try:
+            payload = json.loads(content)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(payload, dict) or payload.get("kind") != "emulation":
+            return
+        self.emulation_key = key
+        self.destroyed.append(key)
+        if self.mode == "missing":
+            self.inner.delete(key)
+        else:
+            (Path(self.inner.root) / key).write_bytes(
+                b'{"kind": "emulation", "results": "CORRUPTED"}'
+            )
+
+    def put(self, content: bytes):  # noqa: ANN201
+        stored = self.inner.put(content)
+        self._seal(content, str(stored.storage_key))
+        return stored
+
+    def put_immutable(self, content: bytes):  # noqa: ANN201
+        stored = self.inner.put_immutable(content)
+        self._seal(content, str(stored.storage_key))
+        return stored
+
+    def read(self, storage_key: str) -> bytes:
+        self.reads.append(str(storage_key))
+        return self.inner.read(storage_key)
+
+    def delete(self, storage_key: str) -> None:
+        return self.inner.delete(storage_key)
+
+
+def p15_executor_class(fixture):  # noqa: ANN001, ANN202
+    """The TRANSPORT the fixture installs: every tool except the controlled emulator goes to the product's own worker.
+
+    MEASURED: patching `service.TemporalToolExecutor` on the INSTANCE does not take effect - the real transport ran
+    and died in `temporalio` with `Failed client connect ... dns error` - because the service's property builds from
+    the MODULE global. So the patch goes on the module object, and `p15_patched_transport` takes it back out again.
+    """
+    from threat_report_agent.tools.tool_execution import StaticToolActivities
+
+    # `database=None` deliberately: the service registers the ToolRun rows itself on this path, so the delegate only
+    # needs to produce the tool OUTPUT. Passing the fixture's database here would have the activity write a second
+    # ToolRun row for the same id, which is how a fixture starts measuring its own bookkeeping.
+    activities = StaticToolActivities(fixture.settings, fixture.store, None)
+
+    class _Executor:
+        def __init__(self, temporal_address: str) -> None:
+            self.temporal_address = temporal_address
+
+        async def execute(self, request):  # noqa: ANN001, ANN202
+            tool_name = str(request.tool_name)
+            fixture.tool_names.append(tool_name)
+            if tool_name != "controlled-emulator":
+                # The product's OWN worker activity, not a hand-built payload: whatever the worker would seal for
+                # this tool is what the service reads back.
+                return ToolRunResult.model_validate(activities._execute(request))
+            fixture.request_parameters = json.loads(json.dumps(request.parameters, default=str))
+            payload = json.dumps(
+                {
+                    "kind": "emulation",
+                    "status": "SUCCEEDED",
+                    "results": [
+                        {
+                            "status": "SUCCEEDED",
+                            "simulator": "unicorn",
+                            "stop_reason": "INSTRUCTION_BUDGET",
+                            "function_entry": "0x401000",
+                            "observations": [{"event": "summary", "instructions": 12}],
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+            fixture.emulator_output_bytes = payload
+            stored = fixture.store.put(payload)
+            return ToolRunResult(
+                status="SUCCEEDED",
+                output_sha256=stored.sha256,
+                output_storage_key=stored.storage_key,
+                worker_metadata={"fixture": "p15"},
+            )
+
+    return _Executor
+
+
+def p15_patched_transport():
+    """Replace the Temporal TRANSPORT for the duration of the `with` block, and put it back afterwards.
+
+    MEASURED, and this is a defect the first version of this block introduced: a raw assignment to the module global
+    `service.TemporalToolExecutor` outlived the test that installed it, and twelve tests in
+    `tests/test_tool_execution.py` then failed when the two files ran together while all of them passed alone. A
+    module-global patch must be undone by construction, not by remembering to undo it.
+    """
+    import threat_report_agent.service as service_module
+
+    @contextmanager
+    def _restoring():  # noqa: ANN202
+        previous = service_module.TemporalToolExecutor
+        try:
+            yield
+        finally:
+            service_module.TemporalToolExecutor = previous
+
+    return _restoring()
+
+
+class P15ReadFailureFixture:
+    """A REAL task from a real `analyze_submission`, plus one real emulation call whose output cannot be read."""
+
+    def __init__(self, settings: Settings, *, mode: str, publish: bool = True) -> None:
+        self.settings = settings
+        self.mode = mode
+        self.tool_names: list[str] = []
+        self.request_parameters: dict[str, object] = {}
+        self.emulator_output_bytes: bytes = b""
+        self.store = P15SealingContentStore(
+            LocalContentStore(settings.content_store_path), mode=mode
+        )
+        # A REAL end-to-end analysis: real case, real artifact rows, real ContentBlob, and the product's own first
+        # published revision. `analyze_submission` never dispatches CONTROLLED_EMULATE for this sample (MEASURED:
+        # `_run_controlled_emulator` is called 0 times and `emulation_status` projects `NOT_ATTEMPTED`), which is why
+        # the emulation call below is made explicitly at the same entry point the orchestrator uses.
+        #
+        # The transport is replaced BEFORE the analysis, because in `tool_execution_mode='temporal'` the INTAKE tool
+        # also goes through it and a real connect attempt dies with `Failed client connect ... dns error` (MEASURED
+        # twice). The replacement is still not a simulation of the tool: every tool EXCEPT the controlled emulator is
+        # delegated to the product's own worker activity, so the intake result and its sealed object are the
+        # product's own bytes. The CALLER wraps this fixture in `p15_patched_transport()`, which restores the module
+        # global when the test ends.
+        import threat_report_agent.service as service_module
+
+        service_module.TemporalToolExecutor = p15_executor_class(self)
+        self.analysis = Fixture(settings)
+        self.database = self.analysis.database
+        self.service = self.analysis.service
+        self.task_id = self.analysis.task_id
+        self.artifact_id = self.artifact_id_for_task()
+        # The product's own store, wrapped. `service.py` assigns `self.content_store` from the constructor, and the
+        # wrapper delegates every call, so the only difference the service sees is that ONE object is gone.
+        self.service.content_store = self.store
+        self.run_returned = self.service.run_controlled_emulator(
+            self.task_id, self.artifact_id, self.package_entry()
+        )
+        self.revision_id = ""
+        self.revision_document: dict = {}
+        if publish:
+            self.publish_revision()
+
+    def artifact_id_for_task(self) -> str:
+        rows = self.sql(
+            "SELECT id, detected_type FROM artifacts WHERE task_id = :task_id ORDER BY created_at",
+            {"task_id": self.task_id},
+        )
+        assert rows, "the real analyze_submission run created no artifact"
+        return str(rows[0][0])
+
+    def package_entry(self):  # noqa: ANN201
+        """The entry the service's own dispatcher would build: the artifact's stored bytes."""
+        from threat_report_agent.intake import PackageEntry
+
+        rows = self.sql(
+            "SELECT a.logical_path, b.storage_key, a.detected_type FROM artifacts AS a "
+            "JOIN content_blobs AS b ON b.sha256 = a.content_sha256 WHERE a.id = :artifact_id",
+            {"artifact_id": self.artifact_id},
+        )
+        assert rows, rows
+        logical_path, storage_key, detected_type = rows[0]
+        return PackageEntry(
+            logical_path=str(logical_path),
+            content=self.store.read(str(storage_key)),
+            parent_path=None,
+            discovery="p15-submitted",
+            detected_type=str(detected_type),
+        )
+
+    # -- REAL SQL against the product's own schema -------------------------------------------------------------
+
+    def sql(self, statement: str, parameters: dict[str, object] | None = None) -> list[tuple]:
+        connection = self.database.engine.raw_connection()
+        try:
+            cursor = connection.cursor()
+            cursor.execute(statement, parameters or {})
+            return [tuple(row) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+
+    def stored_simulation_rows(self) -> list[dict]:
+        rows = self.sql(
+            "SELECT id, json_extract(value, '$.status'), json_extract(value, '$.stop_reason'), "
+            "json_extract(value, '$.limitations') FROM evidence "
+            "WHERE task_id = :task_id AND kind = 'simulation_result' ORDER BY created_at",
+            {"task_id": self.task_id},
+        )
+        return [
+            {
+                "evidence_id": str(row[0]),
+                "status": row[1],
+                "stop_reason": row[2],
+                "limitations": list(json.loads(row[3] or "[]")),
+            }
+            for row in rows
+        ]
+
+    def tool_run_rows(self) -> list[dict]:
+        rows = self.sql(
+            "SELECT id, status, error, json_extract(output, '$.output_read_error') FROM tool_runs "
+            "WHERE task_id = :task_id ORDER BY started_at",
+            {"task_id": self.task_id},
+        )
+        return [
+            {
+                "tool_run_id": str(row[0]),
+                "status": row[1],
+                "error": row[2],
+                "output_read_error": row[3],
+            }
+            for row in rows
+        ]
+
+    def task_limitations(self) -> list[str]:
+        rows = self.sql(
+            "SELECT limitations FROM analysis_tasks WHERE id = :task_id", {"task_id": self.task_id}
+        )
+        assert len(rows) == 1, rows
+        return list(json.loads(rows[0][0] or "[]"))
+
+    def publish_revision(self) -> str:
+        """Publish a SECOND revision through the product's own freeze -> revision path, and read it back by SQL."""
+        from threat_report_agent.models import AnalysisTask
+
+        with self.database.session_factory.begin() as session:
+            task = session.get(AnalysisTask, self.task_id)
+            # `analyze_submission` already set these on the real row; `lifecycle` is re-stated because the revision
+            # path is the SUCCEEDED path, and a silent rejection would otherwise look like "the limitation is not
+            # rendered".
+            task.lifecycle = "SUCCEEDED"
+            # The PUBLIC phase-driver name, not `_freeze_snapshot`: `test_no_test_calls_a_phase_driver_by_its_private_name`
+            # forbids a test from calling a phase driver by its private name, because the private name is the
+            # implementation and a rename would silently stop the test from exercising the driver it names.
+            snapshot = self.service.freeze_snapshot(session, task)
+            # MEASURED: an empty module list produces `"modules": []` (the v3 document carries its content under
+            # `report_sections`), so the revision renders with NO emulation row at all. The live path passes
+            # `list(task.selected_modules)`, and this task row's own list is empty, so the product's own
+            # `normalize_modules` default is what the live path resolves to.
+            revision = self.service.create_report_revision(
+                session, task, snapshot, p15_modules(), author="p15-fixture"
+            )
+            self.revision_id = str(revision.id)
+        rows = self.sql(
+            "SELECT markdown, document FROM report_revisions WHERE id = :revision_id",
+            {"revision_id": self.revision_id},
+        )
+        assert len(rows) == 1, rows
+        self.revision_document = dict(json.loads(rows[0][1]))
+        return str(rows[0][0])
+
+    def official_markdown(self) -> str:
+        rows = self.sql(
+            "SELECT markdown FROM report_revisions WHERE id = :revision_id",
+            {"revision_id": self.revision_id},
+        )
+        assert len(rows) == 1, rows
+        return str(rows[0][0])
+
+    def first_revision_markdown(self) -> str:
+        """The revision the REAL `analyze_submission` published, before any emulation was dispatched."""
+        rows = self.sql(
+            "SELECT markdown FROM report_revisions WHERE task_id = :task_id AND id != :revision_id "
+            "ORDER BY created_at LIMIT 1",
+            {"task_id": self.task_id, "revision_id": self.revision_id},
+        )
+        assert rows, "the real analyze_submission published no first revision"
+        return str(rows[0][0])
+
+    def emulation_status_rows(self, document: dict | None = None) -> list[dict]:
+        source = self.revision_document if document is None else document
+        return [
+            dict(row)
+            for module in source.get("modules", [])
+            for row in (module.get("rows") or [])
+            if isinstance(row, dict) and str(row.get("type") or "") == "emulation_status"
+        ]
+
+
+def p15_modules() -> list[str]:
+    """The module set the LIVE revision path resolves to when the task row names none."""
+    from threat_report_agent.report.reporting import normalize_modules
+
+    return normalize_modules(None)
+
+
+def p15_fixture_for(root: Path, mode: str) -> P15ReadFailureFixture:
+    return P15ReadFailureFixture(p15_settings(root), mode=mode)
+
+
+@pytest.fixture
+def p15_read_failure(tmp_path_factory) -> P15ReadFailureFixture:
+    """The fixture under test: the output was sealed, then it was DELETED before the read."""
+    with p15_patched_transport():
+        yield p15_fixture_for(tmp_path_factory.mktemp("p15-missing"), "missing")
+
+
+@pytest.fixture
+def p15_readable_output(tmp_path_factory) -> P15ReadFailureFixture:
+    with p15_patched_transport():
+        yield p15_fixture_for(tmp_path_factory.mktemp("p15-intact"), "intact")
+
+
+def test_p15_a_read_failure_names_the_object_and_the_exception(
+    p15_read_failure: P15ReadFailureFixture,
+) -> None:
+    """The plan's word: 保留异常和 storage key. Both, in the limitation, for the SAME real run."""
+    assert "controlled-emulator" in p15_read_failure.tool_names, p15_read_failure.tool_names
+    assert p15_read_failure.store.emulation_key, (
+        "the fixture never sealed an emulation payload, so the read under test never happened"
+    )
+    key = p15_read_failure.store.emulation_key
+    assert key in p15_read_failure.store.destroyed, p15_read_failure.store.destroyed
+    assert key in p15_read_failure.store.reads, (
+        f"the destroyed object was never read back: destroyed={p15_read_failure.store.destroyed}"
+    )
+    assert p15_read_failure.request_parameters, (
+        "the emulation ran without parameters, so the request under test was not the real one"
+    )
+    assert "granted_windows" not in p15_read_failure.request_parameters, (
+        "MEASURED: this fixture's real window plan produced no grant (`granted_windows` is absent), so the branch "
+        "under test is the one where the WORKER builds the plan itself. Asserting a grant here would be asserting a "
+        f"different run than the one measured: {sorted(p15_read_failure.request_parameters)}"
+    )
+
+    rows = p15_read_failure.stored_simulation_rows()
+    assert len(rows) == 1, rows
+    row = rows[0]
+    assert row["status"] == P15_UNREADABLE, (
+        f"an unreadable output was recorded as {row['status']!r}, which reads as a property of the SAMPLE"
+    )
+    limitation = row["limitations"][0]
+
+    assert key in limitation, (
+        "the limitation does not carry the storage key, so a reader cannot locate the object it says is "
+        f"unreadable: {limitation!r}"
+    )
+    # The exception TYPE and MESSAGE, read out of the produced record rather than matched in a source file.
+    assert "FileNotFoundError" in limitation, (
+        f"the exception type did not survive into limitations: {limitation!r}"
+    )
+    assert "Errno 2" in limitation or "No such file" in limitation, (
+        f"the exception message did not survive into limitations: {limitation!r}"
+    )
+    # The key must be COMPLETE, not cut in half by the bound: a truncated key looks actionable and is not.
+    assert f"[storage_key={key}]" in limitation, (
+        f"the key was truncated by the bound, so it names a path that does not exist: {limitation!r}"
+    )
+
+
+def test_p15_the_storage_key_reaches_the_db_level_read_error_record(
+    p15_read_failure: P15ReadFailureFixture,
+) -> None:
+    """The other durable record this branch writes: `tool_runs.output.output_read_error`, read back by SQL."""
+    key = p15_read_failure.store.emulation_key
+    rows = [item for item in p15_read_failure.tool_run_rows() if item["output_read_error"]]
+    assert len(rows) == 1, rows
+    assert key in str(rows[0]["output_read_error"]), rows
+    assert "FileNotFoundError" in str(rows[0]["output_read_error"]), rows
+
+
+def test_p15_the_read_failure_row_never_claims_emulation_was_merely_attempted(
+    p15_read_failure: P15ReadFailureFixture,
+) -> None:
+    row = p15_read_failure.stored_simulation_rows()[0]
+    limitation = row["limitations"][0]
+    assert P15_FABRICATED_ATTEMPT_LINE not in limitation, (
+        "the read-failure row still tells the reader the emulation was only ATTEMPTED, although it ran and its "
+        f"output exists under a known key: {limitation!r}"
+    )
+    assert P15_NO_GRANT_SENTENCE not in limitation, (
+        f"the read-failure row still blames the sample's static recovery: {limitation!r}"
+    )
+    assert "not evidence about the sample" in limitation
+
+
+def test_p15_the_no_grant_payload_still_carries_its_own_sentence() -> None:
+    """The negative control that makes the absence assertion above non-vacuous."""
+    payload = AnalysisService._emulation_fallback_payload(None)
+    limitation = str((payload["limitations"] or [""])[0])
+    assert payload["status"] == "NO_GRANTED_WINDOW"
+    assert P15_NO_GRANT_SENTENCE in limitation, (
+        f"the genuine no-window case lost its diagnosis: {limitation!r}"
+    )
+    assert P15_FABRICATED_ATTEMPT_LINE in limitation, (
+        "the no-window sentence is SUPPOSED to say the emulation was still attempted; if it does not, the "
+        "absence assertion in the read-failure test proves nothing"
+    )
+    assert P15_UNREADABLE not in str(payload), "the no-grant payload must never carry the unreadable status"
+
+
+def test_p15_the_recorded_status_is_what_separates_the_two_cases() -> None:
+    """Both directions of the pure function, so neither status can drift into the other."""
+    unreadable = AnalysisService._emulation_fallback_payload(
+        "ValueError: content store hash mismatch"
+    )
+    no_grant = AnalysisService._emulation_fallback_payload(None)
+    assert unreadable["status"] == P15_UNREADABLE == unreadable["stop_reason"]
+    assert no_grant["status"] == "NO_GRANTED_WINDOW" == no_grant["stop_reason"]
+    assert unreadable["limitations"] != no_grant["limitations"]
+
+
+def test_p15_the_storage_key_reaches_the_official_body_of_the_revision(
+    p15_read_failure: P15ReadFailureFixture,
+) -> None:
+    """Proved from the produced record: the Evidence row, the projected document, and the rendered body."""
+    key = p15_read_failure.store.emulation_key
+    document = p15_read_failure.revision_document
+    projected = p15_read_failure.emulation_status_rows()
+    assert projected, (
+        "the read-failure row did not reach the report document at all; the body cannot render what the projection "
+        f"never carried. document module ids: "
+        f"{[str(module.get('id')) for module in document.get('modules', [])]}"
+    )
+    statuses = {str(item.get("status")) for item in projected[0]["results"]}
+    assert P15_UNREADABLE in statuses, (
+        f"the projected emulation status is {statuses}, so the read failure was projected as something else"
+    )
+    rendered_limitations = [
+        str(text)
+        for item in projected[0]["results"]
+        for text in (item.get("limitations") or [])
+    ]
+    assert any(key in text for text in rendered_limitations), (
+        f"the projection dropped the key from the limitation it carries: {rendered_limitations}"
+    )
+
+    markdown = p15_read_failure.official_markdown()
+    assert key in markdown, (
+        "the storage key is absent from the OFFICIAL body of this revision, so an operator reading the report "
+        f"still cannot locate the sealed object. lines: "
+        f"{[line for line in markdown.splitlines() if '隔离模拟' in line]}"
+    )
+    assert P15_UNREADABLE in markdown, "the body does not name the status the run actually recorded"
+    assert P15_FABRICATED_ATTEMPT_LINE not in markdown, (
+        "the official body carries the fabricated 'was still attempted' line for an output that was never read"
+    )
+    # The body is the ONE canonical renderer's output, not a second string built here.
+    assert render_official_markdown(document) == markdown, (
+        "the stored body is not the canonical render of the SAME revision's document"
+    )
+
+
+def test_p15_the_revision_published_before_the_read_failure_does_not_carry_it(
+    p15_read_failure: P15ReadFailureFixture,
+) -> None:
+    """The control for the test above: the SAME task's own earlier revision has neither."""
+    earlier = p15_read_failure.first_revision_markdown()
+    assert p15_read_failure.store.emulation_key not in earlier, (
+        "the earlier revision already carried the key, so the later revision's key is not evidence of the read path"
+    )
+    assert P15_UNREADABLE not in earlier
+    assert p15_read_failure.official_markdown() != earlier
+
+
+def test_p15_the_unreadable_limitation_is_not_the_task_level_limitation(
+    p15_read_failure: P15ReadFailureFixture,
+) -> None:
+    """A MEASURED limit of this fix, stated instead of assumed.
+
+    `_persist_emulation_result` returns `[]` because the emulator's OWN status is `SUCCEEDED` - only the read failed -
+    so `run_controlled_emulator` appends nothing to the task-level limitation list. MEASURED: the task row still
+    carries the limitations the real `analyze_submission` wrote, so the assertion is that NONE of them carries the key
+    or the exception. The channels that DO carry the text are the `simulation_result` Evidence row and the ToolRun's
+    `output.output_read_error`, both asserted above. If a later step routes this text into `task.limitations`, this
+    test will say so rather than silently disagreeing with the record.
+    """
+    assert p15_read_failure.run_returned == [], (
+        f"the emulation step now returns limitations it did not before: {p15_read_failure.run_returned}"
+    )
+    joined = "\n".join(p15_read_failure.task_limitations())
+    assert p15_read_failure.store.emulation_key not in joined, (
+        f"the emulation read error has started travelling through `task.limitations`: "
+        f"{p15_read_failure.task_limitations()}"
+    )
+    assert "FileNotFoundError" not in joined, p15_read_failure.task_limitations()
+
+
+def test_p15_the_same_call_with_a_readable_output_is_the_real_result(
+    p15_readable_output: P15ReadFailureFixture,
+) -> None:
+    """CONTROL for the whole block: same request, same key present, read succeeds."""
+    rows = p15_readable_output.stored_simulation_rows()
+    assert len(rows) == 1, rows
+    row = rows[0]
+    assert row["status"] == "SUCCEEDED", (
+        f"the real emulator result was replaced by {row['status']!r} even though its output was readable"
+    )
+    assert row["stop_reason"] == "INSTRUCTION_BUDGET", row
+    assert P15_UNREADABLE not in json.dumps(row), (
+        "a readable run published the unreadable status, which would make the distinction meaningless"
+    )
+    assert row["limitations"] == [], (
+        f"a successful read produced fallback limitations: {row['limitations']}"
+    )
+    assert [
+        item
+        for item in p15_readable_output.tool_run_rows()
+        if item["output_read_error"] is not None
+    ] == [], "a readable run recorded a read error"
+
+
+def test_p15_a_corrupt_object_is_a_different_failure_than_a_missing_one(tmp_path_factory) -> None:
+    """The key is preserved for a NON-`OSError` failure too - here a hash mismatch, i.e. a `ValueError`."""
+    with p15_patched_transport():
+        fixture = p15_fixture_for(tmp_path_factory.mktemp("p15-corrupt"), "corrupt")
+        row = fixture.stored_simulation_rows()[0]
+        limitation = row["limitations"][0]
+        assert row["status"] == P15_UNREADABLE, row
+        assert fixture.store.emulation_key in limitation, limitation
+        assert "ValueError" in limitation, limitation
+        assert "content store hash mismatch" in limitation, limitation
+
+
+def test_p15_the_truncation_bound_keeps_the_key_whole() -> None:
+    """The bound is on the EXCEPTION text only; the key is appended after it and is never cut."""
+    exc = ValueError("x" * 5_000)
+    key = "cd/ef/" + "0123456789abcdef" * 4
+    text = AnalysisService._emulation_read_error_text(exc, key)
+    assert text.endswith(f"[storage_key={key}]"), text[-120:]
+    assert len(text.split(" [storage_key=")[0]) == 200, (
+        "the exception half is no longer cut to the named bound, so the bound is not where the record says it is"
+    )
