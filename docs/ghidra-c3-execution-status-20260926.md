@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.4`**；状态机当前允许：`['P-1.4']`
-- 代码提交 `git_head = 9342c5056e8faa7e55659bba9b4688bc25b8d57d`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 7b3a46315ba2e7ec47d5cce50eb788ff823aa8bb`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -84,7 +84,7 @@
 
 ```json
 {
-  "measured_at_head": "9342c5056e8faa7e55659bba9b4688bc25b8d57d",
+  "measured_at_head": "7b3a46315ba2e7ec47d5cce50eb788ff823aa8bb",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -98,7 +98,7 @@
 
 ```json
 {
-  "measured_at_head": "9342c5056e8faa7e55659bba9b4688bc25b8d57d",
+  "measured_at_head": "7b3a46315ba2e7ec47d5cce50eb788ff823aa8bb",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -189,6 +189,14 @@
 - 原因：Docker Desktop unreachable on this host (measured 2026-09-26: `docker version` exits 1 with `npipe:////./pipe/dockerDesktopLinuxEngine` not found), so no container manifest can be taken and no service-set difference can be computed.
 - 最后一次通过：`58e9323bd9e01cbbff8f538c17f8d8cc6e99c8e2`
 - 记录标志：`SUPERSEDED by three_way_manifest (kept so a reader who saw the old flag can trace it)`
+- **不是「没装」**：实测（本轮）——
+  - docker CLI：`C:\Program Files\Docker\Docker\resources\bin\docker.exe (present)`
+  - Docker Desktop：`C:\Program Files\Docker\Docker\Docker Desktop.exe (present)`
+  - Windows 服务：`com.docker.service = Stopped`
+  - 启动尝试：`Start-Service com.docker.service -> ServiceCommandException: "Cannot open com.docker.service service on computer '.'"`
+  - 为什么到此为止：the session runs as LAPTOP-KF1JB9PS\王宪韬 with IsInRole(Administrator) = False, and approval prompts are DISABLED, so an elevation prompt cannot be answered from here
+  - 解除方式：the operator starts Docker Desktop (or the com.docker.service Windows service) from an elevated shell on this host; nothing in the repository is missing
+  - 不得推断：do not read this as 'the images cannot be built' - it is a local daemon-permission boundary, not a repository defect, and the plan's own rule is to record BLOCKED rather than substitute a mock or an old image for a rebuild
 - 后果：按计划 P-1.7/P-2，P-1 可以完成代码与测试，但其部署状态只能是 `P-1_COMPLETE_DEPLOYMENT_BLOCKED`；**本机 pytest 通过不得写成部署通过**。
 
 ## 五、北极星基准（成品正文的下限）
