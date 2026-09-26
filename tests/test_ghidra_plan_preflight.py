@@ -267,6 +267,31 @@ def test_m6_accepts_a_control_that_proves_its_restore() -> None:
     assert _codes(_validate(artifact)) == set(), "a properly restored control was rejected"
 
 
+def test_m2_blocks_a_changed_file_that_is_not_utf8(tmp_path) -> None:
+    """MEASURED (P-1.4): an edit replaced the five Chinese lines of a P-1.2 test file with double-encoded text - UTF-8
+    bytes read as CP936 and written back as UTF-8. The suite stayed GREEN, because the corrupted constant then held a
+    string the product can never print, so the assertion built on it became vacuously true. A silently weakened
+    assertion is worse than a failing one, and no hash check can see it: the bytes are different but valid."""
+    victim = tmp_path / "victim.py"
+    victim.write_bytes(b'HEADING = "# \xe5\x88\x86\xe6\x9e\x90\xe7\xbb\x93\xe8\xae\xba"\n')
+    artifact = _base_artifact(changed_files=[str(victim)], allowed_files=[str(victim)])
+    assert "M2_ENCODING_ARTEFACT" not in _codes(
+        PREFLIGHT.validate("P-0.3", STATUS, OWNERSHIP, artifact, [str(victim)])
+    ), "an intact UTF-8 file was rejected"
+    # The same file after a decode/re-encode round trip: the private-use characters are the signature.
+    victim.write_bytes('HEADING = "# \u701b\u6e03\ue0c1\u6d2b"\n'.encode("utf-8"))
+    assert "M2_ENCODING_ARTEFACT" in _codes(
+        PREFLIGHT.validate("P-0.3", STATUS, OWNERSHIP, artifact, [str(victim)])
+    ), "a re-encoded file passed the edit check"
+
+
+def test_m2_blocks_a_changed_file_that_cannot_be_decoded(tmp_path) -> None:
+    victim = tmp_path / "binary.py"
+    victim.write_bytes(b"x = '\xff\xfe\x00\x81'\n")
+    artifact = _base_artifact(changed_files=[str(victim)], allowed_files=[str(victim)])
+    assert "M2_NOT_UTF8" in _codes(PREFLIGHT.validate("P-0.3", STATUS, OWNERSHIP, artifact, [str(victim)]))
+
+
 def test_m6_blocks_an_ownership_overlap() -> None:
     ownership = json.loads(json.dumps(OWNERSHIP))
     ownership["overlap"] = [{"file": "src/threat_report_agent/service.py", "claimed_by": ["root", "T1/T2"]}]

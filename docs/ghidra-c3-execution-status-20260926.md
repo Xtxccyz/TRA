@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.4`**；状态机当前允许：`['P-1.4']`
-- 代码提交 `git_head = 7b3a46315ba2e7ec47d5cce50eb788ff823aa8bb`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 1f573df2027d4af80712ccb027ffc9687446f817`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -84,7 +84,7 @@
 
 ```json
 {
-  "measured_at_head": "7b3a46315ba2e7ec47d5cce50eb788ff823aa8bb",
+  "measured_at_head": "1f573df2027d4af80712ccb027ffc9687446f817",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -98,7 +98,7 @@
 
 ```json
 {
-  "measured_at_head": "7b3a46315ba2e7ec47d5cce50eb788ff823aa8bb",
+  "measured_at_head": "1f573df2027d4af80712ccb027ffc9687446f817",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -211,6 +211,17 @@
 
 门禁是唯一能把「本机绿」与「验收通过」分开的东西，因此它自己的缺陷也记录在这里，而不是只留在 `.scratch` 的本地证据里。
 
+- **`a-changed-file-must-still-be-utf8-and-unre-encoded`**（commit `pending (this commit)`）：任何被改动的文件必须仍是可解码的 UTF-8，且不得带二次编码痕迹。一次「UTF-8 字节被当作 CP936 解码后再写回 UTF-8」的编辑会**静默削弱断言**：乱码常量变成产品永远不会打印的字符串，建立其上的断言恒真，而 pytest 依然绿。
+  - 实测：触发实测（P-1.4）：`tests/test_failed_tool_run_status_reaches_the_official_body.py` 在 HEAD 里的 5 行含中文行，在工作树里全部消失并被二次编码取代；实测 `HEAD CJK lines: 5 / worktree CJK lines: 4`，且 5 行全部「IN HEAD BUT NOT IN WORKTREE」
+  - 实测：后果实测：`CONCLUSION_HEADINGS` 变成 `("## 瀛楃…", "### 瀛楃…")`，用它做的「注入 token 不能伪造结论标题」断言从此**恒真**——正是主计划禁止的静默降级，且没有任何 hash 能发现（字节不同但合法）
+  - 实测：范围实测：扫描 `src/ tests/ scripts/` 全部 380 个 `.py`，只有那 1 个文件含私用区字符（共 4 行）；`simulation_adapters.py` 等源码干净
+  - 实测：同一轮还实测到门禁自身的健壮性缺陷：违反项消息引用了该乱码行后，`print` 在 GBK 控制台抛 `UnicodeEncodeError: 'gbk' codec can't encode character '\u20ac'`，门禁**带 traceback 崩掉**——崩溃与「发现了问题」不可区分，而且掩盖了其余全部违反项。已把 stdout/stderr 重配置为 `errors="replace"`
+  - 规则：新增 `M2_NOT_UTF8`：changed 文件无法按 UTF-8 解码即拒绝
+  - 规则：新增 `M2_ENCODING_ARTEFACT`：changed 文件含私用区字符（U+E000–U+F8FF）即拒绝，并在消息里给出首个违规行号与内容
+  - 规则：新增 `M2_ENCODING_ARTEFACT`（BOM）：位置 0 之外出现 BOM 即拒绝
+  - 规则：新增自检 tamper `m2_reencode_a_changed_file`（M2）对**临时副本**复现该形状并被拒绝，真实工作树不被自检触碰
+  - 规则：门禁输出流重配置为 UTF-8 + `errors="replace"`：报告违反项时永不崩溃
+  - 对步骤状态的影响：直接的：P-1.4 引入的这次编码污染必须先修复，`--step P-1.4` 与 `--step P-1.2` 才会重新通过（P-1.2 因它 own 的那个文件被污染而一度 exit 1，这是门禁**正确**的行为，不是回归）
 - **`negative-control-must-fail-its-assertion-not-just-exit-non-zero`**（commit `364b605`）：`_check_negative_controls` 接受**任意非零退出**，因此一个全部由 pytest collection error（exit 4）组成的负向对照运行会被读成「全部按要求失败」。现在要求断言真的失败。
   - 实测：触发实测（P-1.3）：`.scratch/ghidra-c3/preflight/P-1.3-canfail.json` 记录 `verdict: ALL_CONTROLS_FAILED_AS_REQUIRED`，而 10 条 control 全部 `exit_code: 4`、`evidence: ERROR tests/test_analyst_report_acceptance.py`（测试文件正在被写入时收集到的半成品），没有一个 tamper 被真正执行
   - 实测：同一文件更早一次（23:21:04）判定 `CONTROL_DID_NOT_FAIL` 是**正确**的：`api_boundary_is_not_forwarded_by_the_projection` 退出 0，因为它的测试喂的是投影的**输出**，看不见会丢字段的白名单

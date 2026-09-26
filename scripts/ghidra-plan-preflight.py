@@ -49,6 +49,18 @@ OWNERSHIP = ROOT / ".scratch" / "ghidra-c3-ownership.json"
 STRUCTURE = ROOT / ".scratch" / "structure-status.json"
 ARTIFACT_DIR = ROOT / ".scratch" / "ghidra-c3" / "preflight"
 
+# A validator must never crash while REPORTING a violation. MEASURED (P-1.4): the new encoding check quoted the
+# offending line, and printing it raised `UnicodeEncodeError: 'gbk' codec can't encode character '\u20ac'` on this
+# host's console - so the gate died mid-report and the caller saw exit 1 with a traceback instead of the violation
+# list. A crash is indistinguishable from "found something" and it HIDES every other violation, so the stream is
+# reconfigured to survive any text a file can contain. Guarded because a redirected/closed stdout cannot be
+# reconfigured and that must not itself be fatal.
+try:  # pragma: no cover - depends on the host console
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError, OSError):
+    pass
+
 PLAN_REVISION = "20260922-reviewed-r1"
 
 #: The step order of the plan. A step may only run when every step it depends on is `complete` in the status file -
@@ -272,6 +284,43 @@ def _check_edit_hashes(violations: Violations, artifact: Mapping[str, Any]) -> N
     backup = artifact.get("byte_backup_restore") or {}
     if backup and not (backup.get("restored_sha256") and backup.get("restored_sha256") == backup.get("original_sha256")):
         violations.add("M2_BACKUP", "the byte-backup restore did not return the original SHA256")
+    _check_changed_files_are_utf8_text(violations, artifact)
+
+
+def _check_changed_files_are_utf8_text(violations: Violations, artifact: Mapping[str, Any]) -> None:
+    """A changed file must still be decodable UTF-8 with no re-encoding artefacts.
+
+    MEASURED (P-1.4): an edit replaced the five Chinese lines of
+    `tests/test_failed_tool_run_status_reaches_the_official_body.py` with double-encoded text - UTF-8 bytes read as
+    CP936 and written back as UTF-8. The suite stayed GREEN, because the corrupted constant
+    (`CONCLUSION_HEADINGS`) then held a string the product can never print, so the assertion built on it became
+    vacuously true. That is a silently weakened assertion, which is worse than a failing one, and no hash check can
+    see it: the file simply has different, valid-looking bytes.
+
+    Two signatures are rejected: bytes that are not UTF-8 at all, and Private-Use-Area characters (U+E000-U+F8FF),
+    which appear in source text only as an encoding round-trip artefact.
+    """
+    for name in (str(item) for item in artifact.get("changed_files") or []):
+        path = ROOT / name
+        if not path.is_file():
+            continue
+        raw = path.read_bytes()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            violations.add("M2_NOT_UTF8", f"changed file {name} is not valid UTF-8 ({exc}); a source file that a "
+                                          f"reader cannot decode is not a reviewable edit")
+            continue
+        if "\ufeff" in text[1:]:
+            violations.add("M2_ENCODING_ARTEFACT", f"changed file {name} carries a BOM outside position 0")
+        offenders = [(number, line) for number, line in enumerate(text.splitlines(), start=1)
+                     if any("\ue000" <= char <= "\uf8ff" for char in line)]
+        if offenders:
+            number, line = offenders[0]
+            violations.add("M2_ENCODING_ARTEFACT",
+                           f"changed file {name} carries {len(offenders)} Private-Use-Area line(s) - the signature of "
+                           f"a decode/re-encode round trip, which rewrites text without failing any hash: line "
+                           f"{number}: {line.strip()[:120]!r}")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -757,6 +806,7 @@ def validate(step: str, status: Mapping[str, Any], ownership: Mapping[str, Any],
 TAMPERS: tuple[tuple[str, str], ...] = (
     ("m1_drop_real_field_value", "M1"), ("m1_replace_field_with_getattr_template", "M1"),
     ("m2_remove_edit_hash", "M2"), ("m2_equal_before_after", "M2"),
+    ("m2_reencode_a_changed_file", "M2"),
     ("m3_corrupt_content_sha256", "M3"), ("m3_drop_negative_control", "M3"),
     ("m4_disconnect_consumer_from_control", "M4"), ("m4_json_only_proof", "M4"),
     ("m5_publish_count_only", "M5"), ("m5_drop_expected_minus_actual", "M5"),
@@ -796,6 +846,17 @@ def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifa
         artifact["edit_hashes"] = []
     elif name == "m2_equal_before_after":
         need("edit_hashes")[0]["sha256_after"] = need("edit_hashes")[0]["sha256_before"]
+    elif name == "m2_reencode_a_changed_file":
+        # Reproduce the P-1.4 corruption against a THROWAWAY copy: append a Private-Use-Area line to the first changed
+        # file and point `changed_files` at the copy, so the real worktree is never touched by the self-test.
+        changed = need("changed_files")
+        source = ROOT / str(changed[0])
+        if not source.is_file():
+            raise NotApplicable(f"{changed[0]} is not on disk")
+        scratch = pathlib.Path(tempfile.mkdtemp(prefix="m2-reencode-")) / source.name
+        scratch.write_bytes(source.read_bytes() + "\n# \ue0c1\n".encode("utf-8"))
+        relative = scratch.relative_to(ROOT).as_posix() if scratch.is_relative_to(ROOT) else str(scratch)
+        artifact["changed_files"] = [relative] + [str(item) for item in changed[1:]]
     elif name == "m3_corrupt_content_sha256":
         need("task_revision_content_records")[0]["content_sha256"] = "0" * 64
     elif name == "m3_drop_negative_control":
