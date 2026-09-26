@@ -741,7 +741,25 @@ def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifa
 
 
 def run_self_test(step: str, artifact: Mapping[str, Any], json_path: pathlib.Path | None = None) -> int:
-    """Tamper with a COPY and require a non-zero exit from a REAL subprocess run for every tamper."""
+    """Tamper with a COPY and require a non-zero exit from a REAL subprocess run for every tamper.
+
+    THE UNTAMPERED ARTIFACT MUST ALREADY VALIDATE. If it does not, every tamper "fails" for a reason that has nothing
+    to do with the tamper and the whole self-test is vacuous - the same family of hole as a tamper that breaks nothing.
+    MEASURED (round 167, found by asking whether the plan's own `--step P-1 --self-test` would mean anything): the CLI
+    used to run the loop unconditionally, so a phase step with incomplete sub-steps would have reported "13 rejected"
+    while proving nothing.
+    """
+    status = load(STATUS, {})
+    ownership = load(OWNERSHIP, {})
+    baseline = validate(step, status, ownership, artifact, [str(item) for item in artifact.get("changed_files") or []])
+    if baseline:
+        print("SELF-TEST REFUSED: the untampered artifact does not validate, so a rejection would prove nothing:")
+        for violation in baseline:
+            print(f"  VIOLATION {violation}")
+        if json_path:
+            write_artifact(json_path, {"step": step, "results": [], "verdict": "BASE_ARTIFACT_INVALID",
+                                       "violations": list(baseline)})
+        return 1
     results = []
     with tempfile.TemporaryDirectory(prefix="ghidra-preflight-selftest-") as raw:
         temp = pathlib.Path(raw)

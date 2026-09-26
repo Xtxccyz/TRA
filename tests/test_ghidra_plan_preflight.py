@@ -16,6 +16,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -410,6 +411,19 @@ def test_a_content_hash_may_match_its_source_at_a_named_commit() -> None:
                            task_revision_content_records=[dict(record, content_source_at_commit=old_commit)],
                            wrong_sample_or_revision_control={"name": "wrong_revision", "exit_code": 1})
     assert "M3_CONTENT_MISMATCH" not in _codes(PREFLIGHT.validate("P-0.3", status, OWNERSHIP, named, []))
+
+
+def test_the_self_test_refuses_and_returns_non_zero_for_an_invalid_base() -> None:
+    """MEASURED (round 167): the tamper loop ran unconditionally, so on an invalid artifact every tamper "failed" for a
+    reason unrelated to the tamper - and the plan's own `--step P-1 --self-test` would have reported 13 rejections while
+    proving nothing. A self-test whose base case is broken measures nothing."""
+    invalid = _base_artifact(step="P-1", decision="complete")  # 'complete' is not allowed for a phase on a blocked gate
+    with tempfile.TemporaryDirectory(prefix="selftest-refusal-") as raw:
+        capture = pathlib.Path(raw) / "results.json"
+        code = PREFLIGHT.run_self_test("P-1", invalid, capture)
+        assert code == 1, "an invalid base artifact must make the self-test refuse"
+        payload = json.loads(capture.read_text(encoding="utf-8"))
+        assert payload["verdict"] == "BASE_ARTIFACT_INVALID" and payload["violations"]
 
 
 @pytest.mark.parametrize("tamper", [name for name, _ in PREFLIGHT.TAMPERS])
