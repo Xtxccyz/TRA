@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.4`**；状态机当前允许：`['P-1.4']`
-- 代码提交 `git_head = cb7ea6d0452a0402caed500bc54fa6bbfb0994bb`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 9342c5056e8faa7e55659bba9b4688bc25b8d57d`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -84,7 +84,7 @@
 
 ```json
 {
-  "measured_at_head": "cb7ea6d0452a0402caed500bc54fa6bbfb0994bb",
+  "measured_at_head": "9342c5056e8faa7e55659bba9b4688bc25b8d57d",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -98,7 +98,7 @@
 
 ```json
 {
-  "measured_at_head": "cb7ea6d0452a0402caed500bc54fa6bbfb0994bb",
+  "measured_at_head": "9342c5056e8faa7e55659bba9b4688bc25b8d57d",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -191,7 +191,15 @@
 - 记录标志：`SUPERSEDED by three_way_manifest (kept so a reader who saw the old flag can trace it)`
 - 后果：按计划 P-1.7/P-2，P-1 可以完成代码与测试，但其部署状态只能是 `P-1_COMPLETE_DEPLOYMENT_BLOCKED`；**本机 pytest 通过不得写成部署通过**。
 
-## 五、门禁（instrument）自身的变更
+## 五、北极星基准（成品正文的下限）
+
+- 基准文件：`D:/test/20260730_Resume_恶意样本分析报告.md`（present = `True`）
+- 实测：**34399 字节 / 801 行 / 24519 字符**；标题共 60 个（二级 6 个、三级 27 个）
+- 二级章节：基本信息、一、基础静态信息采集、二、还原完整程序运行时序链路、三、核心恶意功能模块深度拆解、四、有效可落地IOC提取、五、分析总结
+- 判据：成品正文（官方发布 revision 的 Markdown）不得低于该基准：行数/字符数与章节覆盖都要逐项比较，不是「看起来差不多」
+- 核验方式：在发布 revision 上重渲染官方 Markdown，逐项与该文件的实测值比较；只在本机 pytest 绿不算通过
+
+## 六、门禁（instrument）自身的变更
 
 门禁是唯一能把「本机绿」与「验收通过」分开的东西，因此它自己的缺陷也记录在这里，而不是只留在 `.scratch` 的本地证据里。
 
@@ -216,7 +224,7 @@
   - 规则：新增自检 tamper `negative_control_restore_not_proven`（M6）复现该形状并被拒绝
   - 对步骤状态的影响：无——instrument 变更，`current_step` 仍为 P-1.4，未改动任何产品文件
 
-## 六、后继者必须知道的事
+## 七、后继者必须知道的事
 
 - This status is separate from `.scratch/structure-status.json` and must not be merged with it.
 - `complete` here means the STEP is complete; it never means T1-T8/G5/3080 capability acceptance.
