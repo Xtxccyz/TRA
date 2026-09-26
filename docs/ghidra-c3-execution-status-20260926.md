@@ -3,8 +3,8 @@
 > 本文件由 `.scratch/ghidra-c3-execution-status.json` **程序化生成**（`.scratch/render-ghidra-status.py`）。`.scratch/` 被 gitignore，因此把主计划的权威状态在此留一份被跟踪的记录。**本文件与结构计划的状态是两套状态，不得合并**：结构计划见 `docs/structure-execution-status-20260922.md`。
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
-- **当前步骤 `current_step = P-1.2`**；状态机当前允许：`['P-1.2']`
-- 代码提交 `git_head = d968e455d2fdf2d752cd679b2f32ab590dfcb443`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- **当前步骤 `current_step = P-1.3`**；状态机当前允许：`['P-1.3']`
+- 代码提交 `git_head = cd8c970fbe50e9a71b2723cd5dc8585f8eaee25b`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -17,6 +17,7 @@
 | P-0.3 | complete | `.scratch/ghidra-c3/preflight/P-0.3-artifact.json` | blocking preflight delivered: 11 self-test tamper(s) rejected with real non-zero exits, 2 skipped and covered by named unit tests; 12 negative control(s) recorded; M3 bound to a real SQL round trip against a schema created by the product's own `Database.create_schema()`. |
 | P-0.4 | complete | `.scratch/ghidra-c3/preflight/P-0.4-artifact.json` | call contract pinned without touching the gate: default services ['api', 'intake-worker', 'document-worker', 'parser-worker', 'script-worker', 'control-worker', 'emu-worker', 'ghidra-worker']; deployment BLOCKED (deployment_gate_head_unverified); 4 negative control(s) recorded. |
 | P-1.1 | complete | `.scratch/ghidra-c3/preflight/P-1.1-artifact.json` | 6 file(s) changed; 21 negative control(s), 21 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: input_partition; SQL-bound task 0432d5eb |
+| P-1.2 | complete | `.scratch/ghidra-c3/preflight/P-1.2-artifact.json` | 2 file(s) changed; 5 negative control(s), 5 with a real non-zero exit; mechanisms exercised []; render proof: [pipeline] Tool run <tool_name> ended <STATUS>: <error|no error recorded>.; SQL-bound task 4dab87ff |
 | P-0.2-r2 | complete | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 12; NEW (regressions) = none; GONE (fixed) = ['tests/test_model_package_contract.py::test_no_production_module_imports_a_moved_model_module_by_its_old_path', 'tests/test_structure_diff_gate.py::test_a_pure_move_passes_the_surface_gate', 'tests/test_structure_diff_gate.py::test_the_surface_file_is_current']. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
@@ -42,7 +43,7 @@
 
 ### 最近一次全量测量（覆盖 P-0.2 之后的所有修复）
 
-- 结果：**2 failed / 2815 passed / 3 skipped in 233s**（`.scratch/ghidra-c3/baseline/pytest-r164-failures.txt`）
+- 结果：**2843 passed / 3 skipped / 0 failed - the suite is GREEN (was 2 failed / 2815 passed at r164)**（`.scratch/ghidra-c3/baseline/pytest-r170-failures.txt`）
 - 相对 P-0.2 基线：NEW = `[]`；GONE = 10 个
 - 判定：9 nodes at P-0.2-r2 -> 2 nodes now, with no regression: the three baseline repairs of rounds 161-163 (protocol slot precedence, remote-thread seed, EC-5 self-check) removed 5, and the in-flight P-1.1 work removes the other 2 (`test_analysis_api` end-to-end and the structure-gate gap test)
 - 仍失败：['tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']
@@ -91,7 +92,7 @@
 
 ```json
 {
-  "measured_at_head": "d968e455d2fdf2d752cd679b2f32ab590dfcb443",
+  "measured_at_head": "cd8c970fbe50e9a71b2723cd5dc8585f8eaee25b",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -105,7 +106,7 @@
 
 ```json
 {
-  "measured_at_head": "d968e455d2fdf2d752cd679b2f32ab590dfcb443",
+  "measured_at_head": "cd8c970fbe50e9a71b2723cd5dc8585f8eaee25b",
   "p1_3_observation_cap": {
     "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
     "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
@@ -118,6 +119,15 @@
   }
 }
 ```
+
+### 最后两个基线节点的修复（全套件转绿）
+
+- The full suite is GREEN: 2843 passed / 3 skipped / 0 failed. Node-set sequence, no regression at any step: P-0.2 = 12 -> P-0.2-r2 = 9 -> r164 = 2 -> r170 = 0.
+- 根因：`resolve_persist_how_skip` (`investigation/loop_path.py`) consulted `cluster_category` ONLY in the `elif`, so when no playbook resolved, `unique_thread(...)` closed the thread whatever its question was. The loop's own runtime record shows BOTH seeded clusters emitting the IDENTICAL event - "Persist-time recovered OS-thread start 0x401040; TRACE was not charged." - and the `thread_start_routine` cluster ("What unique loop runs inside the start routine at 0x401040?") closing with ZERO actions while its own `loop` and `failure_fallback` slots stayed UNKNOWN. The start address is that question's PREMISE and was used as its answer.
+- 修法：`UNIQUE_THREAD_CLOSE_EXCLUDED_CATEGORIES = {'thread_start_routine'}` routes that cluster to the planner; a plain `thread` cluster is unchanged
+- 证明：3 tests fail with the exclusion removed and pass with it (byte snapshot restore, sha256 37fabe63964c); the T3 file went 13 passed / 4 failed -> 18 passed; 310 tests across the investigation blast radius pass; the full suite is green
+- 为什么花了三轮：each layer corrected the previous one. (1) 'the persist-ready path is a design intent' - true, and stated in the docstring, but it was being applied to the wrong question. (2) 'the second cluster produced nothing' - measured: the fixture's two clusters DO become two threads and two hypotheses, so seeding, threading and hypothesis creation were never at fault. (3) 'the loop reports PROGRESSING and stops with 63 of 64 actions unused' - the symptom that pointed at the per-thread close. The runtime record, not the test, is what finally named the site.
+- **纪律**：a GREEN SUITE IS A BASELINE, NOT ACCEPTANCE. `capability_status` is unchanged, the deployment gate is still BLOCKED (no daemon), and T1-T8 remain to be done.
 
 ### P-1.1 自审中未关闭的发现（各有归属步骤，不是悄悄丢掉）
 
