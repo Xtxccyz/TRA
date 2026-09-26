@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.1`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = bc21b9f63eb6be6616f88a26f5830a09607dfffc`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = a217ef13d06a520e73d7a5950a53b7c2d6a09a73`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -41,7 +41,7 @@
 ## 三、ownership 与锁
 
 - 裁决：**NO OVERLAP**；overlap = `[]`
-- 被活动分工占用的文件：`['src/threat_report_agent/investigation/behavior_catalog.py', 'src/threat_report_agent/investigation/investigation.py', 'src/threat_report_agent/prompts/', 'src/threat_report_agent/report/reporting.py', 'threat-dsh-workbench/']`
+- 被活动分工占用的文件：`[]`
 - 硬锁语义：本计划**不得**以「只改一行」取得上述文件；要么等释放记录，要么把该步骤记为 `BLOCKED`。完整表见 `.scratch/ghidra-c3-ownership.json`（由 `.scratch/ghidra-p0-1-ownership.py` 实测生成）。
 
 ## 四、部署门（P-0.4 / P-2）
