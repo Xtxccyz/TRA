@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.1`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = a217ef13d06a520e73d7a5950a53b7c2d6a09a73`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 4269839a13cf35cf280951f4ec5ae533b0135ae4`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -37,6 +37,17 @@
 - `tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer`
 - `tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives`
 - `tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions`
+
+
+### 基线的已修缺陷（不是计划步骤，`current_step` 不动）
+
+- **protocol slot precedence: a NAMED object outranks a bare address, and a consumer coupled to a superseded output is dropped**（`src/threat_report_agent/facts/investigation_protocol.py`）
+  - 修掉的失败节点：['tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer', 'tests/test_t3_callback_fixture.py::test_t3_one_start_discovers_global_relation_for_behavior_explanation']
+  - 原因：the snapshot answered `output`/`consumer` with the CreateThread start address before the producer relation named the written global `g_stage`, and first-wins published `0x401040` where the recovered object was known - and suppressed the honest `no recovered consumer` reason
+  - 证明：3 new focused tests in tests/test_investigation_protocol.py; can-fail via byte snapshot in .scratch/canfail-protocol-precedence.py - neutralising the two rules fails all 3, restoring is byte-exact (sha256 2b2bf0f25345) and they pass again
+  - 影响面：233 focused tests across the 12 files that touch the protocol: no new failure
+  - 仍开放：['tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions (1 distinct action type, needs >= 3)', 'tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives (no NO_NEW_EVIDENCE rows recorded)']
+  - 受阻于：the two service-loop nodes need `service.py`, which the active P-1.1 step holds; they are T3 scope and will be taken when that step releases the file
 
 ## 三、ownership 与锁
 

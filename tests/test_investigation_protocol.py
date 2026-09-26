@@ -7,6 +7,83 @@ from threat_report_agent.investigation.investigation_protocol import (
 )
 
 
+def test_a_named_produced_object_outranks_a_bare_address_for_the_output_slot() -> None:
+    """MEASURED (T3 callback fixture): first-wins published `0x401040` where the recovered global `g_stage` was known.
+
+    The ten-question protocol asks "What output object or bytes are produced?". An address is an answer only when
+    nothing better exists; a named object supersedes it, and BOTH provenance ids stay on the slot.
+    """
+    protocol = fill_protocol(
+        [
+            {
+                "id": "thread-start",
+                "kind": "api_argument_trace",
+                "value": {"api": "CreateThread", "resolved": True, "lpStartAddress": "0x401040"},
+            },
+            {
+                "id": "global-producer",
+                "kind": "value_flow",
+                "value": {"source_role": "producer", "writes": True, "output_buffer": "g_stage"},
+            },
+        ]
+    )
+    assert protocol["output"]["status"] == "ANSWERED"
+    assert protocol["output"]["value"] == "g_stage"
+    assert protocol["output"]["evidence_ids"] == ["thread-start", "global-producer"]
+
+
+def test_a_coupled_consumer_is_dropped_when_its_output_is_superseded() -> None:
+    """The CreateThread row that answered `output = 0x401040` also answered `consumer = 0x401040`.
+
+    That consumer consumed the THREAD. Once the output slot names the written global instead, the pair
+    (`output = g_stage`, `consumer = 0x401040`) is incoherent and it suppresses the honest missing-consumer reason, so
+    the address-only, same-row consumer is dropped and the reason is stated.
+    """
+    protocol = fill_protocol(
+        [
+            {
+                "id": "thread-start",
+                "kind": "api_argument_trace",
+                "value": {"api": "CreateThread", "resolved": True, "lpStartAddress": "0x401040"},
+            },
+            {
+                "id": "global-producer",
+                "kind": "value_flow",
+                "value": {"source_role": "producer", "writes": True, "output_buffer": "g_stage"},
+            },
+        ]
+    )
+    assert protocol["consumer"]["status"] == "UNKNOWN", "an address that consumed the superseded object is not a consumer"
+    assert "no recovered consumer" in str(protocol["consumer"]["reason"]).casefold()
+    assert "g_stage" in str(protocol["consumer"]["reason"])
+
+
+def test_a_named_consumer_is_never_dropped_by_the_supersede_rule() -> None:
+    """Only an ADDRESS-like, same-row consumer is coupled to the superseded output; a named one keeps its place."""
+    protocol = fill_protocol(
+        [
+            {
+                "id": "thread-start",
+                "kind": "api_argument_trace",
+                "value": {"api": "CreateThread", "resolved": True, "lpStartAddress": "0x401040"},
+            },
+            {
+                "id": "named-consumer",
+                "kind": "value_flow",
+                "value": {"relation": "output_to_consumer", "api": "WinHttpOpen", "output_buffer": "0x401040"},
+            },
+            {
+                "id": "global-producer",
+                "kind": "value_flow",
+                "value": {"source_role": "producer", "writes": True, "output_buffer": "g_stage"},
+            },
+        ]
+    )
+    assert protocol["output"]["value"] == "g_stage"
+    assert protocol["consumer"]["status"] == "ANSWERED"
+    assert protocol["consumer"]["value"] == "WinHttpOpen"
+
+
 def test_empty_and_unknown_tokens_are_markers() -> None:
     assert is_empty_marker("UNKNOWN")
     assert is_empty_marker("UNKNOWN(api not recovered)")

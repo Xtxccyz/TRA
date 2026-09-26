@@ -230,6 +230,59 @@ def _slot_from_row(row: Mapping[str, object]) -> tuple[str, object, str] | None:
     mapped = _slots_from_row(row)
     return mapped[0] if mapped else None
 
+
+def _is_address_like(raw: object) -> bool:
+    """True for a bare `0x...` address, false for a recovered symbol name.
+
+    MEASURED (T3 callback fixture): the snapshot answers the `output` slot with the thread start address `0x401040`
+    before the producer relation names the written global `g_stage`. First-wins then published an ADDRESS where the
+    recovered OBJECT is known, and the derived consumer reason read "producer writes 0x401040" - a reader cannot act on
+    that. The protocol already distinguishes symbol names from addresses elsewhere (`looks_like_start`,
+    `is_ghidra_data_or_string_label`), so the distinction is made explicit here rather than left to row order.
+    """
+    text = str(raw or "").strip()
+    if not text.casefold().startswith("0x"):
+        return False
+    body = text[2:]
+    return bool(body) and all(character in "0123456789abcdefABCDEF" for character in body)
+
+
+def _outranks(slot: str, candidate: object, current: object) -> bool:
+    """A NAMED object outranks a bare address for the same slot, and nothing else changes precedence.
+
+    Applies to `output` and `consumer`, the two slots that answer "what object, and who takes it". A name is always
+    more actionable than an address, so the ORDER in which Evidence rows happen to arrive must not decide.
+    """
+    if slot not in {"output", "consumer"}:
+        return False
+    if not isinstance(candidate, str) or not isinstance(current, str):
+        return False
+    return not _is_address_like(candidate) and _is_address_like(current)
+
+
+def _drop_coupled_consumer(protocol: dict[str, dict[str, object]], producer_evidence_id: object) -> None:
+    """Drop a consumer that was answered by the SAME row whose output answer was just superseded.
+
+    MEASURED (T3 callback fixture): one `api_argument_trace` row for CreateThread answers BOTH `output` and `consumer`
+    with the thread start address. When a later producer relation supersedes `output` with the named global, that
+    consumer consumed the THREAD, not the global - keeping it would publish an incoherent pair (`output = g_stage`,
+    `consumer = 0x401040`) and would also suppress the honest "no recovered consumer" reason. Only an address-like,
+    same-row answer is dropped; a named consumer from any row keeps its place.
+    """
+    consumer = protocol.get("consumer")
+    if not isinstance(consumer, dict):
+        return
+    if str(consumer.get("status") or "").upper() != "ANSWERED":
+        return
+    if consumer.get("value_evidence_id") != producer_evidence_id:
+        return
+    if not _is_address_like(consumer.get("value")):
+        return
+    consumer["status"] = "UNKNOWN"
+    consumer["value"] = ""
+    consumer["reason"] = ""
+
+
 def fill_protocol(
     evidence: Iterable[Mapping[str, object]],
     *,
@@ -246,17 +299,25 @@ def fill_protocol(
             continue
         for slot, value, evidence_id in _slots_from_row(row):
             current = protocol[slot]
+            if is_empty_marker(value):
+                continue
             if str(current.get("status") or "").upper() == "ANSWERED":
                 ids = list(current.get("evidence_ids") or [])
                 if evidence_id and evidence_id not in ids:
                     ids.append(evidence_id)
-                    current["evidence_ids"] = ids[:16]
-                continue
-            if is_empty_marker(value):
+                if _outranks(slot, value, current.get("value")):
+                    # Keep EVERY contributing evidence id: the value is superseded, the provenance is not.
+                    superseded_by = current.get("value_evidence_id")
+                    current["value"] = value
+                    current["value_evidence_id"] = evidence_id
+                    if slot == "output" and superseded_by and superseded_by != evidence_id:
+                        _drop_coupled_consumer(protocol, superseded_by)
+                current["evidence_ids"] = ids[:16]
                 continue
             protocol[slot] = {
                 "status": "ANSWERED",
                 "value": value,
+                "value_evidence_id": evidence_id,
                 "evidence_ids": [evidence_id] if evidence_id else [],
                 "reason": "",
                 "question": current.get("question") or "",
