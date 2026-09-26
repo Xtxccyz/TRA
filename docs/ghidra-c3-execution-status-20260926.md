@@ -46,6 +46,11 @@
 - 判定：9 nodes at P-0.2-r2 -> 2 nodes now, with no regression: the three baseline repairs of rounds 161-163 (protocol slot precedence, remote-thread seed, EC-5 self-check) removed 5, and the in-flight P-1.1 work removes the other 2 (`test_analysis_api` end-to-end and the structure-gate gap test)
 - 仍失败：['tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']
 - 原因：both need `service.py`, which the active P-1.1 step holds; they are T3 scope and are the first thing to take once that step releases the file
+- **修正**：MEASURED (round 164): `service.run_investigation_loop` is a thin facade - `_run_investigation_loop` forwards straight into `derivation._run_investigation_loop` (`investigation/derivation.py:3369`), which is a FREE file. Only the facade line lives in `service.py`, so the two remaining nodes are NOT blocked on the lock; they can be taken in `derivation.py`.
+- 诊断入口（逐条实测定位，不是猜测）：
+  - `investigation/derivation.py:6009-6033` - the per-round budget: `investigation_round_budget` starts at `settings.investigation_max_rounds` (the failing tests set 1) and is raised only when `DeepMiningPlanner.plan_actions(initial, scheduled=set(initial_scheduled_keys), max_actions=32)` returns a non-empty frontier; a fully pre-scheduled frontier therefore keeps the budget at ONE round
+  - `investigation/derivation.py:5238-5281` - where an action row is marked `error = "NO_NEW_EVIDENCE"`; the second failing test sees ZERO such rows
+  - the fixture seeds ONE cluster (`cluster-tls-callback`, category `thread`) plus `proposed_actions` in `task.strategy_snapshot`, while the standalone planner assertion in the SAME test file (`test_t3_start_enqueues_multiple_distinct_callback_and_global_actions`) already sees >= 4 distinct action types from `t3_seeded_snapshot()` - so the gap is in the LOOP's execution of the frontier, not in planning
 
 ### 基线的已修缺陷（不是计划步骤，`current_step` 不动）
 
