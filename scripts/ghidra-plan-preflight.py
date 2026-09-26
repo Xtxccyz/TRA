@@ -558,6 +558,15 @@ TAMPERS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _scope_escape_candidates() -> tuple[str, ...]:
+    """Paths a step must never be able to change silently; the first one it does NOT allow is the escape."""
+    return ("src/threat_report_agent/emulation/emulation_plan.py",
+            "src/threat_report_agent/tools/tool_execution.py",
+            "src/threat_report_agent/static/ghidra_adapter.py",
+            "src/threat_report_agent/service.py",
+            "docs/import-policy.json")
+
+
 def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifact: dict[str, Any]) -> None:
     """Apply one tamper. Raises `NotApplicable` when this step's artifact has no such block to break."""
     def need(key: str) -> Any:
@@ -602,7 +611,16 @@ def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifa
         ownership["overlap_verdict"] = "OVERLAP - P-0.2 MUST NOT RUN"
     elif name == "scope_escape":
         need("changed_files")
-        artifact["changed_files"] = list(artifact["changed_files"]) + ["src/threat_report_agent/service.py"]
+        # THE ESCAPE PATH MUST REALLY BE OUTSIDE `allowed_files`. MEASURED (P-1.1): the tamper appended
+        # `src/threat_report_agent/service.py` unconditionally, but that path IS allowed for a step that owns the
+        # service - so the tamper produced no violation and the self-test reported a control that "did not fail"
+        # while its evidence claimed a rejection. A vacuous control is worse than a missing one.
+        allowed = {str(item) for item in artifact.get("allowed_files") or []}
+        candidates = _scope_escape_candidates()
+        escape = next((item for item in candidates if item not in allowed), None)
+        if escape is None:
+            raise NotApplicable("every escape candidate is inside this step's `allowed_files`")
+        artifact["changed_files"] = list(artifact["changed_files"]) + [escape]
     else:  # pragma: no cover - a tamper name that is not implemented must not silently pass
         raise SystemExit(f"unknown tamper {name!r}")
 

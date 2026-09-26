@@ -290,6 +290,28 @@ def test_mechanism_coverage_blocks_a_silently_skipped_mechanism() -> None:
     assert "MECHANISM_UNCOVERED" in _codes(_validate(artifact))
 
 
+def test_the_scope_escape_tamper_picks_a_path_the_step_does_not_own() -> None:
+    """MEASURED (P-1.1): the tamper appended `service.py` unconditionally, which is ALLOWED for a step that owns the
+    service, so it produced no violation and the self-test recorded a control that did not fail while its evidence
+    claimed a rejection. The tamper must escape by a path the artifact does not allow."""
+    artifact = _base_artifact(allowed_files=["scripts/ghidra-plan-preflight.py",
+                                             "src/threat_report_agent/service.py"],
+                              changed_files=["scripts/ghidra-plan-preflight.py",
+                                             "src/threat_report_agent/service.py"])
+    PREFLIGHT._tamper("scope_escape", {}, {}, artifact)
+    escaped = [item for item in artifact["changed_files"] if item not in artifact["allowed_files"]]
+    assert escaped, "the tamper did not actually escape `allowed_files`"
+    assert "SCOPE" in _codes(PREFLIGHT.validate("P-1.1", STATUS, OWNERSHIP, artifact,
+                                                artifact["changed_files"]))
+
+
+def test_the_scope_escape_tamper_declares_itself_inapplicable_when_nothing_can_escape() -> None:
+    artifact = _base_artifact(allowed_files=[*PREFLIGHT._scope_escape_candidates()],
+                              changed_files=["scripts/ghidra-plan-preflight.py"])
+    with pytest.raises(PREFLIGHT.NotApplicable):
+        PREFLIGHT._tamper("scope_escape", {}, {}, artifact)
+
+
 @pytest.mark.parametrize("tamper", [name for name, _ in PREFLIGHT.TAMPERS])
 def test_every_declared_tamper_actually_does_something(tamper: str) -> None:
     """A tamper listed in `TAMPERS` that neither mutates nor declares itself inapplicable is a fake rejection.
