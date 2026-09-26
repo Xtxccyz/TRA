@@ -3054,6 +3054,19 @@ def _collect_official_unknowns(
     topics: Sequence[AnalystTopic],
     document: Mapping[str, object] | None = None,
 ) -> list[str]:
+    """EVERY unresolved slot this run can name, deduplicated by slot key.
+
+    P-1.6 REMOVED A SILENT BOUND HERE, and this docstring is the record of it. The function used to end
+    `return tokens[:12]`, so the report's official unknown list was capped without saying so - and the single
+    consumer (`_synthesis`) capped the SAME list again at `[:8]`, so a reader of the published body saw eight of
+    up to twelve and could not tell either cut had happened. Two silent bounds on one collection is the plan's
+    "a bounded list read as the whole set" (EC-4), and the honest shape is ONE declared bound rather than two
+    hidden ones: this function now returns the whole set, and `_synthesis` states the bound it applies, the total
+    it enumerated and the identities the bound removed.
+
+    No bound was ADDED to compensate: the surface of the published paragraph is unchanged (it still prints at
+    most eight slots), and a run at or below the display bound renders exactly what it rendered before.
+    """
     tokens: list[str] = []
     seen: set[str] = set()
 
@@ -3098,7 +3111,7 @@ def _collect_official_unknowns(
     resolved = {name.casefold() for name in _persisted_slot_proposals(document)}
     if resolved:
         tokens = [item for item in tokens if _official_unknown_slot(item) not in resolved]
-    return tokens[:12]
+    return tokens
 
 
 def _topic_body(
@@ -4186,7 +4199,23 @@ def _synthesis(
         )
     unknowns = _collect_official_unknowns(rows, topics, document)
     if unknowns:
-        paragraph += "未恢复槽位：" + "、".join(f"`{item}`" for item in unknowns[:8]) + "。"
+        # P-1.6 TRUNCATION 4 of 5, and the CONSUMER half of the pair the collector used to hold. The display bound
+        # stays where it always was (eight), but it is DECLARED now: the total this run enumerated and the
+        # identities the bound removed are printed with it, so a bounded list can no longer read as the whole set.
+        # Below the bound nothing is added - a "0 unexpanded" notice would assert a truncation that never happened.
+        shown_unknowns = unknowns[:8]
+        paragraph += "未恢复槽位：" + "、".join(f"`{item}`" for item in shown_unknowns)
+        remainder = unknowns[len(shown_unknowns):]
+        if remainder:
+            sample = remainder[:_OBSERVATION_BOUNDARY_IDENTITY_SAMPLE]
+            paragraph += (
+                f"（本次共枚举 `{len(unknowns)}` 个未恢复槽位，此处列出前 `{len(shown_unknowns)}` 个，"
+                f"**另有 `{len(remainder)}` 个未展开**："
+                + "、".join(f"`{item}`" for item in sample)
+                + (" 等" if len(remainder) > len(sample) else "")
+                + "）"
+            )
+        paragraph += "。"
     outcome = str(document.get("analysis_outcome") or "UNKNOWN")
     analysis_class = str(document.get("analysis_class") or "UNKNOWN")
     return [
@@ -4751,9 +4780,34 @@ def _verification_note(document: Mapping[str, object], rows: Sequence[Mapping[st
         "",
     ]
     if ready:
-        lines.append("**达到门限的机制：**")
-        for item in ready[:8]:
+        # P-1.6 TRUNCATION 5 of 5. The bound stays where it always was (eight, unchanged - no new threshold), but
+        # it used to be SILENT while the sentence above it printed the TRUE count: a run with twelve
+        # threshold-passing mechanisms rendered "12 条达到门限" over eight bullets and nothing said the list was
+        # cut. The heading now carries the enumerated count, the number listed and the number withheld, so the
+        # count and the list can be reconciled by a reader instead of trusted (the shape
+        # `_emulation_status_section` already uses for `named[:4]`, reused rather than re-invented).
+        shown_ready = ready[:8]
+        remainder_ready = ready[len(shown_ready):]
+        heading = (
+            f"**达到门限的机制**（共 `{len(ready)}` 条，此处列出前 `{len(shown_ready)}` 条"
+        )
+        heading += (
+            f"，**另有 `{len(remainder_ready)}` 条未展开**）" if remainder_ready else "）"
+        )
+        lines.append(heading)
+        for item in shown_ready:
             lines.append(f"- {_mechanism_label(item, registry)}")
+        if remainder_ready:
+            sample_ready = [
+                _mechanism_label(item, registry)
+                for item in remainder_ready[:_OBSERVATION_BOUNDARY_IDENTITY_SAMPLE]
+            ]
+            lines.append(
+                "（未展开机制的标签抽样："
+                + "、".join(f"`{label}`" for label in sample_ready)
+                + (" 等" if len(remainder_ready) > len(sample_ready) else "")
+                + "；完整集合由本 revision 的机制行给出）"
+            )
         lines.append("")
     elif verified_n:
         lines.append(
@@ -5001,6 +5055,38 @@ def _publishable_symbol(name: object) -> str:
     return candidate
 
 
+def _boundary_remainder_note(record: Mapping[str, object]) -> str:
+    """The INLINE half of P-1.3's boundary record, in the Chinese analyst body's own voice.
+
+    P-1.6 adds no second convention: the record is the one `reporting._bound_published_collection` produces
+    (`name` / `identity_key` / `cap` / `cap_source` / `enumerated_count` / `rendered_count` /
+    `expected_minus_actual` / ...), the appendix renderer `_observation_boundary_lines` reads the same keys, and
+    this function only re-wraps them for the chapter that publishes the truncated list itself.
+
+    RETURNS AN EMPTY STRING when the cap removed nothing: a "0 unexpanded" notice on a list that was never cut
+    asserts a truncation that did not happen, which is the same defect pointing the other way.
+
+    The identities come from the record, never from a count recomputed here, so a renderer that invented its own
+    remainder would fail `test_the_emulation_chapter_prints_the_boundary_it_was_given`.
+    """
+    dropped = [str(item) for item in (record.get("expected_minus_actual") or []) if str(item)]
+    if not dropped:
+        return ""
+    shown = dropped[:_OBSERVATION_BOUNDARY_IDENTITY_SAMPLE]
+    listing = "、".join(f"`{identity}`" for identity in shown)
+    tail = (
+        f"，另有 `{len(dropped) - len(shown)}` 项未展开"
+        if len(dropped) > len(shown)
+        else ""
+    )
+    return (
+        f"`{record.get('name')}`：可枚举 `{record.get('enumerated_count')}` 项，"
+        f"已展开 `{record.get('rendered_count')}` 项，**未展开 `{len(dropped)}` 项**"
+        f"（上限 `{record.get('cap')}`，来源 `{record.get('cap_source')}`，"
+        f"身份键 `{record.get('identity_key')}`）：{listing}{tail}"
+    )
+
+
 def _observation_count(item: Mapping[str, object]) -> int:
     """How many raw observations this projected result carried, or 0 when it carried none.
 
@@ -5035,15 +5121,32 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
     """
     results: list[Mapping[str, object]] = []
     seen: set[tuple[str, str, str]] = set()
+    # P-1.6: how many results the document's rows actually offered, before this chapter's own dedupe. Without it
+    # the printed line count and the boundary's `已展开 N 项` cannot be reconciled: P-1.6 removed this chapter's
+    # `[:12]`, and the remaining difference between the two numbers is the dedupe, which is a DIFFERENT operation
+    # from a cap and must be named as one rather than left to look like another silent cut.
+    collected_results = 0
+    # P-1.6: the boundary each `emulation_status` row carries for its own `results` cap. Collected here rather
+    # than re-derived, because the pre-slice set exists only in the projection (the document holds the published
+    # list), and a chapter that recomputed a remainder from the published list would always compute zero.
+    result_boundaries: list[Mapping[str, object]] = []
     overall = ""
     for row in rows:
         if str(row.get("type") or "") != "emulation_status":
             continue
         if not overall:
             overall = str(row.get("overall") or "").strip()
+        boundary = row.get("results_boundary")
+        if (
+            isinstance(boundary, Mapping)
+            and boundary.get("expected_minus_actual")
+            and boundary not in result_boundaries
+        ):
+            result_boundaries.append(boundary)
         for item in row.get("results") or ():
             if not isinstance(item, Mapping):
                 continue
+            collected_results += 1
             # The document carries one `emulation_status` row per artifact/module projection, so the
             # same simulator outcome appears several times. Printing it repeatedly tells the reader
             # nothing new and makes the run look busier than it was; dedupe on the outcome identity.
@@ -5068,8 +5171,27 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
     if overall:
         lines.append("")
         lines.append(f"总体状态：`{overall}`")
+    if collected_results > len(results):
+        # NOT a truncation: the rows below are a DEDUPE of the same set, so the difference between these two
+        # numbers has to be named as a dedupe or a reader reconciles `已展开 N 项` against the wrong count - which
+        # is the same "a shorter list read as the whole set" defect one step removed.
+        lines.append("")
+        lines.append(
+            f"（下表按 `模拟器|状态|停止原因` 去重：文档共给出 `{collected_results}` 条结果行，"
+            f"去重后 `{len(results)}` 条；**去重不是截断**，被上限去掉的项另见下方说明。）"
+        )
+    # P-1.6 TRUNCATION 1 of 5 - the CONSUMER half. This loop used to be `results[:12]`, a SECOND silent bound on
+    # the same collection the projection had already capped at 12: the document's published set was cut again
+    # here, and nothing in the body said either cut had happened. The list now renders what the document holds
+    # (which IS bounded, by the projection) and the projections' own recorded remainders are stated beside it.
+    # No number is introduced by removing the second bound.
+    for boundary in result_boundaries:
+        lines.append(
+            "- 模拟结果集合上限（**上表不是可枚举的总数**）："
+            + _boundary_remainder_note(boundary)
+        )
     lines.append("")
-    for item in results[:12]:
+    for item in results:
         simulator = str(item.get("simulator") or "?")
         status = str(item.get("status") or "?")
         stop_reason = str(item.get("stop_reason") or "").strip()
@@ -5122,9 +5244,15 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
             }
         if visible:
             total = sum(int(count) for count in visible.values() if isinstance(count, int))
+            # P-1.6 TRUNCATION 2 of 5 - the CONSUMER half. This used to be `list(visible.items())[:8]`: a THIRD
+            # silent bound (the adapter caps at its own `api_cap`, the projection at 12, this at 8), and the
+            # count printed beside it was the sum over the names that survived all three - so the body published
+            # a partial call count as the run's call total. The list now prints every name the document holds
+            # (already bounded upstream, where the bound is now recorded) and the projection's own remainder is
+            # stated with it. No number is introduced by removing the third bound.
             rendered = "、".join(
                 f"`{name}`×{count}" if isinstance(count, int) and count > 1 else f"`{name}`"
-                for name, count in list(visible.items())[:8]
+                for name, count in visible.items()
             )
             # A BOUNDED list must say it is bounded. The adapter keeps at most `api_cap` names per run, and
             # MEASURED 102 evidence rows over 34 tasks sit exactly at 256 with none above - so the cap
@@ -5160,6 +5288,27 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
                             )
                             if int(boundary.get("unexpanded_count") or 0) > len(identities):
                                 bound_note += f" 等 {boundary.get('unexpanded_count')} 项"
+            # P-1.6 TRUNCATION 2 of 5 - the PRODUCER's own remainder, stated where the names are printed. This is
+            # the bound that made the printed `total` a partial count: the projection keeps 12 names and the sum
+            # above is taken over exactly those, so without this sentence a reader reads a capped count as the
+            # run's call total. `enumerated_calls` is the sum over the FULL ranking, carried out by the producer
+            # for this sentence only.
+            projection_boundary = item.get("observed_apis_boundary")
+            if isinstance(projection_boundary, Mapping):
+                projection_note = _boundary_remainder_note(projection_boundary)
+                if projection_note:
+                    enumerated_calls = projection_boundary.get("enumerated_calls")
+                    rendered_calls = projection_boundary.get("rendered_calls")
+                    try:
+                        excluded_calls = int(enumerated_calls) - int(rendered_calls)
+                    except (TypeError, ValueError):
+                        excluded_calls = 0
+                    if excluded_calls > 0:
+                        projection_note += (
+                            f"（上文 `{total}` 次只统计已展开的名称；本次共枚举 `{enumerated_calls}` 次调用，"
+                            f"其中 `{excluded_calls}` 次属于未展开的 API 名）"
+                        )
+                    bound_note += ("；" if bound_note else "") + projection_note
             lines.append(f"  - 已观测 API 调用：{total} 次（{rendered}）{bound_note}")
         elif _observation_count(item) > 0:
             # The run EXECUTED and produced observations, but not one of them was an API call.
@@ -5338,9 +5487,18 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
                         f"该 stub 共记录 {recorded_text} 对，发布时保留前 {cap_text} 对：{shown}"
                         "；对应的解码文本随证据保存，不在正文展开"
                     )
+        # P-1.6 TRUNCATION 3 of 5 - the CONSUMER half. This used to be `limitations[:3]` while the projection had
+        # already capped the SAME list at `[:6]`: two silent bounds, and the second one was invisible even to a
+        # reader who counted, because nothing said six existed. Every limitation the document holds is printed
+        # now (the document's list IS bounded, at the projection, where the bound is recorded and carried here).
         limitations = [str(value).strip() for value in (item.get("limitations") or ()) if str(value).strip()]
-        for limitation in limitations[:3]:
+        for limitation in limitations:
             lines.append(f"  - {limitation}")
+        limitations_boundary = item.get("limitations_boundary")
+        if isinstance(limitations_boundary, Mapping):
+            limitations_note = _boundary_remainder_note(limitations_boundary)
+            if limitations_note:
+                lines.append(f"  - 本结果限制未展开项：{limitations_note}")
     lines.append("")
     return lines
 
@@ -5452,7 +5610,14 @@ def _model_candidate_section(document: Mapping[str, object]) -> list[str]:
     lines.append("")
     for index, row in enumerate(shown, start=1):
         status = str(row.get("status") or "CANDIDATE").strip() or "CANDIDATE"
-        confidence = str(row.get("confidence") or "UNKNOWN").strip() or "UNKNOWN"
+        # P-1.6 - THE REPORT LAYER'S RENDERED HALF. `str(row.get("confidence") or "UNKNOWN")` already declined to
+        # invent a LEVEL, but it printed the same word for two different records: a producer that asserted
+        # `UNKNOWN` and a producer that asserted NOTHING. `confidence_source` (written by
+        # `reporting.asserted_confidence`/`confidence_source` at the projection) tells them apart, so the body
+        # says which one this is instead of leaving a reader to assume the producer spoke.
+        confidence = str(row.get("confidence") or "").strip().upper()
+        if str(row.get("confidence_source") or "").strip().casefold() == "absent" or not confidence:
+            confidence = "未声明（证据未声明置信度，本报告不代为赋值）"
         text = _official_prose(
             str(row.get("statement") or row.get("what") or row.get("finding") or "").strip()
         )

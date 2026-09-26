@@ -880,6 +880,27 @@ def _select_mechanism_projections(
     return selected
 
 
+def asserted_confidence(value: object) -> str | None:
+    """The confidence the PRODUCER asserted, or `None` when it asserted nothing at all.
+
+    P-1.6. `str(value.get("confidence") or "MEDIUM").upper()` turned `None`, `""` and `0` alike into a level
+    nobody asserted, and `row.get("confidence", "MEDIUM")` did the same for a missing key. The plan names that
+    as a failure mode ("turning absence into another default constant"), so absence is returned AS absence.
+
+    It is NOT replaced by a different level. `confidence_source` beside every value says which of the two this
+    is, and the canonical renderer prints `UNKNOWN` for an absent one - a statement about the RECORD rather than
+    a level assigned to the sample. `str(value or "").strip()` is what makes `0` and `""` absent rather than
+    `"0"`; a level is never a number in this product's vocabulary.
+    """
+    text = str(value or "").strip().upper()
+    return text or None
+
+
+def confidence_source(value: object) -> str:
+    """`"asserted"` / `"absent"` for the same input `asserted_confidence` reads - the visible half of the pair."""
+    return "asserted" if asserted_confidence(value) else "absent"
+
+
 def build_observed_mechanism_projections(
     evidence_by_id: Mapping[str, Any],
 ) -> list[dict[str, object]]:
@@ -1174,6 +1195,11 @@ def build_observed_mechanism_projections(
 
         source_ids = [str(evidence_id)]
         source_ids.extend(str(item_id) for item_id in text_list(value.get("source_evidence_ids")))
+        # P-1.6: read the producer's assertion ONCE and carry the two halves of it. The old line
+        # (`str(value.get("confidence") or "MEDIUM").upper()`) is the plan's forbidden shape: a mechanism row
+        # whose evidence never stated a confidence was published as `MEDIUM`, so the report assigned a level to
+        # the sample that no producer had asserted and no reader could tell apart from an asserted one.
+        observed_confidence = value.get("confidence")
         projection = {
             "type": "mechanism_observation",
             "mechanism_id": f"observed-mechanism:{str(evidence_id)}",
@@ -1201,7 +1227,11 @@ def build_observed_mechanism_projections(
             "evidence_ids": list(dict.fromkeys(source_ids))[:12],
             "resolver_callsites": resolver_callsites,
             "consumer_callsites": consumer_callsites,
-            "confidence": str(value.get("confidence") or "MEDIUM").upper(),
+            "confidence": asserted_confidence(observed_confidence),
+            # The visible half: without this a reader still cannot tell an asserted `MEDIUM` from an absent one,
+            # because both would render as a level. `read_from_json_only`-style proof for P-1.6 is that the
+            # OFFICIAL body prints `UNKNOWN` for `absent` and `MEDIUM` for `asserted`.
+            "confidence_source": confidence_source(observed_confidence),
             "verification": value.get("verification") or value.get("verification_result") or "structural static observation only",
             "alternative_hypotheses": [
                 "benign/library use or dead code",
@@ -2344,15 +2374,44 @@ _TIMELINE_IDENTITY_KEY_SPEC = (
 _BEHAVIOR_RELATION_IDENTITY_KEY_SPEC = "source_artifact_id|relation_type|target_artifact_id|occurrence"
 
 
+def _emulation_result_identity(row: Mapping[str, object]) -> str:
+    """Stable identity of one emulation-status result row: `simulator|status|stop_reason`.
+
+    MEASURED - and my first version of this was WRONG. It used `evidence_id=<uuid>`, which is the most specific
+    key the row carries, and the official body then printed `evidence_id=` with the UUID **removed**: the
+    canonical renderer scrubs ledger UUIDs out of the published text on purpose
+    (`test_official_get_scrubs_ledger_uuids_instead_of_failing_synthesis`). A boundary whose identities do not
+    survive the renderer is a boundary no reader can re-check, which is the defect this whole mechanism exists to
+    remove - so the identity is built from the three fields the chapter actually PRINTS. `_occurrence_qualified`
+    keeps one identity per ROW, so the repeated triple above the cap reads as `...#2`, `...#3`, exactly the order
+    a reader can recompute from the document.
+    """
+    return "{0}|{1}|{2}".format(
+        str(row.get("simulator") or "?").strip() or "?",
+        str(row.get("status") or "?").strip() or "?",
+        str(row.get("stop_reason") or "").strip() or "none",
+    )
+
+
+def _api_name_identity(pair: tuple[str, int]) -> str:
+    """Stable identity of one observed-API entry: the API NAME, which is what the chapter prints."""
+    return str(pair[0])
+
+
+def _limitation_identity(text: object) -> str:
+    """Stable identity of one limitation line: its TEXT, which is what the chapter prints."""
+    return str(text)
+
+
 def _bound_published_collection(
-    rows: Sequence[Mapping[str, object]],
+    rows: Sequence[Any],
     *,
     name: str,
     identity_key: str,
-    identity: "Callable[[Mapping[str, object]], str]",
+    identity: "Callable[[Any], str]",
     cap: int,
     cap_source: str,
-) -> tuple[list[Mapping[str, object]], dict[str, object]]:
+) -> tuple[list[Any], dict[str, object]]:
     """Apply an EXISTING cap and return both the published rows AND the boundary that cap creates.
 
     WHY THIS EXISTS. Both call sites used to end in a bare slice (`return timeline[:256]`,
@@ -2360,6 +2419,12 @@ def _bound_published_collection(
     collection could not be told apart from the whole set - the plan's M5 defect (EC-4: a bounded list read as
     complete). The cap itself is NOT changed here: it keeps the value it always had, passed in by the caller
     together with the name of the constant that holds it, and no new number is introduced.
+
+    P-1.6 WIDENED THE ROW TYPE, and only the type. The three emulation-status collections this step converts are
+    a list of result mappings, a list of `(api_name, count)` pairs and a list of limitation STRINGS, and a second
+    implementation of the same four-way set arithmetic for each of them is exactly the second convention P-1.3
+    built this function to prevent. `identity` is the only thing a caller has to supply; nothing in the body
+    assumes a `Mapping` (it slices, and it calls `identity`).
 
     The identity keys are captured BEFORE the slice and are OCCURRENCE-QUALIFIED: two rows that share a stable
     key (two `CONTAINS` edges between the same artifacts, say) would otherwise collapse into one set element and
@@ -9217,18 +9282,52 @@ def build_emulation_status_projection(
                     "argument_pairs_cap": observation.get("argument_pairs_cap"),
                     "argument_pairs_recorded": observation.get("argument_pairs_recorded"),
                 }
+        # P-1.6 TRUNCATION 3 of 5: this result's LIMITATIONS list. The bound is the `[:6]` the plan names; it is
+        # NOT changed here (no new threshold), but it is no longer SILENT: the record states what it removed, by
+        # identity, before the slice happens. The chapter re-capped the same list at `[:3]`, so a reader of the
+        # published body saw three of up to six and could not tell - two silent bounds on one collection.
+        result_limitations, limitations_boundary = _bound_published_collection(
+            list(value.get("limitations") or []),
+            name="emulation_result_limitations",
+            identity_key="limitation_text",
+            identity=_limitation_identity,
+            cap=6,
+            cap_source=(
+                "report/reporting.py::build_emulation_status_projection - the pre-existing inline `[:6]` on this "
+                "collection, carried over unchanged by P-1.6 rather than renumbered"
+            ),
+        )
+        # P-1.6 TRUNCATION 2 of 5: the observed-API NAMES. `total` printed in the official body is the sum over
+        # THIS dict, so a capped dict published a partial call count as the run's call total. The enumerated sum
+        # travels out with the boundary so the chapter can say what the cap excluded from that count.
+        ranked_apis = sorted(api_counts.items(), key=lambda pair: (-pair[1], pair[0]))
+        published_apis, observed_apis_boundary = _bound_published_collection(
+            ranked_apis,
+            name="emulation_observed_api_names",
+            identity_key="api_name",
+            identity=_api_name_identity,
+            cap=12,
+            cap_source=(
+                "report/reporting.py::build_emulation_status_projection - the pre-existing inline `[:12]` on this "
+                "collection, carried over unchanged by P-1.6 rather than renumbered"
+            ),
+        )
+        observed_apis_boundary["enumerated_calls"] = sum(count for _name, count in ranked_apis)
+        observed_apis_boundary["rendered_calls"] = sum(count for _name, count in published_apis)
         results.append(
             {
                 "status": str(value.get("status") or "UNKNOWN"),
                 "simulator": value.get("simulator"),
                 "stop_reason": value.get("stop_reason") or value.get("deferred"),
                 "function_entry": value.get("function_entry") or anchor.get("function_entry"),
-                "limitations": list(value.get("limitations") or [])[:6],
+                "limitations": result_limitations,
+                "limitations_boundary": limitations_boundary,
                 "evidence_id": str(row.get("id") or ""),
                 "observation_count": len(observations),
-                "observed_apis": dict(
-                    sorted(api_counts.items(), key=lambda pair: (-pair[1], pair[0]))[:12]
-                ),
+                # A dict again, so every existing consumer keeps working; the names are the SAME ones the
+                # pre-existing cap kept, in the same order.
+                "observed_apis": dict(published_apis),
+                "observed_apis_boundary": observed_apis_boundary,
                 "shim": shim_summary,
                 # The dependency that bounded the run, for the chapter to NAME rather than leaving a reader
                 # to parse the prose limitation (plan T2).
@@ -9283,11 +9382,31 @@ def build_emulation_status_projection(
             if overall == "DISABLED_BY_POLICY"
             else "Recorded emulator limitation; continue static recovery of start routines and decode windows. Emulator failure remains static analysis, not a sandbox/dynamic run."
         )
+        # P-1.6 TRUNCATION 1 of 5: the emulation-status RESULTS collection, the `[:12]` the plan names. Bound
+        # unchanged (no new threshold); the difference is that the pre-slice set now travels out with the
+        # published list, so the chapter (which re-capped the same merged list at `[:12]`) can state it.
+        published_results, results_boundary = _bound_published_collection(
+            results,
+            name="emulation_status_results",
+            # The triple the chapter PRINTS, occurrence-qualified - see `_emulation_result_identity` for the
+            # measured reason a UUID-based key was rejected.
+            identity_key="simulator|status|stop_reason|occurrence",
+            identity=_emulation_result_identity,
+            cap=12,
+            cap_source=(
+                "report/reporting.py::build_emulation_status_projection - the pre-existing inline `[:12]` on this "
+                "collection, carried over unchanged by P-1.6 rather than renumbered"
+            ),
+        )
         return {
             "type": "emulation_status",
             "overall": overall,
             "attempted": True,
-            "results": results[:12],
+            "results": published_results,
+            # The boundary the cap creates. P-1.3's record SHAPE, on the row the chapter already reads, for the
+            # same reason `instruction_observation_boundary` is: a remainder the consumer cannot reach is an
+            # Evidence-only fact dressed as a fix.
+            "results_boundary": results_boundary,
             "next_step": next_step,
         }
     return {
@@ -11069,7 +11188,9 @@ def _candidate_mechanism_finding(row: Mapping[str, object]) -> dict[str, object]
     return {
         "finding_id": f"candidate:{row.get('mechanism_id', 'observed')}",
         "verdict": "CANDIDATE",
-        "confidence": row.get("confidence", "MEDIUM"),
+        # P-1.6: `row.get("confidence", "MEDIUM")` gave a MISSING key a level. Absence stays absent and is named.
+        "confidence": asserted_confidence(row.get("confidence")),
+        "confidence_source": confidence_source(row.get("confidence")),
         "what": what,
         "how": path,
         "security_meaning": security_meaning,
