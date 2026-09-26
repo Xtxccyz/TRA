@@ -617,7 +617,31 @@ def _check_skill_audit(violations: Violations, artifact: Mapping[str, Any]) -> N
                                                      f"(FIXED / OPEN / RECORDED), so it cannot be told apart from prose")
 
 
+#: Markers that mean pytest never got as far as running the target test. MEASURED (P-1.3): the step's can-fail
+#: harness reported `verdict: ALL_CONTROLS_FAILED_AS_REQUIRED` while all ten controls had `exit_code: 4` and
+#: `evidence: "ERROR tests/test_analyst_report_acceptance.py"` - a collection error caused by the file being
+#: written at that moment. Not one tamper had been exercised. A non-zero exit is NOT the same claim as "the
+#: assertion failed", and the plan's M6 asks for the second.
+_PYTEST_NO_TEST_RAN: tuple[str, ...] = (
+    "errors during collection",
+    "error collecting",
+    "internalerror",
+    "no tests ran",
+    "collected 0 items",
+    "usageerror",
+)
+#: pytest's own ERROR-report prefix for a file/module, which is a collection failure rather than a test failure.
+_PYTEST_ERROR_LINE = re.compile(r"(?m)^\s*ERROR\s+\S*(?:test_|_test|conftest)\S*")
+
+
 def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]) -> None:
+    """A negative control must show the ASSERTION failing, not merely a non-zero exit.
+
+    The distinction this enforces is the one that turned a broken run into apparent evidence: pytest exits 1 when
+    a test fails, but 2/3/4/5 on usage errors, internal errors, interrupted runs and collection errors. All of
+    those are "non-zero" and none of them exercises the tamper, so a rule that accepts any non-zero exit accepts
+    a run in which the negative control was never applied. Only genuine test failures are counted here.
+    """
     controls = artifact.get("negative_controls") or []
     if not controls:
         violations.add("NEGATIVE_MISSING", "no negative control: the plan requires a result that actually fails")
@@ -633,8 +657,27 @@ def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]
         if code is None or int(code) == 0:
             violations.add("NEGATIVE_EXIT", f"negative control {name or index!r} exited {code!r}; a control that does "
                                             f"not fail proves nothing")
-        if not str(control.get("evidence") or "").strip():
+        evidence = str(control.get("evidence") or "").strip()
+        if not evidence:
             violations.add("NEGATIVE_EVIDENCE", f"negative control {name or index!r} records no evidence")
+            continue
+        folded = evidence.casefold()
+        if any(marker in folded for marker in _PYTEST_NO_TEST_RAN) or _PYTEST_ERROR_LINE.search(evidence):
+            violations.add("NEGATIVE_NO_TEST_RAN",
+                           f"negative control {name or index!r} records a collection/usage/internal error, not a "
+                           f"failing assertion: {evidence[:160]!r}")
+        elif "failed " in folded or "assertionerror" in folded:
+            # The control DID run pytest and reported a failure, so the exit code must be pytest's failure code.
+            # 2/3/4/5 here means the harness aborted instead of observing the target test fail.
+            if code is not None and int(code) != 1:
+                violations.add("NEGATIVE_NOT_A_TEST_FAILURE",
+                               f"negative control {name or index!r} reports a pytest failure but exited {code!r}; "
+                               f"only exit 1 is a failing test (2/3/4/5 are usage/internal/collection errors)")
+        node = str(control.get("node") or "").strip()
+        if node and f"failed {node}".casefold() not in folded:
+            violations.add("NEGATIVE_NODE_NOT_FAILED",
+                           f"negative control {name or index!r} names node {node!r} which the evidence does not "
+                           f"report as FAILED; the control may have run a different test")
 
 
 def _check_mechanism_coverage(violations: Violations, artifact: Mapping[str, Any]) -> None:
@@ -697,7 +740,8 @@ TAMPERS: tuple[tuple[str, str], ...] = (
     ("m3_corrupt_content_sha256", "M3"), ("m3_drop_negative_control", "M3"),
     ("m4_disconnect_consumer_from_control", "M4"), ("m4_json_only_proof", "M4"),
     ("m5_publish_count_only", "M5"), ("m5_drop_expected_minus_actual", "M5"),
-    ("negative_control_zero_exit", "M6"), ("ownership_overlap", "M6"),
+    ("negative_control_zero_exit", "M6"), ("negative_control_collection_error", "M6"),
+    ("ownership_overlap", "M6"),
     ("scope_escape", "M6"),
 )
 
@@ -750,6 +794,14 @@ def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifa
         need("set_differences")[0].pop("expected_minus_actual", None)
     elif name == "negative_control_zero_exit":
         need("negative_controls")[0]["exit_code"] = 0
+    elif name == "negative_control_collection_error":
+        # The shape a real broken run produced (P-1.3): a NON-ZERO exit that proves nothing because pytest never
+        # ran the target test. The tamper must be rejected on the exit code AND on the evidence, so a validator
+        # that only counts non-zero exits cannot pass this.
+        control = need("negative_controls")[0]
+        control["exit_code"] = 4
+        control["evidence"] = "ERROR tests/test_analyst_report_acceptance.py"
+        control.pop("node", None)
     elif name == "ownership_overlap":
         ownership["overlap"] = [{"file": "src/threat_report_agent/service.py", "claimed_by": ["root", "T1/T2"]}]
         ownership["overlap_verdict"] = "OVERLAP - P-0.2 MUST NOT RUN"

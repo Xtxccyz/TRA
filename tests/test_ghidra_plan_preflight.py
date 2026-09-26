@@ -197,6 +197,48 @@ def test_m6_blocks_a_negative_control_that_did_not_fail() -> None:
     assert "NEGATIVE_EXIT" in codes
 
 
+def test_m6_blocks_a_collection_error_recorded_as_a_negative_control() -> None:
+    """MEASURED (P-1.3): a can-fail harness reported `ALL_CONTROLS_FAILED_AS_REQUIRED` while every control was a
+    pytest COLLECTION error (`exit_code: 4`, `ERROR tests/...`) caused by the test file being written at that
+    moment. Non-zero is not the same claim as "the assertion failed", and a gate that accepts any non-zero exit
+    accepts a run in which no tamper was ever exercised."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "collection_error", "exit_code": 4, "evidence": "ERROR tests/test_analyst_report_acceptance.py"}])
+    codes = _codes(_validate(artifact))
+    assert "NEGATIVE_NO_TEST_RAN" in codes, "a collection error was accepted as a failing negative control"
+    assert "NEGATIVE_EXIT" not in codes, "the exit code is non-zero; the rejection must name the real reason"
+
+
+def test_m6_blocks_a_pytest_failure_reported_with_a_non_failure_exit_code() -> None:
+    """The narrower half of the same rule: the run DID report a failing assertion, so the exit code must be
+    pytest's failure code. An abort (3) or a usage error (4) after a `FAILED` line is an inconsistent record."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "aborted_after_failing", "exit_code": 3,
+         "evidence": "FAILED tests/test_x.py::test_y - AssertionError: the boundary never reached the body"}])
+    assert "NEGATIVE_NOT_A_TEST_FAILURE" in _codes(_validate(artifact))
+
+
+def test_m6_blocks_a_control_whose_named_node_did_not_fail() -> None:
+    """A control may not NAME one node and record the failure of another: the node must appear as FAILED."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "wrong_node", "exit_code": 1, "node": "tests/test_x.py::test_the_intended_one",
+         "evidence": "FAILED tests/test_x.py::test_a_different_one - AssertionError: x"}])
+    assert "NEGATIVE_NODE_NOT_FAILED" in _codes(_validate(artifact))
+
+
+def test_m6_accepts_a_script_control_with_its_own_non_zero_convention() -> None:
+    """BACKWARD COMPATIBILITY, measured against the recorded artifacts: not every control is pytest. P-0.4's
+    deployment-gate control exits 2 and P-1.1's wrong-revision SQL probe exits 3, both by their own convention.
+    Tightening the rule must not invalidate a real control of that shape."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "deployment_gate_exits_non_zero_when_docker_is_unavailable", "exit_code": 2,
+         "evidence": "- Docker is unavailable, so deployment consistency CANNOT be checked"},
+        {"name": "wrong_revision_returns_no_row_for_the_same_sql", "exit_code": 3,
+         "evidence": "WRONG-REVISION CONTROL: 0 rows for a revision id absent from 32 tables; exit non-zero"},
+    ])
+    assert _codes(_validate(artifact)) == set(), "a genuine script-shaped control was rejected by the new rule"
+
+
 def test_m6_blocks_an_ownership_overlap() -> None:
     ownership = json.loads(json.dumps(OWNERSHIP))
     ownership["overlap"] = [{"file": "src/threat_report_agent/service.py", "claimed_by": ["root", "T1/T2"]}]
