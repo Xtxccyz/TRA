@@ -201,14 +201,38 @@ class EvidenceQueryRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
 
 
-_FAILURE_INTERPRETATION_TOKENS = ("NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "UNKNOWN")
+_FAILURE_INTERPRETATION_TOKENS = ("NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "UNKNOWN", "MODEL_TRANSPORT_FAILURE")
+
+#: Prose markers that can only describe the MODEL/TRANSPORT side of a failed action, never the artifact. Deliberately
+#: excludes a bare `TIMEOUT`/`TIMED_OUT`, which can equally describe a TOOL timeout (a real extraction gap).
+_MODEL_TRANSPORT_MARKERS = (
+    "402",
+    "401",
+    "429",
+    "MODEL_",
+    "PROVIDER",
+    "TRANSPORT",
+    "EMPTY_REPLY",
+    "EMPTY REPLY",
+    "RATE_LIMIT",
+    "UNAVAILABLE",
+    "DEPENDENCY",
+)
 
 
 def _coerce_failure_interpretation(raw: object) -> tuple[str, str]:
-    """Map DSH prose onto the catalog token; leftover text belongs in failure_meaning."""
+    """Map DSH prose onto the catalog token; leftover text belongs in failure_meaning.
+
+    TRANSPORT IS CHECKED FIRST, ON PURPOSE. MEASURED (B00/B04 handoff): a client that writes
+    "could not establish STATIC_BOUNDARY: provider returned 402" must be recorded as a MODEL transport failure. The
+    substring loop below would otherwise see `STATIC_BOUNDARY` and file a platform fault as a property of the SAMPLE.
+    """
     text = str(raw or "").strip()
     if text in _FAILURE_INTERPRETATION_TOKENS:
         return text, ""
+    folded_early = text.upper().replace("-", "_").replace(" ", "_")
+    if any(marker.replace(" ", "_") in folded_early for marker in _MODEL_TRANSPORT_MARKERS):
+        return "MODEL_TRANSPORT_FAILURE", text
     folded = text.upper().replace("-", "_")
     token = "UNKNOWN"
     for candidate in ("NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "UNKNOWN"):
@@ -234,7 +258,9 @@ class WorkbenchActionRequest(BaseModel):
     target_selector: dict[str, str | int]
     expected_evidence_kinds: list[str] = Field(min_length=1, max_length=32)
     success_condition: str = Field(default="new_targeted_evidence", min_length=1, max_length=160)
-    failure_interpretation: Literal["UNKNOWN", "NO_NEW_EVIDENCE", "STATIC_BOUNDARY"] = "UNKNOWN"
+    failure_interpretation: Literal[
+        "UNKNOWN", "NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "MODEL_TRANSPORT_FAILURE"
+    ] = "UNKNOWN"
 
     @model_validator(mode="before")
     @classmethod

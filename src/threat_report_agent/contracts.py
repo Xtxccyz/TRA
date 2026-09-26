@@ -366,6 +366,12 @@ class FailureInterpretation(StrEnum):
     UNKNOWN = "UNKNOWN"
     NO_NEW_EVIDENCE = "NO_NEW_EVIDENCE"
     STATIC_BOUNDARY = "STATIC_BOUNDARY"
+    # WHY THIS MEMBER EXISTS: the DSH track measured that a provider 402 / timeout / empty reply never arrives as an
+    # HTTP status - it sits inside `attempts[].http_status/error_type` on an HTTP-200 `{status: "FAILED"}` - and that
+    # the adapter used to collapse all of them into one string. Without a token of its own, a client had to file a
+    # MODEL failure as NO_NEW_EVIDENCE/STATIC_BOUNDARY, i.e. as a statement about the SAMPLE. A model or transport
+    # fault is a fact about the platform and must never be recorded as a static boundary of the artifact.
+    MODEL_TRANSPORT_FAILURE = "MODEL_TRANSPORT_FAILURE"
 
 
 def normalize_target_selector(

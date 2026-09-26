@@ -338,6 +338,39 @@ def test_session_action_accepts_prose_failure_interpretation(test_settings) -> N
         assert "GET_DECOMPILE" in combined
 
 
+def test_a_model_transport_failure_is_never_coerced_into_a_static_boundary() -> None:
+    """B00/B04 handoff: a provider 402/timeout/empty reply is a PLATFORM fact, not a property of the sample.
+
+    The DSH track measured that those failures arrive inside `attempts[]` on an HTTP-200 `{status: "FAILED"}`, so a
+    client that only says "could not establish STATIC_BOUNDARY: provider returned 402" must not have that recorded as a
+    static boundary of the artifact. The transport markers are checked BEFORE the substring loop for exactly that
+    reason, and a plain STATIC_BOUNDARY statement must still map to itself.
+    """
+    from threat_report_agent.main import WorkbenchActionRequest, _coerce_failure_interpretation
+
+    assert _coerce_failure_interpretation("provider returned 402 for the model call")[0] == "MODEL_TRANSPORT_FAILURE"
+    assert _coerce_failure_interpretation("could not establish STATIC_BOUNDARY: provider 402")[0] == (
+        "MODEL_TRANSPORT_FAILURE"
+    ), "transport evidence must outrank the STATIC_BOUNDARY substring"
+    assert _coerce_failure_interpretation("MODEL_CALLS_DISABLED")[0] == "MODEL_TRANSPORT_FAILURE"
+    assert _coerce_failure_interpretation("EMPTY_REPLY from the provider")[0] == "MODEL_TRANSPORT_FAILURE"
+    # No over-reach: an honest static boundary, a no-gain statement and an ambiguous TOOL timeout keep their meaning.
+    assert _coerce_failure_interpretation("STATIC_BOUNDARY: the payload needs a live server")[0] == "STATIC_BOUNDARY"
+    assert _coerce_failure_interpretation("NO_NEW_EVIDENCE")[0] == "NO_NEW_EVIDENCE"
+    assert _coerce_failure_interpretation("tool TIMED_OUT after 30s")[0] == "UNKNOWN"
+
+    request = WorkbenchActionRequest(
+        action_type="GET_STRINGS_REFERENCED",
+        target_artifact_id="artifact-1",
+        reason="model call failed before any action could run",
+        target_selector={"target": "strings"},
+        expected_evidence_kinds=["string_reference"],
+        failure_interpretation="transport error: provider 402, no completion returned",
+    )
+    assert request.failure_interpretation == "MODEL_TRANSPORT_FAILURE"
+    assert request.failure_meaning, "the original prose must survive as the failure meaning, not be discarded"
+
+
 def test_session_action_accepts_dsh_selector_aliases_and_long_success_condition(test_settings) -> None:
     """Live DSH sessions 422'd on function_name, length, and 160-char success_condition."""
     with TestClient(create_app(test_settings)) as client:
