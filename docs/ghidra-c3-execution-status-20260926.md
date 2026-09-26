@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.2`**；状态机当前允许：`['P-1.2']`
-- 代码提交 `git_head = 87ff718465c2e7f453f0b44c8dc86a78e08c8a90`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = d968e455d2fdf2d752cd679b2f32ab590dfcb443`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -91,7 +91,7 @@
 
 ```json
 {
-  "measured_at_head": "87ff718465c2e7f453f0b44c8dc86a78e08c8a90",
+  "measured_at_head": "d968e455d2fdf2d752cd679b2f32ab590dfcb443",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -105,7 +105,7 @@
 
 ```json
 {
-  "measured_at_head": "87ff718465c2e7f453f0b44c8dc86a78e08c8a90",
+  "measured_at_head": "d968e455d2fdf2d752cd679b2f32ab590dfcb443",
   "p1_3_observation_cap": {
     "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
     "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
@@ -154,9 +154,9 @@
 ## 四、部署门（P-0.4 / P-2）
 
 - `gate_state = BLOCKED`
-- 原因：Docker Desktop unreachable on this host (measured 2026-09-26: `docker version` exits 1 with `npipe:////./pipe/dockerDesktopLinuxEngine` not found), so no HEAD/worktree/container manifest can be taken and no service-set difference can be computed.
+- 原因：Docker Desktop unreachable on this host (measured 2026-09-26: `docker version` exits 1 with `npipe:////./pipe/dockerDesktopLinuxEngine` not found), so no container manifest can be taken and no service-set difference can be computed.
 - 最后一次通过：`58e9323bd9e01cbbff8f538c17f8d8cc6e99c8e2`
-- 记录标志：`deployment_gate_head_unverified`
+- 记录标志：`SUPERSEDED by three_way_manifest (kept so a reader who saw the old flag can trace it)`
 - 后果：按计划 P-1.7/P-2，P-1 可以完成代码与测试，但其部署状态只能是 `P-1_COMPLETE_DEPLOYMENT_BLOCKED`；**本机 pytest 通过不得写成部署通过**。
 
 ## 五、后继者必须知道的事
