@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.2`**；状态机当前允许：`['P-1.2']`
-- 代码提交 `git_head = 57820b44546cafb8acd70701def3a27c4494c021`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 0bd7582a1a103a9aa4226c12a256b419c7992561`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -52,6 +52,8 @@
   - MEASURED at runtime (`.scratch/probe-t3-service-loop.py`, which reuses the test module's own `_seed_t3_task` so the probe cannot drift from the fixture): ONE `service.run_investigation_loop(task_id)` invocation records exactly ONE action row - `CONTROLLED_EMULATE`, target `0x401040` (the worker entry), status SUCCEEDED - so the distinct-type set is `['CONTROLLED_EMULATE']`, and the call returns `[]`
   - CAUSE: the thread takes `LOOP_PATH_PERSIST_READY` (`investigation/derivation.py:5869-5923`). That path is BY DESIGN emulation-only - it keeps `_keep_emulation_after_persist_skip(proposed_actions)` plus `_persist_ready_emulation_actions(...)` and runs with `max_rounds=1` and `max_total_steps=max(1, len(emu_actions))`. The planner frontier that offers the >= 4 distinct types is only consulted on the OTHER path, in the `else` branch at 6009-6033, so a persist-ready thread can never produce the breadth this test asserts
   - SO THE OPEN QUESTION IS A DESIGN ONE, not a bug in one line: either this fixture's `thread` cluster must not be classified persist-ready, or the persist-ready path must also consume the planner frontier. Both change which actions an investigation runs, so it is T3 scope and must be taken as its own step with an artifact - NOT smuggled into a P-1 step
+  - ROUND 167 CORRECTION, measured before anyone 'fixes' intended behaviour: `next_investigation_loop_path` (`investigation/loop_path.py:176-193`) makes PERSIST_READY the DELIBERATE outcome when `persist_how.disposition == PERSIST_HOW_READY`, and its docstring states the intent - "Persist HOW skip beats budget; budget beats DeepMiningPlanner. READY / BOUNDARY still run leftover CONTROLLED_EMULATE." So one action on a persist-ready thread is not automatically a defect; the T3 step must first decide whether this fixture's evidence really amounts to a persisted HOW
+  - THE SHARPER UNEXPLAINED HALF, and the better place to start: the fixture seeds TWO clusters - `cluster-tls-callback` (category `thread`) and `cluster-worker` (category `thread_start_routine`, question "What unique loop runs inside the start routine at 0x401040?") - yet the whole run recorded ONE action, on target 0x401040. The documented design explains why the CALLBACK thread narrows to emulation; it does NOT explain why the worker cluster produced no action of its own. Start there
   - `investigation/derivation.py:5238-5281` is where an action row is marked `error = "NO_NEW_EVIDENCE"`; the second failing test sees zero such rows, which follows from the same single-action run
   - UNVERIFIED: the probe printed `threads seeded: 0` after the run from a FRESH session. That is consistent with the service not persisting thread rows, but a fresh session reading a task it did not write can also mask a commit - confirm before relying on it
 
@@ -85,7 +87,7 @@
 
 ```json
 {
-  "measured_at_head": "57820b44546cafb8acd70701def3a27c4494c021",
+  "measured_at_head": "0bd7582a1a103a9aa4226c12a256b419c7992561",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -99,7 +101,7 @@
 
 ```json
 {
-  "measured_at_head": "57820b44546cafb8acd70701def3a27c4494c021",
+  "measured_at_head": "0bd7582a1a103a9aa4226c12a256b419c7992561",
   "p1_3_observation_cap": {
     "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
     "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
