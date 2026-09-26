@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.3`**；状态机当前允许：`['P-1.3']`
-- 代码提交 `git_head = b8acf93d0286718424d97da4e9023f80a5170909`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 68af9270c0b462524df36c5996cc121e059b2e7f`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -17,7 +17,7 @@
 | P-0.3 | complete | `.scratch/ghidra-c3/preflight/P-0.3-artifact.json` | blocking preflight delivered: 11 self-test tamper(s) rejected with real non-zero exits, 2 skipped and covered by named unit tests; 12 negative control(s) recorded; M3 bound to a real SQL round trip against a schema created by the product's own `Database.create_schema()`. |
 | P-0.4 | complete | `.scratch/ghidra-c3/preflight/P-0.4-artifact.json` | call contract pinned without touching the gate: default services ['api', 'intake-worker', 'document-worker', 'parser-worker', 'script-worker', 'control-worker', 'emu-worker', 'ghidra-worker']; deployment BLOCKED (deployment_gate_head_unverified); 4 negative control(s) recorded. |
 | P-1.1 | complete | `.scratch/ghidra-c3/preflight/P-1.1-artifact.json` | 6 file(s) changed; 21 negative control(s), 21 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: input_partition; SQL-bound task 0432d5eb |
-| P-1.2 | complete | `.scratch/ghidra-c3/preflight/P-1.2-artifact.json` | 2 file(s) changed; 18 negative control(s), 18 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: [pipeline] Tool run <tool_name> ended <STATUS>: <error|no error recorded>.; SQL-bound task bd91ad88 |
+| P-1.2 | complete | `.scratch/ghidra-c3/preflight/P-1.2-artifact.json` | 2 file(s) changed; 18 negative control(s), 18 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: [pipeline] Tool run <tool_name> ended <STATUS>: <error|no error recorded>.; SQL-bound task 24b035b8 |
 | P-0.2-r2 | complete | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 12; NEW (regressions) = none; GONE (fixed) = ['tests/test_model_package_contract.py::test_no_production_module_imports_a_moved_model_module_by_its_old_path', 'tests/test_structure_diff_gate.py::test_a_pure_move_passes_the_surface_gate', 'tests/test_structure_diff_gate.py::test_the_surface_file_is_current']. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
@@ -92,7 +92,7 @@
 
 ```json
 {
-  "measured_at_head": "b8acf93d0286718424d97da4e9023f80a5170909",
+  "measured_at_head": "68af9270c0b462524df36c5996cc121e059b2e7f",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -106,7 +106,7 @@
 
 ```json
 {
-  "measured_at_head": "b8acf93d0286718424d97da4e9023f80a5170909",
+  "measured_at_head": "68af9270c0b462524df36c5996cc121e059b2e7f",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -145,10 +145,10 @@
 ### P-1.2 验收暂缓（artifact 通过，但测试不稳定）
 
 - 状态：**NOT ACCEPTED YET - the artifact validates but the step's tests are FLAKY, so the step is on hold**
-- 实测：same command, two consecutive runs: `py -m pytest -q tests/test_failed_tool_run_status_reaches_the_official_body.py tests/test_cancelled_task_report_body_contract.py -p no:randomly` gave `3 failed, 12 passed` once and `15 passed` the next time, and each file ALONE passes. So the result depends on timing or on which file ran first
-- 为什么阻断：the plan's acceptance is a NODE SET, and a test that can go red at random would poison the gate I added for exactly that comparison. The step's own skill audit F3 already names the likely cause: a cancellation aimed at the finalize window from a second thread blocking on the finalize transaction's open write
-- 已要求该步：remove the nondeterminism at the root (no wall-clock sleep or timeout as the only synchronisation, no unbounded wait, no ordering dependence), prove stability by running both files together at least five times with the counts reported, then refresh the artifact fields the fix changes
-- 门禁语义：the artifact itself exits 0; the HOLD is mine and is recorded here rather than lost in chat
+- 实测：16 runs of the pair with `-p no:randomly`: 15 passed, 1 failed (`test_failed_tool_run_status_reaches_the_official_body.py::test_repeated_identical_runs_collapse_to_one_bullet_and_distinct_ones_survive`). One EARLIER batch gave `3 failed, 12 passed` but coincided with the step editing its own files, so only the single-failure batch counts as clean evidence. Each file ALONE passes (11 passed, 3 runs).
+- 为什么阻断：the plan's acceptance is a NODE SET, and a test that can go red at random would show up as a regression inside an UNRELATED step's gate
+- 已要求该步：name the side and prove it; state the synchronisation mechanism in one sentence; run the pair at least 8 times and the single file 5 times and report the counts; then refresh the artifact fields the fix changes
+- 门禁语义：the artifact itself exits 0; the HOLD is mine and is recorded here rather than lost in chat, and the two test files are deliberately NOT committed while it stands
 
 ### 最后两个基线节点的修复（全套件转绿）
 
