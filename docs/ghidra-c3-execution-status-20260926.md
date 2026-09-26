@@ -3,8 +3,8 @@
 > 本文件由 `.scratch/ghidra-c3-execution-status.json` **程序化生成**（`.scratch/render-ghidra-status.py`）。`.scratch/` 被 gitignore，因此把主计划的权威状态在此留一份被跟踪的记录。**本文件与结构计划的状态是两套状态，不得合并**：结构计划见 `docs/structure-execution-status-20260922.md`。
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
-- **当前步骤 `current_step = P-0.3`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = 3c443d38c82f5ca022740f4a1917225b842cd59b`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- **当前步骤 `current_step = P-1.1`**；状态机当前允许：`['P-1.1']`
+- 代码提交 `git_head = bc21b9f63eb6be6616f88a26f5830a09607dfffc`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 

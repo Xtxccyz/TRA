@@ -1,6 +1,6 @@
 # 结构优化执行状态（方案 `code-structure-optimization-execution-plan-reviewed-20260922.md`）
 
-> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 122 条，本文件只汇总。
+> 本文件由 `.scratch/structure-status.json` **程序化生成**（`.scratch/render-structure-status.py`）。`.scratch/` 被 gitignore，因此把最终状态在此留一份被跟踪的记录。逐步骤的完整字段（allowed_files / commands / focused_result / full_result / new_failures / import_graph / module_identity / deployment_smoke / behavior_probe_diff / rollback_point / decision）在 `step_records`，共 124 条，本文件只汇总。
 
 - **被核验的代码树 = 提交 `58e9323bd9e0`**（四道门禁与全量套件在它的 tree 上通过）；当前 `head_sha` `4226e64b1fee` 只改了 `docs/`，实测 `git diff --name-only 58e9323bd9e0..4226e64b1fee -- src tests` 为空，所以 `src/` 与 `tests/` 仍等于被核验的那棵树。**部署门禁例外**：Docker Desktop 当前不可达，`check-deployed-code-hashes.py --strict` 无法运行。
 - `head_sha` 的语义：`head_sha` = **被核验的代码提交**，不是「当前 HEAD」。ROUND 161: 值从 `7ecb6b4` 修正为 `4226e64b1fee`——它此前落后了三个提交，且被指向的 final state 还在描述一个已不存在的树。**该提交只改了 `docs/`**；真正跑过四道门禁与全量套件的代码提交是 `58e9323bd9e0`（P3.7 facade batch 8），实测 `git diff --name-only 58e9323bd9e0..4226e64b1fee -- src tests` 为空，即两者的 `src/` 与 `tests/` 逐字节相同。任何 `src/` 改动都会重新欠一次门禁；Docker 当前不可用，因此 `deployment.gate_state = BLOCKED`，最后一次 PASS 停留在 `58e9323bd9e0`。
@@ -9,6 +9,7 @@
 
 ### 读取指引：本文件的哪一部分代表**当前**状态
 
+- **当前主计划是 `.scratch/plan-ghidra-b3-c3-execution-plan-reviewed-20260922.md`**（状态见 `main_plan_state` 与 `docs/ghidra-c3-execution-status-20260926.md`）。本结构计划是**子计划**：P3.7 已冻结为 `REQUIRES_REDESIGN`，结构步骤不再阻塞功能开发。
 - **权威内容 = `step_records` + `authoritative_final_state` 指定的那一个 `final_state_*` 对象（当前是 `final_state_round_161_governance`）。** 顶层 `head_sha` / `current_step` / `structure_status` / `p37_status` / `behavior_plan_state` 与它一致。
 - **Round 161 修复过一次失真**：此前顶层 `head_sha` 仍是 `7ecb6b4`、`current_step` 仍是 `P3.7-recount`，被指向的 final state 仍写着 P3.5 准备未完成、DSH 4/8。凡与 `authoritative_final_state` 冲突的散文一律以该对象为准。
 - 其余 `final_state_round_*` 都是**历史**（带 `superseded_by`）；它们的 `what_a_successor_must_do_first` 可能点名早已完成的工作，**不要照它执行**。
@@ -104,6 +105,8 @@ BLOCKED at 4226e64: Docker Desktop is unreachable (`docker version` exit 1, `npi
 - P3.3-layer2
 - P3.3e-design
 - GOVERNANCE-P37-FREEZE
+- MAIN-PLAN-P0-REFERENCE
+- MAIN-PLAN-P0-REFERENCE
 
 ## 五、审计历史
 
