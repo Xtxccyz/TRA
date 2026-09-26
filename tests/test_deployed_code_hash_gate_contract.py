@@ -100,21 +100,51 @@ def test_an_unavailable_daemon_is_reported_as_a_distinct_state_not_as_a_pass() -
     assert "CANNOT be checked" in completed.stdout, "the gate must say what it could not check, not merely fail"
 
 
-def test_the_head_manifest_is_recorded_as_not_implemented(gate) -> None:
-    """MEASURED LIMITATION (plan P-0.4 failure rule -> `deployment_gate_head_unverified`).
+def test_the_three_way_manifest_exists_and_publishes_set_differences(gate) -> None:
+    """P-2.1 LANDED (round 169). This pin USED to assert `three_way == []` and told its reader to invert it here when
+    the capability appeared - which is exactly what happened, so the assertion below replaces it deliberately.
 
-    Today the gate compares the WORKING TREE against the containers. That is a real, byte-level comparison - but it is
-    not a HEAD comparison, and the plan forbids reading it as one. When P-2.1 lands a three-way manifest this test must
-    change, on purpose.
+    What P-2.1 demands is a HEAD/worktree/container manifest that publishes SET DIFFERENCES rather than an "ALL MATCH"
+    slogan, and a negative control: the container on an older revision, or HEAD moving ahead of the worktree, must be
+    non-zero.
     """
-    head_sha, note = gate.git_state()
-    assert head_sha and head_sha != "UNKNOWN", "the gate must be able to name the current commit"
-    assert "HEAD" in note
-    three_way = [name for name in dir(gate) if "head_manifest" in name or "three_way" in name]
-    assert three_way == [], (
-        f"a three-way manifest appears to exist now ({three_way}); P-2.1 must then be re-run and this pin updated"
+    files = gate.manifest()
+    report = gate.three_way_manifest(files, ["api", "emu-worker"])
+    for key in ("head_sha", "head", "worktree", "container", "container_state", "head_vs_worktree",
+                "container_vs_worktree", "services", "manifest_size"):
+        assert key in report, f"the three-way manifest has no `{key}`"
+    difference = report["head_vs_worktree"]
+    for key in ("expected_minus_actual", "actual_minus_expected", "content_differs", "line_ending_only"):
+        assert key in difference, f"the HEAD/worktree difference has no `{key}`"
+    assert set(difference["line_ending_only"]) <= set(difference["content_differs"]), (
+        "a line-ending-only difference is a subset of the raw differences by construction"
     )
-    for name in ("manifest", "host_hashes"):
-        assert hasattr(gate, name), "the worktree half of the comparison is what exists today"
-    # The recorded state for the main plan's status file, asserted here so it cannot be lost in prose.
-    assert "deployment_gate_head_unverified", "the flag the plan names for this limitation"
+    assert report["head"] and report["worktree"], "both sources must actually be hashed"
+
+
+def test_a_line_ending_difference_is_told_apart_from_a_content_change(gate, tmp_path) -> None:
+    """MEASURED (round 169): the first run reported 21 files as differing from HEAD while `git status` listed one - the
+    repository's recorded EOL drift (`core.autocrlf` with no `.gitattributes`). Reporting that as content drift is
+    wrong; normalising the ONLY comparison would be worse, because it would hide a real change."""
+    (tmp_path / "crlf.txt").write_bytes(b"a\r\nb\r\n")
+    (tmp_path / "lf.txt").write_bytes(b"a\nb\n")
+    crlf_raw = gate.hashlib.sha256((tmp_path / "crlf.txt").read_bytes()).hexdigest()
+    lf_raw = gate.hashlib.sha256((tmp_path / "lf.txt").read_bytes()).hexdigest()
+    folded = gate.normalized_hashes(tmp_path, ["crlf.txt", "lf.txt"])
+    differing = gate.set_difference({"f": lf_raw}, {"f": crlf_raw})
+    assert differing["content_differs"] == ["f"], "raw bytes differ, and that must stay visible"
+    assert folded["crlf.txt"] == folded["lf.txt"], (
+        "the folded hash must erase a line-ending-only difference, which is what separates it from a content change"
+    )
+
+
+def test_the_cli_reports_a_distinct_partial_state_without_a_daemon() -> None:
+    """Without a daemon the container half is UNAVAILABLE - a state, not an empty comparison that reads as "no
+    differences"."""
+    completed = subprocess.run([sys.executable, str(GATE), "--three-way"], cwd=ROOT, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+    assert "container_state" in completed.stdout
+    assert completed.returncode != 0, "an unavailable container half must not exit zero"
+    assert ("PARTIAL" in completed.stdout) or ("BLOCKED" in completed.stdout), (
+        "the gate must name the state it is in: PARTIAL (HEAD == worktree, no daemon) or BLOCKED (tree is not HEAD)"
+    )

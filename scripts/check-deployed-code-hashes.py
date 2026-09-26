@@ -37,9 +37,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src" / "threat_report_agent"
@@ -157,6 +159,114 @@ def host_hashes(files: list[str]) -> dict[str, str]:
         digest = hashlib.sha256((SOURCE / name).read_bytes()).hexdigest()
         digests[name] = digest
     return digests
+
+
+def head_hashes(files: list[str]) -> tuple[dict[str, str], dict[str, str], str]:
+    """HEAD's BLOBS as `(raw digests, CRLF-folded digests, commit)`.
+
+    P-2.1 asks for a HEAD/worktree/container three-way manifest. MEASURED (P-0.4): this gate compared the WORKING TREE
+    against the containers and printed the commit only as a note, so a dirty tree that happened to match the containers
+    read as a deployment of that commit. Reading HEAD is the third source, and it is read with `git show` (never a
+    tree-level command) so the working tree is untouched.
+
+    A file with no blob at HEAD (newly added, not yet committed) is OMITTED rather than hashed as empty, because an
+    empty blob is a value and "absent from the commit" is not.
+    """
+    head_code, head_out = run(["git", "rev-parse", "HEAD"])
+    head_sha = head_out.strip().splitlines()[0] if head_code == 0 and head_out.strip() else "UNKNOWN"
+    digests: dict[str, str] = {}
+    folded: dict[str, str] = {}
+    for name in files:
+        code, output = run(["git", "show", f"{head_sha}:{(SOURCE / name).relative_to(ROOT).as_posix()}"])
+        if code != 0:
+            continue
+        payload = output.encode("utf-8", errors="surrogateescape")
+        digests[name] = hashlib.sha256(payload).hexdigest()
+        folded[name] = hashlib.sha256(payload.replace(b"\r\n", b"\n")).hexdigest()
+    return digests, folded, head_sha
+
+
+def normalized_hashes(root: Path, files: list[str]) -> dict[str, str]:
+    """SHA256 with CRLF folded to LF, so a line-ending artefact can be TOLD APART from a content change.
+
+    MEASURED (round 169, first run of the three-way manifest): 21 files reported as differing between HEAD and the
+    working tree while `git status` listed ONE. The cause is the repository's recorded, pre-existing drift -
+    `core.autocrlf=true` with no `.gitattributes`, so `git show` returns LF blobs and the checkout materialises CRLF.
+    Reporting that as a content change would be wrong, and hiding it by normalising the ONLY comparison would be worse:
+    the two are computed separately and both are published.
+    """
+    digests: dict[str, str] = {}
+    for name in files:
+        try:
+            raw = (root / name).read_bytes()
+        except OSError:
+            continue
+        digests[name] = hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
+    return digests
+
+
+def set_difference(expected: Mapping[str, str], actual: Mapping[str, str]) -> dict[str, list[str]]:
+    """The plan's M5 shape: `expected_minus_actual` and `actual_minus_expected`, never a count."""
+    shared = set(expected) & set(actual)
+    return {
+        "expected_minus_actual": sorted(set(expected) - set(actual)),
+        "actual_minus_expected": sorted(set(actual) - set(expected)),
+        "content_differs": sorted(name for name in shared if expected[name] != actual[name]),
+    }
+
+
+def three_way_manifest(files: list[str], services: list[str]) -> dict[str, object]:
+    """P-2.1's three-way manifest, as a value a caller can consume instead of a slogan.
+
+    `container` is `None` with a reason when the daemon is unreachable - a DISTINCT state, never an empty dict that
+    would compare equal to "no files to check".
+    """
+    worktree = host_hashes(files)
+    head, head_folded, head_sha = head_hashes(files)
+    worktree_folded = normalized_hashes(SOURCE, files)
+    available, detail = docker_available()
+    containers: dict[str, dict[str, str]] = {}
+    container_state = {"available": False, "reason": detail.strip()[:200], "services": {}}
+    if available:
+        container_state["available"] = True
+        for service in services:
+            if container_name(service) not in detail:
+                container_state["services"][service] = {"state": "NOT RUNNING"}
+                continue
+            root, note = loaded_root(service)
+            hashes, error = container_hashes(service, files, root)
+            container_state["services"][service] = (
+                {"state": "READ", "root": root, "note": note, "hashes": hashes} if hashes is not None
+                else {"state": "UNREADABLE", "note": note, "error": error}
+            )
+            containers[service] = hashes or {}
+    return {
+        "head_sha": head_sha,
+        "services": list(services),
+        "manifest_size": len(files),
+        "head": head,
+        "worktree": worktree,
+        "container": containers,
+        "container_state": container_state,
+        "head_vs_worktree": {
+            **set_difference(head, worktree),
+            # Split the raw difference into "line endings only" and "real content", because the repository's recorded
+            # EOL drift (core.autocrlf, no .gitattributes) makes the raw number misleading in one direction, and
+            # normalising the only comparison would hide a real change in the other.
+            "line_ending_only": sorted(
+                name for name in set(head) & set(worktree)
+                if head[name] != worktree[name] and head_folded.get(name) == worktree_folded.get(name)
+            ),
+        },
+        "container_vs_worktree": {
+            service: set_difference(worktree, containers.get(service, {})) for service in containers
+        },
+        "how_to_read": (
+            "`head_vs_worktree` non-empty means the working tree is NOT the commit named here - a comparison against "
+            "containers then says nothing about that commit. `container_vs_worktree` is the deployment comparison. A "
+            "count is never the answer: the sets are."
+        ),
+    }
 
 
 def run(cmd: list[str], timeout: int = 120) -> tuple[int, str]:
@@ -283,10 +393,48 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="any mismatch or missing file fails")
     parser.add_argument("--self-check", action="store_true", help="validate environment and manifest only")
     parser.add_argument("--import-smoke", action="store_true", help="also import the target packages in-container")
+    parser.add_argument("--three-way", action="store_true",
+                        help="P-2.1: emit the HEAD/worktree/container manifest as SET DIFFERENCES and exit non-zero "
+                             "when HEAD and the working tree disagree")
+    parser.add_argument("--manifest-json", default="", help="write the three-way manifest to this path")
     args = parser.parse_args()
 
     files = manifest()
     services = [item.strip() for item in args.services.split(",") if item.strip()] or list(DEFAULT_SERVICES)
+
+    if args.three_way or args.manifest_json:
+        report = three_way_manifest(files, services)
+        differences = report["head_vs_worktree"]
+        container_available = bool(report["container_state"]["available"])
+        print(f"head        : {str(report['head_sha'])[:12]}")
+        print(f"manifest    : {report['manifest_size']} file(s) in each of HEAD and the working tree")
+        print(f"head_vs_worktree        : {differences}")
+        print(f"container_state         : available={container_available} "
+              f"reason={str(report['container_state']['reason'])[:70]!r}")
+        for service, diff in report["container_vs_worktree"].items():
+            print(f"container_vs_worktree[{service}]: {diff}")
+        print(f"container_state.services: {json.dumps(report['container_state']['services'], ensure_ascii=False)[:300]}")
+        if args.manifest_json:
+            Path(args.manifest_json).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"manifest written to {args.manifest_json}")
+        drift = bool(differences["expected_minus_actual"] or differences["actual_minus_expected"]
+                     or [name for name in differences["content_differs"]
+                         if name not in differences.get("line_ending_only", [])])
+        if drift:
+            print("\nBLOCKED: the working tree is NOT the commit named above, so no container comparison can speak "
+                  "about that commit")
+            return 2
+        if differences.get("line_ending_only"):
+            print(f"\nNOTE: {len(differences['line_ending_only'])} file(s) differ from HEAD in LINE ENDINGS only "
+                  f"(recorded repo-wide drift: core.autocrlf with no .gitattributes). They are listed under "
+                  f"`head_vs_worktree.line_ending_only` and are NOT counted as content drift - but a byte-exact HEAD "
+                  f"comparison does not exist in this repository.")
+        if not container_available:
+            print("\nPARTIAL: HEAD and the working tree agree; the container half is UNAVAILABLE (no daemon), so this "
+                  "is MATCHED_TO_WORKTREE_ONLY, never a deployment result")
+            return 2
+        print("\nMATCHED_TO_HEAD: HEAD == worktree, and the container sets are reported above as differences")
+        return 0
 
     print(f"source root : {SOURCE}")
     print(f"manifest    : {len(files)} file(s), enumerated from disk (not a fixed list)")
