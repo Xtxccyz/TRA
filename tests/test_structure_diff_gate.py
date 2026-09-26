@@ -84,20 +84,42 @@ def test_the_three_named_behaviour_changes_are_rejected() -> None:
 
 
 def test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap() -> None:
-    """P0.5-r2 measured that the plan's NARROWER case is NOT caught: a draft keeping the heading and dropping every
-    bullet passes clean, because the check at analyst_report.py:6123 is a heading substring test.
+    """The P0.5-r2 ACCEPTED GAP is CLOSED, so this node's assertion is INVERTED. The function NAME is kept on
+    purpose: it is a recorded baseline failure node in `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt`,
+    and renaming it would make a FIXED node read as a DELETED test in the failure-node comparison.
 
-    This test asserts the gap is still EXACTLY that, so it cannot be quietly widened and cannot be quietly
-    closed without updating the record. Closing it is a behaviour fix and belongs to its own work item.
+    MEASURED THEN (P0.5-r2, recorded in `.scratch/structure-status.json`): a draft that kept the
+    operational-limitations heading and dropped every bullet passed clean, because the only check was the
+    heading substring test - `narrow["violations"] == []`.
+
+    MEASURED NOW (B05 landed, commit 5e4827e): the same fixture is REJECTED and the violation NAMES the dropped
+    bullet, which is what P1.4 asks for ("删除 limitation ... 的 fixture 被拒绝"). Re-asserting the old
+    expectation would demand the defect back, so the old one is replaced by the closed-state assertion below
+    rather than weakened: the positive half (the gate must reject, and must say WHICH bullet went missing) is
+    strictly stronger than `violations == []`.
+
+    The gate's own `required` label for this fixture still reads "RECORDED (measured NOT rejected today...)".
+    That label lives in `scripts/check-structure-diff.py`, which this plan may CALL but not edit, so it is
+    reported as a stale record for the structure-plan owner instead of being quietly rewritten here.
     """
     gate = load_gate_module()
     verdicts = gate.fixture_verdicts()
     narrow = verdicts["narrow_case_heading_kept_bullets_dropped"]
-    assert narrow["rejected"] is False, (
-        "the narrow case is now rejected - good news, but the P0.5-r2 known_behavior_gap and the "
-        "structure-surface reading must be updated deliberately in the same commit"
+    dropped = [
+        item
+        for item in narrow["violations"]
+        if "limitation bullets" in item and "operational-limitations heading" in item
+    ]
+    assert dropped, (
+        "the narrow case (heading kept, bullets dropped) is NOT rejected any more, so the P0.5-r2 gap has "
+        f"reopened. Violations returned: {narrow['violations']}"
     )
-    assert narrow["violations"] == []
+    assert "0 of" not in dropped[0], dropped[0]
+    # The bullet itself must be named, not merely counted: a generic "bullets dropped" message could not tell an
+    # analyst which pipeline limitation disappeared.
+    assert "TIMED_OUT" in dropped[0], (
+        f"the rejection does not name the dropped limitation bullet: {dropped[0]!r}"
+    )
 
 
 def _root_implementation_to_move(copy: Path) -> Path:

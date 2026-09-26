@@ -142,7 +142,20 @@ def test_unbenchmarked_dll_like_pe_first_request_does_not_copy_resume_ioc(
     assert "不代表样本不具备该能力" in sentence, sentence
     assert "### 横向移动" not in official
     assert "### 命令分发" not in official
-    assert "评测基准报告" not in official
+    # WHY THIS RULE CHANGED (P-1.1), and why it is not a loosening:
+    #
+    # The old assertion was a bare `assert "评测基准报告" not in official`. It conflated TWO different claims:
+    # (a) the benchmark report's CONTENT must never appear in an analysis body, and (b) the benchmark report must
+    # never be MENTIONED. (b) is now false on purpose: ADR-0006 / FR-18 require the official body to DECLARE the
+    # input partition, and `tests/test_analysis_api.py` asserts that declaration reaches the published markdown.
+    # (a) is unchanged and still asserted - by every content token above (`resume.pdf`, `foxitpdfreader`, `活 c2`,
+    # `beacon`, `apt`, `载荷已执行`, `远程注入`) - and is now pinned more precisely here: the string may appear
+    # ONLY on the isolation line, at most once.
+    mentions = [line for line in official.splitlines() if "评测基准报告" in line]
+    assert len(mentions) <= 1, f"the benchmark report is mentioned on {len(mentions)} lines: {mentions}"
+    assert all("隔离" in line and "不作为本次分析输入" in line for line in mentions), (
+        f"a mention of the benchmark report is not the input-isolation statement: {mentions}"
+    )
     assert "CREATE_SUSPENDED" not in official
     assert "挂起" not in official
     if "CreateProcess" in official:

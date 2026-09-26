@@ -14,11 +14,16 @@ gate instead of hiding recovered facts.
 
 from __future__ import annotations
 
+import ast
+import inspect
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from threat_report_agent.analyst_report import (
     ANALYST_CONCLUSION_HEADING,
     apply_model_topic_plan,
+    compose_official_markdown,
     plan_analyst_topics,
     primary_analyst_violations,
     render_official_markdown,
@@ -27,6 +32,8 @@ from threat_report_agent.analyst_report import (
 )
 from threat_report_agent.prompts import PromptRegistry
 from threat_report_agent.report.reporting import (
+    INPUT_PARTITION_DOCUMENT_KEY,
+    INPUT_PARTITION_STATEMENT,
     REPORT_V3_REQUIRED_SECTIONS,
     build_report_document,
     render_ledger_markdown,
@@ -2252,5 +2259,437 @@ def test_verified_thread_mechanism_does_not_fall_back_to_unknown_start_routine()
     # 入口 VA 已恢复，章必须写出来，而不是只说「这些不是已恢复的入口例程」。
     assert "0x140038ae0" in chapter
     assert "未过验证器" not in chapter
+
+
+# -----------------------------------------------------------------------------------------------------------
+# P-1.1: the input partition and the task's own limitations must reach the OFFICIAL body
+#
+# MEASURED BEFORE THIS WIRING (`.scratch/ghidra-c3/preflight/p11-probe.py`, facts in
+# `p11-probe-facts.json`): the published body of the live end-to-end run contains the structured
+# `input_manifest` module, whose row 5 is `{"channel": "评测基准报告", "status": "not_present",
+# "source": {"used_by_analysis": false}}`, and the body does NOT print it - the sentence existed only in
+# `reporting.render_ledger_markdown`, a DIFFERENT (ledger) projection. And `document["analyst_report_limitations"]`
+# was `None` while the task row carried 2 limitations, because the only writer of that channel sits INSIDE
+# `service._overlay_analyst_report_plan` AFTER two early returns that skip the model overlay entirely.
+#
+# The tests below assert at the only level that cannot be satisfied by a structural guard: the string is in the
+# output of `render_official_markdown`. The consumer proof is deliberately stronger than a substring check - the
+# renderer must print the value THAT IS IN THE DOCUMENT, so a renderer that hard-codes the sentence fails too.
+# -----------------------------------------------------------------------------------------------------------
+def _four_channel_request_snapshot() -> dict[str, object]:
+    """The frozen snapshot an intake really writes into `task.request_snapshot` (ADR-0006, four channels)."""
+    return {
+        "task_request": {"preset_id": "first-phase-full-static"},
+        "sample_package": {"content_sha256": "0" * 64, "display_name": "bundle.zip"},
+        "background_context": {"content": "Submitted by the incident response team."},
+        "knowledge_snapshot": {"snapshot_id": "phase1-static-rules-v1"},
+    }
+
+
+def _produced_document(**task_overrides: object) -> dict[str, object]:
+    """A document built by the REAL producer (`build_report_document`), not a hand-written fixture."""
+    task = SimpleNamespace(
+        id="task-p11",
+        case_id="case-p11",
+        lifecycle="SUCCEEDED",
+        outcome="PARTIAL",
+        target_breadth="B1",
+        target_depth="D2",
+        actual_granularity={},
+        request_snapshot=_four_channel_request_snapshot(),
+        limitations=[],
+    )
+    for key, value in task_overrides.items():
+        setattr(task, key, value)
+    return build_report_document(
+        case=SimpleNamespace(id="case-p11"),
+        task=task,
+        artifacts=[],
+        tool_runs=[],
+        evidence=[],
+        claims=[],
+        claim_evidence=[],
+        relations=[],
+        gates=[],
+        model_calls=[],
+        selected_modules=["input_manifest"],
+    )
+
+
+def test_the_producer_records_the_input_partition_as_a_document_fact() -> None:
+    """PRODUCER: the partition is a structured Document field, not a sentence inside a renderer."""
+    document = _produced_document()
+    partition = document.get(INPUT_PARTITION_DOCUMENT_KEY)
+    assert isinstance(partition, dict), (
+        f"`{INPUT_PARTITION_DOCUMENT_KEY}` is {partition!r}; the official body can only state the input "
+        "partition if the Document carries it"
+    )
+    assert partition["statement"] == INPUT_PARTITION_STATEMENT
+    assert partition["excluded_channels"] == [
+        {"channel": "评测基准报告", "used_by_analysis": False}
+    ]
+    assert [row["channel"] for row in partition["analysis_channels"]] == [
+        "任务请求", "样本包", "背景上下文", "知识快照"
+    ]
+    # The fact is derived from the frozen request snapshot, and the input_manifest module still reads the same table.
+    manifest = next(item for item in document["modules"] if item["id"] == "input_manifest")
+    assert [row["channel"] for row in manifest["rows"]] == [
+        "任务请求", "样本包", "背景上下文", "知识快照", "评测基准报告"
+    ]
+
+
+def test_the_official_body_states_the_input_partition_it_was_given() -> None:
+    """CONSUMER -> RENDERED MARKDOWN: the exact token is in `render_official_markdown`'s output."""
+    official = render_official_markdown(_produced_document())
+    assert INPUT_PARTITION_STATEMENT in official, (
+        "the official body does not state the input partition, so a reader cannot tell that the benchmark "
+        f"report was not an analysis input; rendered={official[:300]!r}"
+    )
+
+
+def test_the_renderer_prints_the_document_value_and_not_a_constant_of_its_own() -> None:
+    """CONSUMER PROOF: a document-supplied statement is what appears, so the renderer READS the field."""
+    document = _produced_document()
+    partition = dict(document[INPUT_PARTITION_DOCUMENT_KEY])
+    partition["statement"] = "PARTITION-STATEMENT-SUPPLIED-BY-THE-DOCUMENT"
+    partition["analysis_channels"] = [{"channel": "CHANNEL-FROM-THE-DOCUMENT", "status": "frozen"}]
+    document[INPUT_PARTITION_DOCUMENT_KEY] = partition
+    official = render_official_markdown(document)
+    assert "PARTITION-STATEMENT-SUPPLIED-BY-THE-DOCUMENT" in official, (
+        "the renderer ignored the Document's own statement, which means the sentence comes from the renderer "
+        "and not from the analysed request"
+    )
+    assert "CHANNEL-FROM-THE-DOCUMENT" in official, (
+        "the renderer ignored the Document's own analysis-channel list, so the channel names are hard-coded"
+    )
+    assert "任务请求" not in official
+    assert INPUT_PARTITION_STATEMENT not in official
+
+
+def test_every_channel_the_document_declares_is_named_in_the_official_body() -> None:
+    """M5: publish the COLLECTION and its set difference, not a count.
+
+    Identity key is the channel label. `enumerated_set` is what the Document fact declares,
+    `retrieved_set` is what the rendered official body names, and BOTH differences must be empty - a body that
+    silently dropped a channel would leave a non-empty `expected_minus_actual`, and a body that invented one
+    would leave a non-empty `actual_minus_expected`.
+    """
+    document = _produced_document()
+    partition = document[INPUT_PARTITION_DOCUMENT_KEY]
+    enumerated = {
+        str(item["channel"]) for item in partition["analysis_channels"]
+    } | {str(item["channel"]) for item in partition["excluded_channels"]}
+    assert len(enumerated) == 5
+    official = render_official_markdown(document)
+    retrieved = {channel for channel in enumerated if channel in official}
+    assert enumerated - retrieved == set(), (
+        f"the official body does not name {sorted(enumerated - retrieved)}"
+    )
+    assert retrieved - enumerated == set()
+    # The partition line is ONE bullet in the scope block, not a section of its own.
+    partition_lines = [line for line in official.splitlines() if line.startswith("- 输入分区：")]
+    assert len(partition_lines) == 1, partition_lines
+
+
+def test_the_operational_limitations_merge_brackets_the_model_assignment() -> None:
+    """The model branch REPLACES `document["analyst_report_limitations"]`, so ONE merge call is not enough.
+
+    MEASURED, found by this step's own denial-based self-review: with the merge only at the top of
+    `_overlay_analyst_report_plan`, a model-enabled run executed
+
+        merge(task.limitations) -> document[...] = [parsed.limitations] -> body
+
+    and the task's operational limitations were gone again - the original defect, reintroduced on exactly the
+    deployments where the model answers. Both call sites are therefore load-bearing:
+      * the FIRST sits above both early returns, so the model-disabled / test path still reaches the body;
+      * the SECOND sits below the assignment that replaces the key, and restores what it evicted.
+    """
+    service_source = (Path(__file__).resolve().parents[1] / "src" / "threat_report_agent" / "service.py")
+    tree = ast.parse(service_source.read_text(encoding="utf-8"))
+    overlay = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_overlay_analyst_report_plan"
+    )
+    merge_lines = sorted(
+        node.lineno
+        for node in ast.walk(overlay)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "attr", "") == "_merge_operational_limitations"
+    )
+    early_returns = sorted(
+        node.lineno
+        for node in overlay.body
+        if isinstance(node, ast.If)
+        for node in node.body
+        if isinstance(node, ast.Return)
+    )
+    replacements = sorted(
+        node.lineno
+        for node in ast.walk(overlay)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Subscript)
+            and ast.unparse(target.value) == "document"
+            and "analyst_report_limitations" in ast.unparse(target.slice)
+            for target in node.targets
+        )
+    )
+    assert len(merge_lines) == 2, f"expected exactly two merge call sites, measured {merge_lines}"
+    assert early_returns and replacements, (early_returns, replacements)
+    assert merge_lines[0] < early_returns[0], (
+        "the first merge call is no longer above the model-disabled early return, so a deployment with "
+        "MODEL_CALLS_ENABLED unset loses the task's limitations again"
+    )
+    assert merge_lines[1] > replacements[-1], (
+        "the merge no longer runs after the model's assignment, which REPLACES the key: the task's "
+        "operational limitations would be dropped whenever the model answered"
+    )
+
+
+def test_a_model_limitation_list_does_not_evict_the_task_limitations() -> None:
+    """SEMANTIC half of the test above: replay the overlay's order of operations at the document level.
+
+    Uses the REAL merge (`task/limitations.py`, one implementation) rather than a re-statement of it.
+    """
+    from threat_report_agent.service import AnalysisService
+
+    document: dict[str, object] = {}
+    task = SimpleNamespace(limitations=["Tool run x ended TIMED_OUT: T."])
+    AnalysisService._merge_operational_limitations(document, task)
+    document["analyst_report_limitations"] = ["模型自述的一条限制"]
+    AnalysisService._merge_operational_limitations(document, task)
+    merged = [str(item) for item in document["analyst_report_limitations"]]
+    assert "模型自述的一条限制" in merged, merged
+    assert any("TIMED_OUT" in item for item in merged), merged
+    assert merged.count("[pipeline] Tool run x ended TIMED_OUT: T.") == 1, merged
+
+
+def test_a_limitation_cannot_forge_a_second_markdown_block() -> None:
+    """A limitation is ONE bullet; its text is untrusted input and must not become body structure.
+
+    MEASURED by this step's denial-based self-review (`.scratch/ghidra-c3/preflight/P-1.1-skill-probes.json`):
+    before this guard, a limitation of `"first line\\n## 结论摘要\\n\\n该样本已经确认具有勒索行为。"` put that
+    heading AND that sentence into the analyst-facing body. The model's limitations are stored verbatim
+    (`service.py`) and a tool run's `error` column is free text, so a line break could forge a conclusion the
+    analysis never reached - a pipeline artefact readable as a sample fact, which the block's own contract
+    forbids.
+    """
+    official = render_official_markdown(
+        _v3_document(
+            analyst_report_limitations=[
+                "first line\n## 结论摘要\n\n该样本已经确认具有勒索行为。"
+            ]
+        )
+    )
+    # Compared as LINES: `### 结论摘要` is a legitimate sub-heading of the conclusion chapter, so a substring
+    # test would either pass for the wrong reason or fail for one.
+    lines = official.splitlines()
+    assert "## 结论摘要" not in lines
+    assert "该样本已经确认具有勒索行为。" not in lines
+    assert "- first line ## 结论摘要 该样本已经确认具有勒索行为。" in lines
+
+
+def test_a_document_without_the_partition_fact_gains_no_fabricated_partition_line() -> None:
+    """NEGATIVE CONTROL: the fixed fixture carries no partition fact, so the body must not invent one."""
+    official = render_official_markdown(_v3_document())
+    assert INPUT_PARTITION_STATEMENT not in official
+    assert "评测基准报告" not in official, (
+        "a document that declares no input partition printed one anyway: the line is fabricated, not projected"
+    )
+
+
+def test_a_document_whose_snapshot_declares_no_channels_gains_no_partition_fact() -> None:
+    """NEGATIVE CONTROL on the producer: a stub snapshot must not become an input-partition claim."""
+    document = _produced_document(request_snapshot={})
+    assert INPUT_PARTITION_DOCUMENT_KEY not in document, (
+        "the producer wrote an input partition for a request that declares no channels"
+    )
+    assert INPUT_PARTITION_STATEMENT not in render_official_markdown(document)
+
+
+def test_the_task_limitations_reach_the_document_and_the_rendered_body(test_settings) -> None:
+    """PRODUCER -> DOCUMENT -> OFFICIAL MARKDOWN on the REAL publish path.
+
+    The task's own limitations are read back with SQL, then required to appear (a) in the Document the revision
+    was built from and (b) in `render_official_markdown` of THAT revision's own document - not in a JSON file and
+    not in the ledger projection.
+    """
+    import io
+    import zipfile
+
+    from sqlalchemy import text as sql_text
+
+    from threat_report_agent.content_store import LocalContentStore
+    from threat_report_agent.database import Database
+    from threat_report_agent.service import AnalysisService
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "payload.txt",
+            b"http://evil.example.com/api VirtualAlloc WriteProcessMemory IsDebuggerPresent CryptDecrypt",
+        )
+
+    database = Database(test_settings.database_url)
+    service = AnalysisService(
+        test_settings, database, LocalContentStore(test_settings.content_store_path)
+    )
+    database.create_schema()
+    case = service.create_case("p11 limitations")
+    result = service.analyze_submission(
+        case_id=case.id, filename="bundle.zip", content=buffer.getvalue()
+    )
+    revision = service.get_report_revision(result.report_revision_id)
+    document = revision["document"]
+
+    with database.session_factory() as session:
+        rows = session.execute(
+            sql_text("SELECT id, limitations FROM analysis_tasks WHERE id = :task_id"),
+            {"task_id": result.task_id},
+        ).all()
+    assert len(rows) == 1, rows
+    task_limitations = json.loads(rows[0][1] or "[]")
+    assert task_limitations, (
+        "the fixture produced no task limitation, so this test would be vacuous - pick a fixture that does"
+    )
+
+    labelled = [
+        item if item.startswith("[pipeline]") else f"[pipeline] {item}" for item in task_limitations
+    ]
+    document_limitations = list(document.get("analyst_report_limitations") or [])
+    assert document_limitations, (
+        "the task's limitations never reached the Document, which is the exact defect P-1.1 fixes"
+    )
+    rerendered = render_official_markdown(document)
+    for item in labelled:
+        assert item in document_limitations, item
+        assert item in rerendered, (
+            f"limitation {item!r} is in the Document but not in the official body; "
+            f"body={rerendered[-600:]!r}"
+        )
+    # The body is re-rendered from the SAME revision's Document, so this is not a JSON read.
+    assert rerendered == revision["markdown"]
+    # ...and the PUBLISHED body is the canonical composer's output for that same Document, byte for byte. A second
+    # producer (a bypass renderer, or a stored-string path) would show up here as an inequality.
+    assert compose_official_markdown(document) == revision["markdown"]
+    assert INPUT_PARTITION_STATEMENT in rerendered
+
+
+# -----------------------------------------------------------------------------------------------------------
+# P-1.1 criterion 5: ONE canonical official renderer, proven statically over the whole package
+# -----------------------------------------------------------------------------------------------------------
+_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "threat_report_agent"
+_OFFICIAL_PRODUCER_NAMES = (
+    "render_official_markdown",
+    "compose_official_markdown",
+    "publish_composed_markdown",
+)
+
+
+def _package_function_index() -> dict[str, list[str]]:
+    """Every function defined anywhere in the package, keyed by name, valued by defining file."""
+    index: dict[str, list[str]] = {}
+    for path in sorted(_PACKAGE.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                index.setdefault(node.name, []).append(path.relative_to(_PACKAGE).as_posix())
+    return index
+
+
+def _package_callers(name: str) -> set[str]:
+    """Files that CALL `name` (a bare or attribute call), so the call graph is measured, not assumed."""
+    callers: set[str] = set()
+    for path in sorted(_PACKAGE.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            called = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+            if called == name:
+                callers.add(path.relative_to(_PACKAGE).as_posix())
+    return callers
+
+
+def test_there_is_exactly_one_canonical_official_markdown_producer_in_the_package() -> None:
+    """MEASURED STATIC CALL GRAPH (AST over the whole package), the fact this test freezes:
+
+      * `render_official_markdown` is DEFINED once, in `report/analyst_report.py`;
+      * its ONLY in-package caller is `report/analyst_report.py` (`compose_official_markdown` and
+        `publish_composed_markdown`), i.e. the canonical composer is the only entry above it;
+      * `compose_official_markdown` is DEFINED once, in that same module, and its only in-package caller is
+        `report/revision_writer.py` - the function that writes `ReportRevision.markdown`, which is the body the
+        API returns;
+      * nothing else in the package defines a function in the markdown namespace, so a SECOND official-body
+        renderer cannot be added silently;
+      * `render_ledger_markdown` (the Explorer ledger, `report/reporting.py`) has NO in-package caller at all and
+        is not reachable from `render_official_markdown`, which is why the ledger's printed sentence was not
+        evidence that the official body carried it.
+    """
+    index = _package_function_index()
+    # The COMPLETE set of body-producing/scoring function names in the markdown namespace, exact: a new name
+    # here, or a second definition of an existing one, fails. `score_official_markdown` is the measured
+    # non-producer - it CONSUMES a body (`score_official_markdown(markdown, ...)`) and returns a report - and the
+    # assertion below proves that from its signature rather than from its name.
+    assert {
+        name: files
+        for name, files in index.items()
+        if "markdown" in name and ("official" in name or name in _OFFICIAL_PRODUCER_NAMES)
+    } == {
+        "render_official_markdown": ["report/analyst_report.py"],
+        "compose_official_markdown": ["report/analyst_report.py"],
+        "publish_composed_markdown": ["report/analyst_report.py"],
+        "score_official_markdown": ["report/gold_output_bar.py"],
+    }
+    from threat_report_agent.report.gold_output_bar import score_official_markdown
+
+    assert next(iter(inspect.signature(score_official_markdown).parameters)) == "markdown", (
+        "`score_official_markdown` no longer takes a body as its first argument, so it may have become a producer"
+    )
+    assert _package_callers("render_official_markdown") == {"report/analyst_report.py"}
+    assert _package_callers("compose_official_markdown") == {"report/revision_writer.py"}
+    assert _package_callers("publish_composed_markdown") == {"report/analyst_report.py"}
+    # The ledger projection has NO caller inside the package: it is reached only from the ledger/Explorer API,
+    # which is exactly the separation the isolation sentence's history depends on.
+    assert _package_callers("render_ledger_markdown") == set()
+
+
+def test_the_official_body_does_not_route_through_the_ledger_projection() -> None:
+    """NEGATIVE HALF of the uniqueness proof: the ledger renderer is a different artifact, not a fallback.
+
+    `reporting.render_ledger_markdown` prints the same isolation sentence today. If `render_official_markdown`
+    ever fell back to it, the official body would be the ledger - the 137k-character failure this file's
+    acceptance suite exists for - so the two must stay separate. The check is the CALL GRAPH (AST), not a text
+    search: `analyst_report.py` mentions the ledger in prose precisely to record WHY the ledger's sentence was
+    not evidence about the official body.
+    """
+    tree = ast.parse((_PACKAGE / "report" / "analyst_report.py").read_text(encoding="utf-8"))
+    called = {
+        node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+    }
+    assert "render_ledger_markdown" not in called
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    assert "render_ledger_markdown" not in imported
+    ledger_source = (_PACKAGE / "report" / "reporting.py").read_text(encoding="utf-8")
+    for name in _OFFICIAL_PRODUCER_NAMES:
+        assert f"def {name}" not in ledger_source
+    official = render_official_markdown(_produced_document())
+    assert official.startswith("# 静态分析报告")
+    assert "## 1. Executive Assessment" not in official, (
+        "the official body carries the ledger's numbered V3 sections; it is the ledger projection"
+    )
 
 

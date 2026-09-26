@@ -15174,6 +15174,20 @@ class AnalysisService:
         deterministic catalog planner remains the fallback and the authority
         for dropping ungrounded extras.
         """
+        # P-1.1: THE TASK'S OWN LIMITATIONS DO NOT DEPEND ON THE MODEL OVERLAY.
+        #
+        # MEASURED (`.scratch/ghidra-c3/preflight/p11-probe-facts.json`, live end-to-end run): the published
+        # revision carried `document["analyst_report_limitations"] = None` while the task row held 2
+        # limitations, because the only merge of `task.limitations` into the document key the renderer reads
+        # was called at the END of this method - below two early returns that skip the model call entirely.
+        # With `MODEL_CALLS_ENABLED` unset (the shipped default, `config.py`), or in the test environment, a
+        # cancelled/timed-out/truncated run therefore reached the official body with NO trace of why, which is
+        # the exact "a failed run reads as a clean one" shape the report forbids.
+        #
+        # The merge is a pure document projection of `task.limitations` (`task/limitations.py`, the ONE
+        # implementation - not reimplemented here), so it is correct whether or not a model plan follows, and
+        # calling it first means the model overlay can only ADD to it.
+        self._merge_operational_limitations(document, task)
         if not self.settings.model_calls_enabled:
             return document
         if str(self.settings.environment or "").lower() == "test":
@@ -15326,12 +15340,17 @@ class AnalysisService:
                 for item in parsed.chapters[:12]
             ]
             if parsed.limitations:
+                # REPLACES the key. That is why the merge below has to run AGAIN after this line: the top call
+                # already put the TASK's operational limitations in this key, and this assignment would drop them
+                # on exactly the deployments that enable the model - the ones whose bodies matter most.
                 document["analyst_report_limitations"] = [
                     str(item)[:400] for item in parsed.limitations[:16]
                 ]
-            # OPERATIONAL limitations must reach the reader too; see `_merge_operational_limitations`, which
-            # owns the reasoning and is unit-tested directly because this function's upstream branches cannot be
-            # driven in isolation.
+            # OPERATIONAL limitations: a projection of `task.limitations`, not of the model's answer, so this is
+            # the SECOND of two call sites and neither is redundant. The one at the TOP of this method is what
+            # reaches the body when the model call is skipped (`model_calls_enabled` False, or the test
+            # environment); this one restores what the assignment above just replaced. The implementation
+            # (`task/limitations.py`) dedupes, so running it twice cannot inflate the list.
             self._merge_operational_limitations(document, task)
             if parsed.slots:
                 # MODEL SLOT PROPOSALS ARE VERIFIED AT PERSISTENCE TIME, NOT AT RENDER TIME.

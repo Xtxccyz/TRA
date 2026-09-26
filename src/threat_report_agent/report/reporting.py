@@ -59,6 +59,30 @@ REPORT_MODULES = (
     "limitations",
 )
 
+#: ADR-0006's input channels and the frozen status the snapshot stamps each one with. ONE table, because two
+#: readers depend on it: the `input_manifest` report module and the `input_partition` Document fact that the
+#: OFFICIAL body reads. A second hand-written copy is how the ledger and the official body start disagreeing.
+INPUT_CHANNEL_LABELS: tuple[tuple[str, str, str], ...] = (
+    ("task_request", "任务请求", "frozen"),
+    ("sample_package", "样本包", "frozen"),
+    ("background_context", "背景上下文", "isolated"),
+    ("knowledge_snapshot", "知识快照", "versioned"),
+)
+
+#: The channel that is deliberately NOT an analysis input (ADR-0006 / FR-18). Named once here so the module
+#: summary, the row and the Document fact cannot drift apart.
+EXCLUDED_INPUT_CHANNEL = "评测基准报告"
+
+#: The reader-facing isolation sentence. It is the SAME sentence `render_ledger_markdown` prints, so a reader
+#: moving between the official body and the ledger cannot read two different policies.
+INPUT_PARTITION_STATEMENT = (
+    f"{EXCLUDED_INPUT_CHANNEL}：已隔离，仅用于分析完成后的对比评估，不作为本次分析输入。"
+)
+
+#: Document key carrying the structured input partition (producer: this module; consumer:
+#: `analyst_report._input_partition_lines`). The renderer reads the Document and never re-derives the sentence.
+INPUT_PARTITION_DOCUMENT_KEY = "input_partition"
+
 # Kunglao completeness applied to the analyst document: unanswered work may
 # remain named, but a one-round HOW must not be sliced off at 96 KiB.
 REPORT_MAX_MARKDOWN_BYTES = 256 * 1024
@@ -9055,6 +9079,35 @@ def build_emulation_status_projection(
     }
 
 
+def _input_partition_fact(request: Mapping[str, object] | None) -> dict[str, object] | None:
+    """ADR-0006's input partition as a STRUCTURED Document fact, or `None` when the snapshot does not state it.
+
+    Producer half of P-1.1's contract: `analyst_report._input_partition_lines` prints this fact and nothing else,
+    so the official body can say which channels the analysis read and which channel was deliberately NOT an input
+    (ADR-0006 / FR-18: the benchmark report never enters the analysis, prompt, knowledge snapshot, RAG or agent
+    context).
+
+    Returns `None` rather than an empty structure when the frozen request does not carry all four channels: a
+    document assembled from a stub request must not gain a claim about inputs it never had. That is also the half
+    that keeps "no limitation" from being rendered as a limitation.
+    """
+    if not isinstance(request, Mapping):
+        return None
+    if not all(key in request for key, _label, _status in INPUT_CHANNEL_LABELS):
+        return None
+    return {
+        "analysis_channels": [
+            {"channel": label, "status": status} for _key, label, status in INPUT_CHANNEL_LABELS
+        ],
+        "excluded_channels": [
+            {"channel": EXCLUDED_INPUT_CHANNEL, "used_by_analysis": False}
+        ],
+        "statement": INPUT_PARTITION_STATEMENT,
+        # Provenance: a reader can re-derive the fact from the frozen request instead of trusting the sentence.
+        "source": "task.request_snapshot",
+    }
+
+
 def build_report_document(
     *,
     case: Any,
@@ -9385,32 +9438,24 @@ def build_report_document(
         ],
     )
     request = task.request_snapshot
+    # ONE channel table (`INPUT_CHANNEL_LABELS`) feeds both this module and the `input_partition` Document fact
+    # below, so the ledger projection and the OFFICIAL body cannot state two different input policies.
     all_modules["input_manifest"] = _module(
         "input_manifest",
-        "四类输入保持分区；评测基准报告不属于任何分析输入通道。",
+        f"四类输入保持分区；{EXCLUDED_INPUT_CHANNEL}不属于任何分析输入通道。",
         [
             {
-                "channel": "任务请求",
-                "status": "frozen",
-                "source": request.get("task_request", {}),
-            },
+                "channel": label,
+                "status": status,
+                "source": request.get(key, {}),
+            }
+            for key, label, status in INPUT_CHANNEL_LABELS
+        ]
+        + [
+            # MEASURED (`.scratch/ghidra-c3/preflight/p11-probe-facts.json`): this row reached the stored Report
+            # Document and stopped there. `render_ledger_markdown` printed it; the official body did not.
             {
-                "channel": "样本包",
-                "status": "frozen",
-                "source": request.get("sample_package", {}),
-            },
-            {
-                "channel": "背景上下文",
-                "status": "isolated",
-                "source": request.get("background_context", {}),
-            },
-            {
-                "channel": "知识快照",
-                "status": "versioned",
-                "source": request.get("knowledge_snapshot", {}),
-            },
-            {
-                "channel": "评测基准报告",
+                "channel": EXCLUDED_INPUT_CHANNEL,
                 "status": "not_present",
                 "source": {"used_by_analysis": False},
             },
@@ -10405,6 +10450,12 @@ def build_report_document(
             "suppressed_mechanism_projections": suppressed_projections,
         },
     }
+    # ADR-0006's input partition, carried as a STRUCTURED fact so the canonical official renderer can state it
+    # instead of a hand-written sentence. Absent (not empty) when the frozen request declares no channels; see
+    # `_input_partition_fact`.
+    partition_fact = _input_partition_fact(request)
+    if partition_fact:
+        document[INPUT_PARTITION_DOCUMENT_KEY] = partition_fact
     revision_id = str(
         getattr(task, "authoritative_revision_id", None)
         or getattr(task, "report_revision_id", None)

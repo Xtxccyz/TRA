@@ -4553,6 +4553,48 @@ def _repair_unrecovered_creation_flags(
 OPERATIONAL_LIMITATIONS_HEADING = "**运行过程中的限制（与样本行为无关）：**"
 
 
+def _input_partition_lines(document: Mapping[str, object]) -> list[str]:
+    """ADR-0006's input isolation, printed from the Document's OWN structured partition fact.
+
+    MEASURED (`.scratch/ghidra-c3/preflight/p11-probe-facts.json`): the fact has been inside the Report
+    Document all along, as `modules[id=input_manifest].rows[4]` -
+    `{"channel": "评测基准报告", "status": "not_present", "source": {"used_by_analysis": false}}` - and the
+    published official body printed none of it, because the ONLY projection that rendered it was
+    `reporting.render_ledger_markdown`, a different artifact (the Evidence Explorer ledger). A reader of the
+    official GET therefore could not tell that the benchmark report is not an analysis input (ADR-0006 / FR-18),
+    while a reader of the ledger could.
+
+    The sentence is READ from the document, never written here: `build_report_document` produces it, and
+    `test_the_renderer_prints_the_document_value_and_not_a_constant_of_its_own` substitutes a marker for it and
+    requires the marker to appear, so a renderer that hard-codes the policy fails. A document without the fact
+    renders NOTHING, which is what keeps a scope statement from being fabricated for a document that never had
+    one.
+    """
+    # IMPORTED HERE, NOT AT MODULE TOP, for a measured reason that is not style: `tests/test_report_structure_contract.py`
+    # pins the ABSOLUTE line numbers of this file's two `_mechanism_catalog_id` mapping call sites
+    # (`assert mapping_call_sites == [1161, 1203]`, whose own message says "if one was fixed or moved, this record
+    # ... must be updated deliberately"). A module-top import adds one line above them and shifts both, and that
+    # test file is outside this step's ownership. The cost is one `sys.modules` lookup per render.
+    from threat_report_agent.report.reporting import INPUT_PARTITION_DOCUMENT_KEY
+
+    partition = document.get(INPUT_PARTITION_DOCUMENT_KEY)
+    if not isinstance(partition, Mapping):
+        return []
+    statement = str(partition.get("statement") or "").strip()
+    if not statement:
+        return []
+    # ADR-0006 requires the four-channel input list to be VISIBLE in the report's audit information, so the
+    # channels are named from the Document too - never spelled here. An empty analysis-channel list prints the
+    # statement alone rather than an empty "输入分区：；" prefix.
+    channels = [
+        str(item.get("channel") or "").strip()
+        for item in (partition.get("analysis_channels") or [])
+        if isinstance(item, Mapping) and str(item.get("channel") or "").strip()
+    ]
+    prefix = f"输入分区：{'、'.join(channels)}；" if channels else ""
+    return [f"- {prefix}{statement}"]
+
+
 def _operational_limitation_lines(document: Mapping[str, object]) -> list[str]:
     """Limitations the PIPELINE reported, rendered independently of mechanism bookkeeping.
 
@@ -4579,8 +4621,21 @@ def _operational_limitation_lines(document: Mapping[str, object]) -> list[str]:
     rendered.update(str(item) for item in tool_authoring_required_entries(sources))
     operational: list[str] = []
     for item in sources:
-        text = str(item or "").strip()
-        if not text or text in rendered or text in operational:
+        # ONE LIMITATION IS ONE BULLET, and the text is untrusted.
+        #
+        # MEASURED by this step's own denial-based review
+        # (`.scratch/ghidra-c3/preflight/P-1.1-skill-probes.json`): a limitation of
+        # `"first line\n## 结论摘要\n\n该样本已经确认具有勒索行为。"` produced BOTH that heading and that
+        # sentence in the analyst-facing body, because the bullet is written verbatim. The model's limitations
+        # are stored as free text (`service.py` keeps `parsed.limitations` verbatim) and a tool run's `error`
+        # column is free text too, so a line break here can forge a conclusion the analysis never reached -
+        # exactly the "a pipeline failure must never be readable as a property of the sample" rule above, one
+        # level down. The WORDS are preserved verbatim; only the line structure is collapsed.
+        raw = str(item or "").strip()
+        text = " ".join(raw.split())
+        # `raw in rendered` keeps the ORIGINAL raw-vs-raw comparison: an entry `_tool_authoring_blockers` already
+        # printed must not be printed a second time here just because its line breaks were collapsed.
+        if not text or raw in rendered or text in rendered or text in operational:
             continue
         operational.append(text)
     if not operational:
@@ -5711,6 +5766,10 @@ def render_official_markdown(document: Mapping[str, object]) -> str:
                 else ""
             )
         )
+    # ADR-0006's input partition, from the Document's structured fact (P-1.1). It sits with the other scope
+    # boundaries (`样本执行：否`) because it answers the same reader question: what was this analysis allowed to
+    # read? Appended LAST so a document without the fact produces the byte-identical body it did before.
+    meta.extend(_input_partition_lines(document))
     lines = [
         *meta,
         "",
