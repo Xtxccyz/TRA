@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -638,6 +639,237 @@ test('workbench model complete fills bound session identity and does not take a 
     assert.equal(posts[0].body.case_id, '11111111-1111-1111-1111-111111111111')
     assert.equal(posts[0].body.operation, 'planning')
     assert.equal(posts[0].body.provider, undefined)
-    assert.equal((posts[0].body.messages as { content: string }[])[0].content, 'What decode window remains open?')
+    // The first message is the versioned protocol; the question is the user turn.
+    const messages = posts[0].body.messages as { role: string; content: string }[]
+    assert.equal(messages[0].role, 'system')
+    assert.match(messages[0].content, /first-request-autonomous-deep-dive/)
+    assert.equal(messages[1].role, 'user')
+    assert.equal(messages[1].content, 'What decode window remains open?')
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('workbench model complete classifies a provider 402 as model/transport, never a product result', async () => {
+  const originalFetch = globalThis.fetch
+  const registered = new Map<string, any>()
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.endsWith('/analysis-context')) {
+      return Response.json({ active_task_id: 'task-402', case_id: '11111111-1111-1111-1111-111111111111', state: 'ANALYSIS_READY' })
+    }
+    if (url.endsWith('/model/complete')) {
+      return Response.json({
+        status: 'FAILED',
+        run_id: 'run-402',
+        model_call_id: 'call-402',
+        attempts: [{
+          provider: 'deepseek', model: 'deepseek-v4-pro', status: 'FAILED',
+          error_type: 'HTTPStatusError', http_status: 402,
+          error_detail: 'Insufficient Balance', latency_ms: 33,
+        }],
+      })
+    }
+    throw new Error(`unexpected request ${url}`)
+  }
+  try {
+    apply({ tools: { register: (tool: any) => registered.set(tool.name, tool) } } as never,
+      { backendUrl: 'http://localhost:8000' })
+    const result = await registered.get('threat_workbench_model_complete').execute(
+      { question: 'Does the decoder reach the loader?', operation: 'planning' },
+      { agent: { session: { id: 'session-402' } } })
+    assert.equal(result.status, 'FAILED')
+    assert.equal(result.failure_kind, 'MODEL_402_PAYMENT_REQUIRED')
+    assert.equal(result.failure_class.kind, 'MODEL_402_PAYMENT_REQUIRED')
+    assert.equal(result.failure_class.http_status, 402)
+    assert.equal(result.failure_class.distinct_from_static_boundary, true)
+    assert.equal(result.not_an_analysis_result, true)
+    assert.equal(result.model_or_transport, true)
+    assert.equal(result.content, undefined)
+    assert.notEqual(result.state, 'STATIC_BOUNDARY')
+    assert.notEqual(result.state, 'POLICY_DENIED')
+    assert.match(String(result.user_action), /模型/)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('workbench model complete refuses a blank provider reply instead of reporting a completion', async () => {
+  const originalFetch = globalThis.fetch
+  const registered = new Map<string, any>()
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.endsWith('/analysis-context')) {
+      return Response.json({ active_task_id: 'task-empty', case_id: '11111111-1111-1111-1111-111111111111', state: 'ANALYSIS_READY' })
+    }
+    if (url.endsWith('/model/complete')) {
+      return Response.json({
+        status: 'SUCCEEDED', provider: 'deepseek', model: 'deepseek-v4-pro',
+        model_call_id: 'call-empty', content: '   ',
+        usage: { input_tokens: 7378, output_tokens: 2048 },
+        attempts: [{ provider: 'deepseek', model: 'deepseek-v4-pro', status: 'SUCCEEDED', latency_ms: 22000 }],
+      })
+    }
+    throw new Error(`unexpected request ${url}`)
+  }
+  try {
+    apply({ tools: { register: (tool: any) => registered.set(tool.name, tool) } } as never,
+      { backendUrl: 'http://localhost:8000' })
+    const result = await registered.get('threat_workbench_model_complete').execute(
+      { question: 'Summarise the recovered consumer.', operation: 'claims' },
+      { agent: { session: { id: 'session-empty' } } })
+    assert.equal(result.accepted, false)
+    assert.equal(result.content, undefined)
+    assert.equal(result.failure_kind, 'MODEL_EMPTY_REPLY')
+    assert.equal(result.not_an_analysis_result, true)
+    assert.equal(result.model_or_transport, true)
+    assert.notEqual(result.state, 'STATIC_BOUNDARY')
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('workbench model complete sends the versioned first-request protocol as the effective instruction', async () => {
+  const originalFetch = globalThis.fetch
+  const registered = new Map<string, any>()
+  const posts: Array<{ body: Record<string, unknown> }> = []
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    if (url.endsWith('/analysis-context')) {
+      return Response.json({ active_task_id: 'task-protocol', case_id: '11111111-1111-1111-1111-111111111111', state: 'ANALYSIS_READY' })
+    }
+    if (init?.method === 'POST') {
+      posts.push({ body: JSON.parse(String(init.body)) as Record<string, unknown> })
+      return Response.json({ status: 'SUCCEEDED', content: '{"plan":"ok"}', model_call_id: 'call-protocol', provider: 'deepseek' })
+    }
+    throw new Error(`unexpected request ${url}`)
+  }
+  try {
+    const sdk = await import('../packages/threat-plugin-sdk/src/index.ts') as Record<string, any>
+    const protocol = sdk.firstRequestInvestigationProtocol()
+    apply({ tools: { register: (tool: any) => registered.set(tool.name, tool) } } as never,
+      { backendUrl: 'http://localhost:8000' })
+    const question = 'Which investigation thread does the decoded buffer feed?'
+    await registered.get('threat_workbench_model_complete').execute(
+      { question, operation: 'planning' }, { agent: { session: { id: 'session-protocol' } } })
+    assert.equal(posts.length, 1)
+    const body = posts[0].body
+    assert.equal(body.prompt_id, 'dsh-workbench-complete')
+    assert.equal(body.prompt_version, protocol.version)
+    assert.match(String(body.prompt_version), /^\d+\.\d+\.\d+$/)
+    assert.equal(body.prompt_sha256, protocol.digest)
+    assert.match(String(body.prompt_sha256), /^[0-9a-f]{64}$/)
+    assert.notEqual(body.prompt_sha256, undefined)
+    const messages = body.messages as { role: string; content: string }[]
+    assert.equal(messages.length, 2)
+    assert.equal(messages[0].role, 'system')
+    assert.equal(messages[0].content, protocol.system_instruction)
+    assert.equal(messages[1].role, 'user')
+    assert.equal(messages[1].content, question)
+    for (const token of ['initiator', 'failure_fallback', 'competing hypothes', 'investigation thread', 'NO_NEW_EVIDENCE', 'frontier']) {
+      assert.match(messages[0].content, new RegExp(token, 'i'), `protocol instruction must cover ${token}`)
+    }
+    // Prompt identity must identify the instruction that took effect, not a hash of the question.
+    assert.notEqual(body.prompt_sha256, createHash('sha256').update(question).digest('hex'))
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('a model/transport failure cannot be recorded as STATIC_BOUNDARY in the action contract', async () => {
+  const originalFetch = globalThis.fetch
+  const registered = new Map<string, any>()
+  const actionBodies: Record<string, unknown>[] = []
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    if (url.endsWith('/analysis-context')) {
+      return Response.json({ active_task_id: 'task-boundary', case_id: '11111111-1111-1111-1111-111111111111', state: 'ANALYSIS_RUNNING', task_lifecycle: 'RUNNING' })
+    }
+    if (url.endsWith('/analysis/actions') && init?.method === 'POST') {
+      actionBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+      return Response.json({ accepted: true, action_id: 'action-1' })
+    }
+    throw new Error(`unexpected request ${url}`)
+  }
+  try {
+    apply({ tools: { register: (tool: any) => registered.set(tool.name, tool) } } as never,
+      { backendUrl: 'http://localhost:8000' })
+    await registered.get('threat_propose_static_action').execute({
+      action_type: 'GET_DECOMPILE',
+      target_artifact_id: 'artifact-1',
+      reason: 'read the entry function body',
+      question: 'What does the entry stub resolve before it jumps?',
+      hypothesis: 'the stub resolves imports and jumps to the payload',
+      alternatives: ['the stub is dead code'],
+      missing_evidence: ['entry body bytes'],
+      failure_meaning: 'the provider returned 402 insufficient balance, so no tool ran and the slot stays open',
+      target_selector: { function_entry: '0x401000' },
+      expected_evidence_kinds: ['decompile_slice'],
+      success_condition: 'new_targeted_evidence',
+      failure_interpretation: 'STATIC_BOUNDARY',
+    }, { agent: { session: { id: 'session-boundary' } } })
+    assert.equal(actionBodies.length, 1)
+    const body = actionBodies[0]
+    assert.notEqual(body.failure_interpretation, 'STATIC_BOUNDARY')
+    assert.notEqual(body.failure_interpretation, 'NO_NEW_EVIDENCE')
+    assert.equal(body.failure_interpretation, 'UNKNOWN')
+    assert.match(String(body.failure_meaning), /MODEL_402_PAYMENT_REQUIRED/)
+    assert.match(String(body.failure_meaning), /insufficient balance/i)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('analyst narrative submission publishes one citable revision with explicit authorship', async () => {
+  const originalFetch = globalThis.fetch
+  const registered = new Map<string, any>()
+  const revisionId = '9f2c4d51-1111-4222-8333-444455556666'
+  const bodies: string[] = []
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    if (url.endsWith('/analysis-context')) {
+      return Response.json({ active_task_id: 'task-draft', case_id: '11111111-1111-1111-1111-111111111111', state: 'ANALYSIS_READY' })
+    }
+    if (url.endsWith('/report/analyst-draft') && init?.method === 'POST') {
+      bodies.push(String(init.body))
+      return Response.json({
+        id: revisionId, task_id: 'task-draft', status: 'DRAFT', author: 'dsh-agent',
+        edit_kind: 'AGENT_GENERATED', markdown: '# 分析结论\n\nrecovered behaviour',
+      })
+    }
+    throw new Error(`unexpected request ${url}`)
+  }
+  try {
+    apply({ tools: { register: (tool: any) => registered.set(tool.name, tool) } } as never,
+      { backendUrl: 'http://localhost:8000' })
+    const result = await registered.get('threat_submit_analyst_report').execute(
+      { markdown: '# 分析结论\n\nrecovered behaviour' },
+      { agent: { session: { id: 'session-draft' } } })
+    assert.equal(result.accepted, true)
+    assert.equal(result.authoritative_revision_id, revisionId)
+    assert.equal(result.report_revision_id, revisionId)
+    assert.equal(result.id, revisionId)
+    assert.match(String(result.citation_instruction), new RegExp(revisionId))
+    assert.equal(result.authorship.narrative_source, 'dsh-agent')
+    assert.equal(result.authorship.revision_edit_kind, 'AGENT_GENERATED')
+    assert.equal(result.authorship.deterministic_fragments_authoritative, true)
+    assert.equal(result.authorship.product_generated_text, false)
+    assert.equal(bodies.length, 1)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('the written report file is agent-authored text, not a product revision', async () => {
+  const originalFetch = globalThis.fetch
+  const registered = new Map<string, any>()
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    if (url.endsWith('/analysis-context')) {
+      return Response.json({ active_task_id: 'task-file', case_id: '11111111-1111-1111-1111-111111111111', state: 'ANALYSIS_READY' })
+    }
+    if (url.endsWith('/report/file') && init?.method === 'POST') {
+      return Response.json({ written: true, path: '/reports/sample.分析报告.md', filename: 'sample.分析报告.md' })
+    }
+    throw new Error(`unexpected request ${url}`)
+  }
+  try {
+    apply({ tools: { register: (tool: any) => registered.set(tool.name, tool) } } as never,
+      { backendUrl: 'http://localhost:8000' })
+    const result = await registered.get('threat_write_report_file').execute(
+      { filename: 'sample.分析报告.md', markdown: '# 分析结论' },
+      { agent: { session: { id: 'session-file' } } })
+    assert.equal(result.written, true)
+    assert.equal(result.authorship.narrative_source, 'dsh-agent')
+    assert.equal(result.authorship.product_generated_text, false)
+    assert.equal(result.authorship.official_revision, false)
   } finally { globalThis.fetch = originalFetch }
 })

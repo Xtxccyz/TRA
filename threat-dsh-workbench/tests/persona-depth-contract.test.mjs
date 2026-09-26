@@ -53,3 +53,18 @@ test('persona and tool-provider keep 402/timeout, policy denial, and STATIC_BOUN
   assert.match(tools, /Do not write to the desktop/)
   assert.match(tools, /STOP_DISPATCH/)
 })
+
+test('persona names the versioned first-request protocol the code actually defines', async () => {
+  const persona = await readFile(new URL('../profiles/threat-static/agent-presets/threat-static/agent.cordis.yml', import.meta.url), 'utf8')
+  const protocol = await readFile(new URL('../packages/threat-plugin-sdk/src/investigation-protocol.ts', import.meta.url), 'utf8')
+  const id = /FIRST_REQUEST_PROTOCOL_ID = '([^']+)'/.exec(protocol)
+  const version = /FIRST_REQUEST_PROTOCOL_VERSION = '([^']+)'/.exec(protocol)
+  assert.ok(id, 'the protocol id must stay a literal the persona can be checked against')
+  assert.ok(version, 'the protocol version must stay a literal the persona can be checked against')
+  // The persona is the instruction the conversation model reads every turn, so a
+  // protocol version bump that never reaches it is a silent split between the
+  // obligations the code enforces and the ones the model was told.
+  assert.match(persona, new RegExp(id[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  assert.match(persona, new RegExp(version[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  assert.match(persona, /investigation_protocol/)
+})

@@ -1,5 +1,12 @@
 import { ThreatApiClient } from '@threat-dsh/api-client'
-import { boundedIds, boundedText, type ThreatPluginManifest } from '@threat-dsh/plugin-sdk'
+import {
+  boundedIds,
+  boundedText,
+  classifyModelFailure,
+  firstRequestProtocolPacket,
+  TEN_INVESTIGATION_QUESTIONS,
+  type ThreatPluginManifest,
+} from '@threat-dsh/plugin-sdk'
 import type { Context } from '@deepseek-ai/cordis'
 
 export const manifest: ThreatPluginManifest = {
@@ -262,18 +269,13 @@ function compactRow(value: unknown, fields: readonly string[]): Record<string, u
   return row
 }
 
-const TEN_QUESTION_SLOTS: readonly [string, string][] = [
-  ['initiator', 'Who starts or registers this behavior?'],
-  ['input', 'What input, buffer, or handle reaches it?'],
-  ['state_config', 'What state or configuration does it use?'],
-  ['transformation', 'What transform or control-flow step is recovered?'],
-  ['condition', 'What condition gates success, failure, or a branch?'],
-  ['side_effect', 'What side effect is statically visible?'],
-  ['output', 'What output object or bytes are produced?'],
-  ['consumer', 'Who consumes that output?'],
-  ['loop', 'Is there a loop, back-edge, or repetition?'],
-  ['failure_fallback', 'What happens on failure or the fallback path?'],
-]
+/**
+ * The ten question slots are the canonical protocol list, not a local copy:
+ * ``unanswered_ten_question_slots`` and the model-facing protocol packet must
+ * never disagree about which questions the investigation owes.
+ */
+const TEN_QUESTION_SLOTS: readonly [string, string][] = TEN_INVESTIGATION_QUESTIONS
+  .map((item) => [item.slot, item.question] as [string, string])
 
 const ANSWERED_SLOT = new Set(['ANSWERED', 'N/A', 'NA', 'NOT_APPLICABLE'])
 const SKIP_THREAD_STATES = new Set(['REJECTED', 'CONTRADICTED', 'NOT_APPLICABLE'])
@@ -601,9 +603,13 @@ const MODEL_TRANSPORT_CODES = new Set(['MODEL_FAILURE', 'TIMEOUT_FAILURE', 'WORK
 const MODEL_TRANSPORT_HTTP = new Set(['401', '402', '403', '408', '429', '500', '502', '503', '504'])
 
 /**
- * Keep model 402/timeout, policy denial, and STATIC_BOUNDARY as three
- * separate classes. Pass-through of backend fields is not enough if the
+ * Keep model 402/timeout/empty reply, policy denial, and STATIC_BOUNDARY as
+ * three separate classes. Pass-through of backend fields is not enough if the
  * packet never names the distinction.
+ *
+ * The sub-kind (402 vs timeout vs empty reply vs auth vs rate limit) comes from
+ * the shared classifier so the workbench and the tool layer cannot drift apart
+ * about what a failed model call was.
  */
 function failureKindDistinction(taskRow: Record<string, unknown>, actions: unknown[] = []): Record<string, unknown> {
   const failure = objectValue(taskRow.failure)
@@ -616,6 +622,17 @@ function failureKindDistinction(taskRow: Record<string, unknown>, actions: unkno
   const actionBlob = plannerVisibleActions(actions)
     .map((row) => `${upper(row.status)} ${upper(row.reason)} ${upper(row.result_status)} ${upper(row.stop_reason)}`)
     .join(' ')
+  const modelFailure = classifyModelFailure({
+    status: modelStatus.status ?? taskRow.status,
+    kind: modelStatus.kind,
+    http_status: modelStatus.http_status ?? failure.http_status,
+    error_type: modelStatus.error_type ?? failure.error_type,
+    error_detail: modelStatus.error_detail ?? failure.error_detail,
+    last_status: modelStatus.last_status ?? failure.last_status,
+    failure_code: failure.failure_code ?? failure.code,
+    error: modelStatus.error ?? failure.error,
+  })
+  const modelFailed = modelFailure.observed === 'MODEL_OR_TRANSPORT'
   let observed = 'NONE'
   if (
     kind === 'MODEL_OR_TRANSPORT'
@@ -623,6 +640,9 @@ function failureKindDistinction(taskRow: Record<string, unknown>, actions: unkno
     || MODEL_TRANSPORT_HTTP.has(http)
     || last === 'TIMEOUT'
     || errorType.includes('TIMEOUT')
+    || last === 'EMPTY_REPLY'
+    || last === 'EMPTY_RESPONSE'
+    || modelFailed
   ) observed = 'MODEL_OR_TRANSPORT'
   else if (code === 'POLICY_DENIED' || actionBlob.includes('POLICY_DENIED')) observed = 'POLICY_DENIED'
   else if (code === 'STATIC_BOUNDARY') observed = 'STATIC_BOUNDARY'
@@ -632,6 +652,8 @@ function failureKindDistinction(taskRow: Record<string, unknown>, actions: unkno
     static_boundary: 'STATIC_BOUNDARY',
     observed,
     do_not_collapse: true,
+    failure_kind: modelFailure.kind,
+    model_failure: modelFailure,
   }
 }
 
@@ -713,6 +735,7 @@ function modelFacingContext(projected: Record<string, unknown>): Record<string, 
     state: projected.state,
     context_status: projected.context_status,
     active_task_id: projected.active_task_id,
+    investigation_protocol: projected.investigation_protocol,
     task: projected.task,
     artifacts: projected.artifacts,
     task_gaps: projected.task_gaps,
@@ -832,6 +855,10 @@ export function projectInvestigationContext(task: Record<string, unknown>, sessi
     evidence_index: evidence.slice(-MAX_ITEMS).map((item) => compactRow(item, [
       'id', 'artifact_id', 'module', 'kind', 'nature', 'anchor',
     ])),
+    // The versioned first-request instruction (B04/M03). It is the same
+    // protocol threat_workbench_model_complete sends as its system message, so
+    // the conversation driver and the backend planner work from one version.
+    investigation_protocol: firstRequestProtocolPacket(),
     investigation_frontier: frontier,
     analysis_planner: compactRow(planner, [
         'role', 'source', 'distinct_from_dsh_chat', 'dsh_chat_note', 'enabled',
@@ -842,10 +869,95 @@ export function projectInvestigationContext(task: Record<string, unknown>, sessi
   })
 }
 
+const MAX_CONTEXT_CHARS = 24_000
+// Keys whose arrays carry the instruction itself and must never be trimmed.
+const UNCAPPED_CONTEXT_KEYS = new Set(['investigation_protocol', 'failure_kind_distinction', 'kind_distinction', 'model_failure'])
+
+/**
+ * Cap every array in the packet, newest-last (the projections slice from the
+ * tail, so the most recent rows survive), and count what was dropped.
+ */
+function capContextArrays(value: unknown, cap: number, omitted: Record<string, number>, key = ''): unknown {
+  if (Array.isArray(value)) {
+    const kept = value.length > cap ? value.slice(value.length - cap) : value
+    if (value.length > cap) omitted[key] = (omitted[key] || 0) + (value.length - cap)
+    return kept.map((item) => capContextArrays(item, cap, omitted, key))
+  }
+  if (value && typeof value === 'object') {
+    const source = value as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const [name, item] of Object.entries(source)) {
+      out[name] = UNCAPPED_CONTEXT_KEYS.has(name) ? item : capContextArrays(item, cap, omitted, name)
+    }
+    return out
+  }
+  return value
+}
+
+function wrapContext(json: string): string {
+  return `<threat_analysis_context untrusted="true">${json}</threat_analysis_context>`
+}
+
+/**
+ * Render the model-facing packet inside its bound WITHOUT cutting bytes.
+ *
+ * MEASURED: `boundedText(json, 24_000)` on a large task produced a truncated
+ * object -- invalid JSON the model cannot parse, with the ten-question gap set
+ * and the versioned protocol sliced off the end. A packet that does not parse is
+ * worse than a smaller packet that does, so an oversized packet is now degraded
+ * semantically: array tails are capped, the protocol and the failure
+ * distinction are never trimmed, and `context_budget` records exactly what was
+ * dropped.
+ */
 function renderContext(value: Record<string, unknown>): string {
   // Compact gaps plus frontier/report only. Raw ledgers stay on the tools.
-  const json = JSON.stringify(modelFacingContext(value))
-  return `<threat_analysis_context untrusted="true">${boundedText(json, 24_000)}</threat_analysis_context>`
+  const facing = modelFacingContext(value)
+  const full = JSON.stringify(facing)
+  if (full.length <= MAX_CONTEXT_CHARS) return wrapContext(full)
+  const fullChars = full.length
+  const budget = (cap: number, omitted: Record<string, number>): Record<string, unknown> => ({
+    max_chars: MAX_CONTEXT_CHARS,
+    full_chars: fullChars,
+    degraded: true,
+    array_cap: cap,
+    omitted_counts: omitted,
+    note: 'The packet exceeded its bound and was reduced by capping array tails; the versioned investigation_protocol and the failure classification are never trimmed. Re-read the specific rows with the session-bound tools.',
+  })
+  for (const cap of [24, 8, 4, 2, 0]) {
+    const omitted: Record<string, number> = {}
+    const degraded = { ...capContextArrays(facing, cap, omitted) as Record<string, unknown>, context_budget: budget(cap, omitted) }
+    const json = JSON.stringify(degraded)
+    if (json.length <= MAX_CONTEXT_CHARS) return wrapContext(json)
+  }
+  // Last resort: keep only what the investigation protocol needs to be usable.
+  const omitted: Record<string, number> = {}
+  const minimal = {
+    schema_version: facing.schema_version,
+    session_id: facing.session_id,
+    state: facing.state,
+    context_status: facing.context_status,
+    active_task_id: facing.active_task_id,
+    investigation_protocol: facing.investigation_protocol,
+    task: capContextArrays(facing.task, 0, omitted),
+    task_gaps: {
+      kind_distinction: (facing.task_gaps as Record<string, unknown>)?.kind_distinction,
+      failure_kind_distinction: (facing.task_gaps as Record<string, unknown>)?.failure_kind_distinction,
+      official_report_revision_id: (facing.task_gaps as Record<string, unknown>)?.official_report_revision_id,
+      do_not_invent_second_report: true,
+    },
+    investigation_frontier: capContextArrays(facing.investigation_frontier, 0, omitted),
+    report: facing.report,
+    context_budget: budget(0, omitted),
+  }
+  const json = JSON.stringify(minimal)
+  if (json.length <= MAX_CONTEXT_CHARS) return wrapContext(json)
+  return wrapContext(JSON.stringify({
+    schema_version: facing.schema_version,
+    session_id: facing.session_id,
+    state: facing.state,
+    investigation_protocol: facing.investigation_protocol,
+    context_budget: { ...budget(0, omitted), note: 'the task projection itself exceeded the bound; read it with threat_get_session_analysis_context' },
+  }))
 }
 
 /**
@@ -874,6 +986,9 @@ export function apply(ctx: Context, config: ContextProviderConfig = {}): void {
         if (!activeTaskId) {
           cache.set(id, { fetchedAt: Date.now(), sessionId: id, context: {
             schema_version: 2, session_id: id, state: text(session.state) || 'UNBOUND',
+            // The first-request protocol must survive the unbound state: the
+            // user's first message is exactly the turn that has no task yet.
+            investigation_protocol: firstRequestProtocolPacket(),
             task: {}, investigation_frontier: { open_questions: [], missing_evidence: [], recent_actions: [], deferred: [] },
             analysis_planner: compactRow(objectValue(session.analysis_planner), [
               'role', 'source', 'distinct_from_dsh_chat', 'dsh_chat_note', 'enabled',
@@ -900,6 +1015,7 @@ export function apply(ctx: Context, config: ContextProviderConfig = {}): void {
         cache.set(id, { fetchedAt: Date.now(), sessionId: id, context: {
           schema_version: 2, session_id: id, state: 'BACKEND_UNAVAILABLE',
           context_status: 'BACKEND_UNAVAILABLE',
+          investigation_protocol: firstRequestProtocolPacket(),
           investigation_frontier: { open_questions: [], missing_evidence: [], recent_actions: [], deferred: [] },
           report: { revision_id: undefined, available: false },
         } })

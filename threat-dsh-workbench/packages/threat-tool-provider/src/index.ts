@@ -1,11 +1,21 @@
-import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { ThreatApiClient } from '@threat-dsh/api-client'
-import { assertManifest, boundedIds, boundedText, THREAT_TOOL_CONTRACT_VERSION, THREAT_SESSION_CONTEXT_PROTOCOL, type ThreatPluginManifest } from '@threat-dsh/plugin-sdk'
+import {
+  assertManifest,
+  boundedIds,
+  boundedText,
+  classifyModelFailure,
+  firstRequestInvestigationProtocol,
+  modelFailureFields,
+  modelTransportFailureInProse,
+  THREAT_TOOL_CONTRACT_VERSION,
+  THREAT_SESSION_CONTEXT_PROTOCOL,
+  type ThreatPluginManifest,
+} from '@threat-dsh/plugin-sdk'
 
 export const name = 'threat-tool-provider'
 export const inject = ['tools']
@@ -73,21 +83,41 @@ function plannerTurnIdOf(args: Record<string, unknown>, exec: SessionExecution):
   return 'dsh-session-unresolved'
 }
 
+function transportFailureAnnotation(payload: Record<string, unknown>, kind: string): Record<string, unknown> {
+  const meaning = textValue(payload.failure_meaning, 1200) || ''
+  const annotation = `${kind}: model/transport fault, not a static boundary and not a negative result (see failure_class in the workbench)`
+  const next: Record<string, unknown> = { ...payload, failure_interpretation: 'UNKNOWN' }
+  next.failure_meaning = (meaning ? `${annotation}; ${meaning}` : annotation).slice(0, 1200)
+  return next
+}
+
 function coerceFailureInterpretation(payload: Record<string, unknown>): Record<string, unknown> {
   const raw = textValue(payload.failure_interpretation, 1200)
-  if (!raw || raw === 'UNKNOWN' || raw === 'NO_NEW_EVIDENCE' || raw === 'STATIC_BOUNDARY') return payload
-  const folded = raw.toUpperCase().replace(/[-\s]/g, '_')
-  let token = 'UNKNOWN'
-  if (folded.includes('NO_NEW_EVIDENCE') || raw.toUpperCase().includes('NO_NEW_EVIDENCE')) token = 'NO_NEW_EVIDENCE'
-  else if (folded.includes('STATIC_BOUNDARY') || raw.toUpperCase().includes('STATIC_BOUNDARY')) token = 'STATIC_BOUNDARY'
-  // The explicit annotation is REQUIRED, not cosmetic: `{ ...payload, failure_interpretation: token }` is inferred as
-  // `{ failure_interpretation: string }`, dropping the index signature, so the `next.failure_meaning` write below failed
-  // `pnpm typecheck` with TS2339 while the function's own return type is `Record<string, unknown>`.
-  const next: Record<string, unknown> = { ...payload, failure_interpretation: token }
   const meaning = textValue(payload.failure_meaning, 1200) || ''
-  if (raw !== token && !meaning.includes(raw)) {
-    next.failure_meaning = (meaning ? `${meaning}; ${raw}` : raw).slice(0, 1200)
+  const reason = textValue(payload.reason, 1200) || ''
+  // A model/transport fault is not a statement about the sample. The backend
+  // field is a closed Literal (UNKNOWN | NO_NEW_EVIDENCE | STATIC_BOUNDARY), so
+  // if this side hands it STATIC_BOUNDARY the failure is *stored* as a static
+  // boundary and later reads back as a product finding. Keep the token UNKNOWN
+  // and name the fault in failure_meaning, which the action row stores.
+  const transportKind = modelTransportFailureInProse(`${raw} ${meaning} ${reason}`)
+  const next: Record<string, unknown> = { ...payload }
+  let token = 'UNKNOWN'
+  if (raw && ['UNKNOWN', 'NO_NEW_EVIDENCE', 'STATIC_BOUNDARY'].includes(raw)) {
+    token = raw
+  } else if (raw) {
+    const folded = raw.toUpperCase().replace(/[-\s]/g, '_')
+    if (folded.includes('NO_NEW_EVIDENCE') || raw.toUpperCase().includes('NO_NEW_EVIDENCE')) token = 'NO_NEW_EVIDENCE'
+    else if (folded.includes('STATIC_BOUNDARY') || raw.toUpperCase().includes('STATIC_BOUNDARY')) token = 'STATIC_BOUNDARY'
+    // The explicit annotation is REQUIRED, not cosmetic: `{ ...payload, failure_interpretation: token }` is inferred as
+    // `{ failure_interpretation: string }`, dropping the index signature, so the `next.failure_meaning` write below failed
+    // `pnpm typecheck` with TS2339 while the function's own return type is `Record<string, unknown>`.
+    if (token !== 'UNKNOWN' && !meaning.includes(raw)) {
+      next.failure_meaning = (meaning ? `${meaning}; ${raw}` : raw).slice(0, 1200)
+    }
   }
+  if (transportKind !== 'NONE' && token !== 'UNKNOWN') return transportFailureAnnotation(next, transportKind)
+  next.failure_interpretation = token
   return next
 }
 
@@ -194,10 +224,6 @@ const SESSION_NOTE_ID = /^[a-zA-Z0-9._-]{1,200}$/
 const MAX_SESSION_NOTES = 32
 const MAX_SESSION_NOTE_CHARS = 2000
 
-function sha256Hex(text: string): string {
-  return createHash('sha256').update(text).digest('hex')
-}
-
 function sessionNotesPath(sessionId: string): string | undefined {
   const home = typeof process.env.DSH_HOME === 'string' ? process.env.DSH_HOME.trim() : ''
   if (!home || !SESSION_NOTE_ID.test(sessionId)) return undefined
@@ -264,6 +290,35 @@ function recordOf(value: unknown): Record<string, unknown> {
 }
 
 /**
+ * Turn one backend model-completion result into what the model is allowed to
+ * read.
+ *
+ * B00: HTTP 402, timeouts and empty replies must stay distinguishable from a
+ * static-analysis boundary, and a model failure must never be recorded as a
+ * product effect. The backend already records `http_status`, `error_type` and
+ * `error_detail` per attempt; this is where they become a named class instead
+ * of a bare `FAILED` that the model could narrate as "no evidence".
+ *
+ * A completion with no content is refused even when the status says SUCCEEDED:
+ * a reasoning model that spent the whole completion budget returns HTTP 200 with
+ * an empty body, and reporting that as a successful completion is exactly how a
+ * model that never answered looks like one that did.
+ */
+function modelCompleteResult(raw: Record<string, unknown>): Record<string, unknown> {
+  const failure = classifyModelFailure(raw)
+  if (failure.observed === 'MODEL_OR_TRANSPORT' || failure.kind !== 'NONE') {
+    return {
+      ...compactToolResult({ ...raw, content: undefined, parsed: undefined }),
+      accepted: false,
+      ...modelFailureFields(failure),
+      instruction:
+        'The model call did not produce a usable completion. This is a model/transport fault: it is not an analysis result, not evidence about the sample, and not a static-analysis boundary. Do not write it into a claim, a finding, or failure_interpretation -- report the model fault itself and keep working with the static tools.',
+    }
+  }
+  return compactToolResult({ ...raw, accepted: true }, { preserve: ['content'] })
+}
+
+/**
  * The official GET /api/v1/workbench/tasks/{id}/report payload nests the
  * revision under `revision.id`. Keep a dedicated citation field so chat
  * cannot treat a missing or aliased report_revision_id as optional.
@@ -280,6 +335,10 @@ function authoritativeRevisionFromGetReport(row: Record<string, unknown>, report
     || textValue(nestedReport.id, 80)
     || textValue(nestedReport.revision_id, 80)
     || textValue(row.revision_id, 80)
+    // The analyst-draft submission returns the revision it published as a flat
+    // object with a bare `id` (report/revision_writer.get_report_revision).
+    // Ordering it last keeps GET /report's nested `revision.id` authoritative.
+    || textValue(row.id, 80)
 }
 
 /**
@@ -309,6 +368,18 @@ function citationInstructionForRevision(taskId: string, revisionId: string | und
   // it. So the instruction names both: the id, and the full content of the
   // 分析结论 section rather than a summary of it.
   return `Read the recovered facts from authoritative_revision_id ${revisionId} (GET /api/v1/workbench/tasks/${taskId}/report). ${authoring} The next user-visible reply MUST then quote the authoritative_revision_id published after your submission verbatim, and MUST quote the full content of that revision's 分析结论 section (from '## 分析结论' until '## 调查附录'), not a summary of it. Memory of a different task's revision is not that content. Do not quote pipeline scores, Seed Map, Evidence UUIDs, or coverage dictionaries as the analyst conclusion. Do not ask 再深入 for HOW or UNKNOWN already written in this markdown. Do not summarize from memory if these tools were not called. CONVERGED: stop dispatch after the submission. Do not call threat_propose_static_action. Do not read task_gaps to propose GET_DECOMPILE. Do not write to the desktop. Gaps already in this revision stay UNKNOWN.`
+}
+
+/**
+ * The citation instruction for the revision a submission just published.
+ *
+ * Deliberately not ``citationInstructionForRevision``: that one carries
+ * REPORT_AUTHORING_STEP (write the file, then submit), which is the wrong
+ * instruction to hand back immediately after a successful submission.
+ */
+function postSubmissionCitationInstruction(taskId: string, revisionId: string): string {
+  const task = taskId ? ` (task ${taskId})` : ''
+  return `Your narrative is published as revision ${revisionId}${task} through the 报告合成门 (ADR-0036). Your next user-visible reply MUST quote ${revisionId} verbatim and MUST quote the full content of that revision's 分析结论 section (from '## 分析结论' until '## 调查附录'), not a summary of it and not an older task's revision. The prose is yours; the facts are the deterministic fragments' and the gate is what kept them honest -- so never restate a CANDIDATE/UNKNOWN slot as established. Then STOP: do not call threat_propose_static_action, and do not re-open a slot this revision already records as UNKNOWN.`
 }
 
 function officialReportFields(taskId: string, row: Record<string, unknown>): Record<string, unknown> {
@@ -836,7 +907,7 @@ export function apply(ctx: Context, config: Config): void {
   }))
   ctx.tools.register(defineTool({
     name: 'threat_workbench_model_complete',
-    description: 'Ask the existing backend model gateway for one structured planning or claims completion on the already-bound task. Session, case, and task IDs are injected; this does not select a provider, open a shell, write the sample workspace, or contact sample network. It is not a second analysis-planner chat route and does not replace threat_propose_static_action.',
+    description: 'Ask the existing backend model gateway for one structured planning or claims completion on the already-bound task. Session, case, and task IDs are injected; this does not select a provider, open a shell, write the sample workspace, or contact sample network. It is not a second analysis-planner chat route and does not replace threat_propose_static_action. The system message is the versioned first-request investigation protocol, and prompt_sha256 is that instruction\'s digest, so the call records which instruction took effect. A model or transport failure (HTTP 402, timeout, gateway refusal, empty reply) is reported as model_or_transport with a failure_kind: it is never an analysis result, never a static boundary, and never evidence.',
     parameters: {
       question: { type: 'string', description: 'The bounded planning or claims question.' },
       operation: { type: 'string', description: 'Exactly planning or claims.' },
@@ -847,21 +918,36 @@ export function apply(ctx: Context, config: Config): void {
       const question = typeof args.question === 'string' ? args.question.trim().slice(0, 4000) : ''
       if (!question) return { state: 'QUESTION_REQUIRED', code: 'QUESTION_REQUIRED' }
       const operation = args.operation === 'claims' ? 'claims' : 'planning'
+      const protocol = firstRequestInvestigationProtocol()
       try {
         const context = await client.sessionContext(sessionId)
         const taskId = typeof context.active_task_id === 'string' ? context.active_task_id.trim() : ''
         const caseId = typeof context.case_id === 'string' ? context.case_id.trim() : ''
         if (!taskId || !caseId) return { state: typeof context.state === 'string' ? context.state : 'UNBOUND', code: 'NO_ACTIVE_ANALYSIS' }
         const plannerTurnId = plannerTurnIdOf({ ...args }, exec)
-        return compactToolResult(await client.completeModel({
+        const raw = recordOf(await client.completeModel({
           operation, case_id: caseId, session_id: sessionId, task_id: taskId,
           turn_id: plannerTurnId, step_id: plannerTurnId, module: operation,
-          prompt_id: 'dsh-workbench-complete', prompt_version: '1',
-          prompt_sha256: sha256Hex(question),
-          messages: [{ role: 'user', content: question }],
+          prompt_id: 'dsh-workbench-complete', prompt_version: protocol.version,
+          prompt_sha256: protocol.digest,
+          messages: [
+            { role: 'system', content: protocol.system_instruction },
+            { role: 'user', content: question },
+          ],
         }))
+        return modelCompleteResult(raw)
       } catch (error) {
-        return { state: 'UNKNOWN', code: error instanceof Error ? error.message : String(error) }
+        // A thrown transport error is still a model fault, not a static
+        // boundary: classify the message instead of surfacing a bare string.
+        const message = error instanceof Error ? error.message : String(error)
+        const failure = classifyModelFailure({ error_detail: message })
+        return {
+          state: failure.observed === 'MODEL_OR_TRANSPORT' ? 'MODEL_OR_TRANSPORT' : 'UNKNOWN',
+          code: message,
+          accepted: false,
+          ...modelFailureFields(failure),
+          instruction: 'The model call did not complete. This is a model/transport fault, not a static-analysis boundary and not evidence about the sample.',
+        }
       }
     },
     presentCall: (args: { operation?: string }) => ({ card: 'generic', title: 'Backend model complete', kind: 'run', rawInput: { operation: args.operation || 'planning' } }),
@@ -878,8 +964,39 @@ export function apply(ctx: Context, config: Config): void {
       const markdown = typeof args.markdown === 'string' ? args.markdown.trim() : ''
       if (!markdown) return { state: 'MARKDOWN_REQUIRED', code: 'MARKDOWN_REQUIRED', accepted: false }
       try {
-        const result = await client.submitAnalystDraft(sessionId, markdown)
-        return compactToolResult({ schema_version: 1, accepted: true, gate: 'report-compose-gate', ...result })
+        const result = recordOf(await client.submitAnalystDraft(sessionId, markdown))
+        // B11: the reply has to cite ONE revision, and the submission response
+        // names it as a bare `id` while every other route names it
+        // `authoritative_revision_id`. Normalise it here so chat, the report
+        // page and the export cannot disagree about which revision is official.
+        const revisionId = authoritativeRevisionFromGetReport(result, recordOf(result.revision))
+        const taskId = textValue(result.task_id, 80)
+          || textValue(result.authoritative_task_id, 80)
+          || ''
+        const fields: Record<string, unknown> = {
+          schema_version: 1,
+          accepted: true,
+          gate: 'report-compose-gate',
+          ...result,
+          report_revision_id: revisionId,
+          authoritative_revision_id: revisionId,
+          // Who wrote the prose. The narrative is agent-authored; the facts it
+          // may state are still the deterministic fragments', and the gate is
+          // what enforces that. Recording it keeps "the product wrote this"
+          // separable from "an agent wrote this" at acceptance time.
+          authorship: {
+            narrative_source: 'dsh-agent',
+            revision_edit_kind: textValue(result.edit_kind, 60) || 'UNKNOWN',
+            revision_author: textValue(result.author, 80) || 'UNKNOWN',
+            gate: 'report-compose-gate',
+            deterministic_fragments_authoritative: true,
+            product_generated_text: false,
+          },
+        }
+        if (revisionId) {
+          fields.citation_instruction = postSubmissionCitationInstruction(taskId, revisionId)
+        }
+        return compactToolResult(fields, { preserve: ['markdown'] })
       } catch (error) {
         return {
           state: 'GATE_REJECTED',
@@ -905,7 +1022,19 @@ export function apply(ctx: Context, config: Config): void {
       const markdown = typeof args.markdown === 'string' ? args.markdown : ''
       if (!filename || !markdown.trim()) return { state: 'INPUT_REQUIRED', code: 'FILENAME_AND_MARKDOWN_REQUIRED', written: false }
       try {
-        return compactToolResult({ schema_version: 1, ...(await client.writeReportFile(sessionId, filename, markdown)) })
+        // The file is the agent's own narrative, not the product's revision.
+        // Recording that here is what keeps "an agent wrote this file" from
+        // being counted as "the product produced this analysis text".
+        return compactToolResult({
+          schema_version: 1,
+          ...(await client.writeReportFile(sessionId, filename, markdown)),
+          authorship: {
+            narrative_source: 'dsh-agent',
+            product_generated_text: false,
+            official_revision: false,
+            note: 'agent-authored narrative file; the official revision is what the report page, the export and the chat citation read',
+          },
+        })
       } catch (error) {
         return { state: 'WRITE_REJECTED', written: false, code: error instanceof Error ? error.message : String(error) }
       }

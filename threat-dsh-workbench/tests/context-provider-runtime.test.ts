@@ -82,6 +82,54 @@ function packetFrom(text: string): Record<string, unknown> {
   return JSON.parse(encoded[1]) as Record<string, unknown>
 }
 
+/** A task large enough that the full model-facing packet exceeds its render bound. */
+function oversizedTask(): Record<string, unknown> {
+  const rows = (count: number, make: (index: number) => Record<string, unknown>) =>
+    Array.from({ length: count }, (_, index) => make(index))
+  return {
+    task: {
+      id: 'task-max', lifecycle: 'RUNNING', outcome: 'PARTIAL',
+      limitations: rows(20, (index) => `limitation ${index} `.repeat(8)),
+      strategy_snapshot: {
+        investigation: {
+          deferred_frontier: rows(64, (index) => ({
+            artifact_id: `artifact-${index}`,
+            question: `open question ${index} ${'x'.repeat(60)}`,
+            reason: 'NO_NEW_EVIDENCE',
+          })),
+        },
+      },
+      failure: { failure_code: 'MODEL_FAILURE' },
+      model_status: { kind: 'MODEL_OR_TRANSPORT', http_status: 402, error_detail: 'Insufficient Balance' },
+    },
+    artifacts: rows(64, (index) => ({
+      id: `artifact-${index}`, logical_path: `dir/${'p'.repeat(40)}/sample-${index}.bin`,
+      detected_type: 'PE', role: 'REQUIRED', sha256: 'a'.repeat(64),
+    })),
+    threads: rows(64, (index) => ({
+      id: `thread-${index}`, state: 'EVIDENCE_GATHERING', question: `question ${index} ${'q'.repeat(80)}`,
+      evidence_ids: rows(8, (j) => `ev-${index}-${j}`),
+      protocol: { consumer: { status: 'UNKNOWN', reason: 'r'.repeat(120) } },
+    })),
+    hypotheses: rows(64, (index) => ({
+      id: `hyp-${index}`, thread_id: `thread-${index}`, statement: 's'.repeat(120), required_evidence: ['consumer'],
+    })),
+    actions: rows(64, (index) => ({
+      id: `action-${index}`, action_type: 'GET_CALLEES', status: 'NO_NEW_EVIDENCE',
+      reason: 'no callee '.repeat(12), evidence_ids: [`ev-${index}`],
+    })),
+    mechanisms: rows(64, (index) => ({
+      id: `mech-${index}`, type: 'loader', status: 'CANDIDATE',
+      missing_fields: ['output', 'consumer', 'initiator', 'condition'], evidence_ids: [`ev-${index}`],
+    })),
+    evidence: rows(64, (index) => ({
+      id: `ev-${index}`, artifact_id: 'artifact-0', module: 'loader', kind: 'decode_result',
+      nature: 'STATIC_OBSERVED', anchor: 'rva:0x401000',
+    })),
+    report: { available: true, revision_id: 'revision-1' },
+  }
+}
+
 test('context projection exposes durable investigation frontier and report revision', () => {
   const projected = projectInvestigationContext(task, 'session-1')
   assert.equal(projected.session_id, 'session-1')
@@ -753,5 +801,144 @@ test('user message session event dispatches analysis intent before the model cal
     await new Promise((resolve) => setTimeout(resolve, 0))
     assert.ok(urls.some((url) => url.endsWith('/analysis/intent')))
     assert.ok(bodies.some((body) => body.includes('分析这个样本')))
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('first-turn packet carries the versioned first-request investigation protocol the model receives', async () => {
+  const originalFetch = globalThis.fetch
+  let assemble: ((assembly: { contexts: { name: string; text: string }[] }, context: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.endsWith('/analysis-context')) return Response.json({ state: 'ANALYSIS_READY', active_task_id: 'task-gap' })
+    if (url.endsWith('/tasks/task-gap/report')) return Response.json({ task_id: 'task-gap', revision: null })
+    if (url.endsWith('/tasks/task-gap')) return Response.json(gapTask)
+    throw new Error(`unexpected request ${url}`)
+  }
+  try {
+    apply({
+      inject: (_dependencies: readonly string[], callback: (scope: unknown) => void) => callback({ systemPrompt: { context: () => () => {} } }),
+      on: (name: string, listener: any) => { if (name === 'system-prompt/assemble') assemble = listener; return () => {} },
+    } as never, { backendUrl: 'http://backend' })
+    const assembly = { contexts: [] as { name: string; text: string }[] }
+    await assemble!(assembly, { agent: { session: { id: 'session-protocol' } } }, async () => assembly)
+    const context = assembly.contexts.find((item) => item.name === 'threat:analysis-context')
+    assert.ok(context)
+    const packet = packetFrom(context.text)
+    const protocol = packet.investigation_protocol as Record<string, unknown>
+    assert.ok(protocol, 'the model-facing packet must carry the first-request protocol')
+    assert.equal(protocol.protocol_id, 'first-request-autonomous-deep-dive')
+    assert.match(String(protocol.version), /^\d+\.\d+\.\d+$/)
+    assert.match(String(protocol.digest), /^[0-9a-f]{64}$/)
+    assert.deepEqual(
+      (protocol.question_slots as { slot: string }[]).map((row) => row.slot),
+      ['initiator', 'input', 'state_config', 'transformation', 'condition', 'side_effect', 'output', 'consumer', 'loop', 'failure_fallback'],
+    )
+    const obligations = protocol.obligations as Record<string, unknown>
+    assert.equal(obligations.competing_hypotheses, true)
+    assert.equal(obligations.failure_fallback, true)
+    assert.equal(obligations.evidence_or_named_reason_per_slot, true)
+    assert.equal(obligations.evidence_delta_per_action, true)
+    assert.equal(obligations.persisted_frontier, true)
+    const threadModel = protocol.thread_model as Record<string, unknown>
+    assert.equal(threadModel.investigation_thread, 'question work unit')
+    assert.equal(threadModel.distinct_thread_floor >= 2, true)
+    assert.equal(threadModel.os_thread_is_not_investigation_thread, true)
+    assert.equal(protocol.stop_rule.on_no_new_evidence, 'switch method family or state a concrete boundary')
+    assert.equal(protocol.stop_rule.one_user_request_is_enough, true)
+    // The digest identifies the exact instruction the workbench model route sends.
+    const sdk = await import('../packages/threat-plugin-sdk/src/index.ts') as Record<string, any>
+    const built = sdk.firstRequestInvestigationProtocol()
+    assert.equal(protocol.digest, built.digest)
+    assert.equal(protocol.version, built.version)
+    assert.equal(protocol.system_instruction_digest, built.digest)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('402 and an empty provider reply are projected as model/transport, never a static boundary', () => {
+  const projected = projectInvestigationContext({
+    ...task,
+    task: {
+      ...task.task,
+      lifecycle: 'FAILED',
+      failure: { failure_code: 'MODEL_FAILURE', retryable: true },
+      model_status: { kind: 'MODEL_OR_TRANSPORT', http_status: 402, error_detail: 'Insufficient Balance' },
+    },
+  }, 'session-402')
+  const distinction = (projected.task_gaps as Record<string, unknown>).failure_kind_distinction as Record<string, unknown>
+  assert.equal(distinction.observed, 'MODEL_OR_TRANSPORT')
+  const failureClass = distinction.model_failure as Record<string, unknown>
+  assert.equal(failureClass.kind, 'MODEL_402_PAYMENT_REQUIRED')
+  assert.equal(failureClass.http_status, 402)
+  assert.equal(failureClass.distinct_from_static_boundary, true)
+  assert.equal(failureClass.not_an_analysis_result, true)
+  // The task row is where a boundary claim would be carried; the classifier's
+  // own legend names all three classes on purpose.
+  assert.doesNotMatch(JSON.stringify(projected.task), /STATIC_BOUNDARY/)
+  assert.notEqual(distinction.observed, 'STATIC_BOUNDARY')
+
+  const empty = projectInvestigationContext({
+    ...task,
+    task: {
+      ...task.task,
+      lifecycle: 'FAILED',
+      failure: { failure_code: 'MODEL_FAILURE' },
+      model_status: {
+        kind: 'MODEL_OR_TRANSPORT',
+        last_status: 'EMPTY_RESPONSE',
+        error_detail: 'REASONING_BUDGET_EXHAUSTED: all 2048 completion tokens were spent on reasoning (2048 reasoning_tokens, finish_reason=length) and no content was returned',
+      },
+    },
+  }, 'session-empty')
+  const emptyClass = ((empty.task_gaps as Record<string, unknown>).failure_kind_distinction as Record<string, unknown>).model_failure as Record<string, unknown>
+  assert.equal(emptyClass.kind, 'MODEL_EMPTY_REPLY')
+  assert.equal(emptyClass.not_an_analysis_result, true)
+  assert.doesNotMatch(JSON.stringify(empty.task), /STATIC_BOUNDARY/)
+})
+
+test('the policy denial class still wins over an unrelated model field, and neither becomes a boundary', () => {
+  const projected = projectInvestigationContext({
+    ...task,
+    task: { ...task.task, failure: { failure_code: 'POLICY_DENIED', reason: 'emu window not granted' } },
+    actions: [{ id: 'a1', action_type: 'CONTROLLED_EMULATE', status: 'POLICY_DENIED', reason: 'self-authorize refused' }],
+  }, 'session-policy-2')
+  const distinction = (projected.task_gaps as Record<string, unknown>).failure_kind_distinction as Record<string, unknown>
+  assert.equal(distinction.observed, 'POLICY_DENIED')
+  assert.equal((distinction.model_failure as Record<string, unknown>).kind, 'NONE')
+  assert.equal((distinction.model_failure as Record<string, unknown>).distinct_from_static_boundary, true)
+  assert.doesNotMatch(JSON.stringify(projected.task), /STATIC_BOUNDARY/)
+})
+
+test('an oversized packet degrades to valid JSON instead of truncating the protocol away', async () => {
+  const originalFetch = globalThis.fetch
+  let assemble: ((assembly: { contexts: { name: string; text: string }[] }, context: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined
+  const big = oversizedTask()
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.endsWith('/analysis-context')) return Response.json({ state: 'ANALYSIS_RUNNING', active_task_id: 'task-max' })
+    if (url.endsWith('/tasks/task-max')) return Response.json(big)
+    throw new Error(`unexpected request ${url}`)
+  }
+  try {
+    apply({
+      inject: (_dependencies: readonly string[], callback: (scope: unknown) => void) => callback({ systemPrompt: { context: () => () => {} } }),
+      on: (name: string, listener: any) => { if (name === 'system-prompt/assemble') assemble = listener; return () => {} },
+    } as never, { backendUrl: 'http://backend' })
+    const assembly = { contexts: [] as { name: string; text: string }[] }
+    await assemble!(assembly, { agent: { session: { id: 'session-oversized' } } }, async () => assembly)
+    const context = assembly.contexts.find((item) => item.name === 'threat:analysis-context')
+    assert.ok(context)
+    assert.ok(context.text.length <= 24_000, `rendered context must respect its bound, got ${context.text.length}`)
+    // The model must be able to parse what it is given, and the versioned
+    // protocol plus the failure distinction must survive the degradation.
+    const packet = packetFrom(context.text)
+    const protocol = packet.investigation_protocol as Record<string, unknown>
+    assert.equal(protocol.protocol_id, 'first-request-autonomous-deep-dive')
+    assert.equal((protocol.question_slots as unknown[]).length, 10)
+    const gaps = packet.task_gaps as Record<string, unknown>
+    assert.equal(((gaps.failure_kind_distinction as Record<string, unknown>).model_failure as Record<string, unknown>).kind, 'MODEL_402_PAYMENT_REQUIRED')
+    const budget = packet.context_budget as Record<string, unknown>
+    assert.equal(budget.degraded, true)
+    assert.equal(budget.max_chars, 24_000)
+    assert.equal(Number(budget.full_chars) > 24_000, true)
   } finally { globalThis.fetch = originalFetch }
 })

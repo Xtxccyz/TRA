@@ -64,5 +64,6 @@ injection; Sleep+HTTP is not a heartbeat; a configured endpoint is not live C2; 
 is not persistence; collection is not exfiltration. The claims plus limitations must already
 form an executive summary of What, How, unique mechanisms, recovered configuration, ATT&CK
 candidates, and key unknowns. Chat, report page, and export share one revision;
-cite the official GET `/reports` revision from the injected context and do not
+the official revision is the one `GET /api/v1/workbench/tasks/{id}/report` publishes and
+the workbench context carries as `official_report_revision_id`; do not
 invent a second report or upgrade CANDIDATE in prose.

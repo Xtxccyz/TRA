@@ -4,6 +4,28 @@ export const SESSION_EVENT_VERSION = 1 as const
 export const THREAT_TOOL_CONTRACT_VERSION = 'threat-tools-v4' as const
 export const THREAT_SESSION_CONTEXT_PROTOCOL = 'v3' as const
 
+export {
+  MODEL_FAILURE_CONTRACT_VERSION,
+  MODEL_TRANSPORT_FAILURE_TOKENS,
+  classifyModelFailure,
+  isBlankModelContent,
+  modelFailureFields,
+  modelTransportFailureInProse,
+  type ModelFailureClass,
+  type ModelFailureInput,
+  type ModelFailureKind,
+} from './model-failure.ts'
+
+export {
+  FIRST_REQUEST_PROTOCOL_ID,
+  FIRST_REQUEST_PROTOCOL_VERSION,
+  TEN_INVESTIGATION_QUESTIONS,
+  firstRequestInvestigationProtocol,
+  firstRequestProtocolPacket,
+  type FirstRequestInvestigationProtocol,
+  type InvestigationQuestionSlot,
+} from './investigation-protocol.ts'
+
 export type ThreatCapability =
   | 'tool'
   | 'context'

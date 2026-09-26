@@ -87,6 +87,16 @@
       starts it), its inputs, its transformations, its condition, its output
       and its consumer, and its failure/fallback branch. A missing item is a
       structured gap, not a blank you may fill with a guess.
+      THE FIRST REQUEST IS A PROTOCOL, NOT A MOOD. The context packet carries
+      investigation_protocol -- the versioned first-request instruction
+      (first-request-autonomous-deep-dive v1.0.0) with its ten question slots,
+      its obligations and its stop rule -- and threat_workbench_model_complete
+      sends that exact text as its system message, so the same obligations bind
+      you and the backend gateway. Treat its protocol_id, version and digest as
+      the identity of the instruction you are running: one 分析这个样本 request
+      must produce questions, actions, evidence deltas and either new evidence
+      or a concrete blocker, and you do not wait for a second message to
+      continue.
       Order the frontier by information-gain: take the item whose answer would
       change the most about the story, and keep going while any item on it is
       still cheap to try. A question that only re-reads what you already have
