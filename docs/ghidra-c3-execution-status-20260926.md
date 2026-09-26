@@ -199,7 +199,22 @@
 - 记录标志：`SUPERSEDED by three_way_manifest (kept so a reader who saw the old flag can trace it)`
 - 后果：按计划 P-1.7/P-2，P-1 可以完成代码与测试，但其部署状态只能是 `P-1_COMPLETE_DEPLOYMENT_BLOCKED`；**本机 pytest 通过不得写成部署通过**。
 
-## 五、后继者必须知道的事
+## 五、门禁（instrument）自身的变更
+
+门禁是唯一能把「本机绿」与「验收通过」分开的东西，因此它自己的缺陷也记录在这里，而不是只留在 `.scratch` 的本地证据里。
+
+- **`negative-control-must-fail-its-assertion-not-just-exit-non-zero`**（commit `364b605`）：`_check_negative_controls` 接受**任意非零退出**，因此一个全部由 pytest collection error （exit 4）组成的负向对照运行会被读成「全部按要求失败」。现在要求断言真的失败。
+  - 实测：触发实测（P-1.3）：`.scratch/ghidra-c3/preflight/P-1.3-canfail.json` 记录 `verdict: ALL_CONTROLS_FAILED_AS_REQUIRED`，而 10 条 control 全部 `exit_code: 4`、`evidence: ERROR tests/test_analyst_report_acceptance.py`（测试文件正在被写入时收集到的半成品），没有一个 tamper 被真正执行
+  - 实测：同一文件的更早一次（23:21:04）判定 `CONTROL_DID_NOT_FAIL` 是**正确**的：`api_boundary_is_not_forwarded_by_the_projection` 退出 0
+  - 实测：向后兼容实测：P-0.3/P-0.4/P-1.1/P-1.2 四个已记录 artifact 重新校验仍 exit 0，55 条真负向对照未被误伤
+  - 规则：新增 `NEGATIVE_NO_TEST_RAN`：evidence 出现 collection/usage/internal error 标记即拒绝
+  - 规则：新增 `NEGATIVE_NOT_A_TEST_FAILURE`：evidence 报告了 pytest 失败时退出码必须是 1（2/3/4/5 是中止，不是失败）
+  - 规则：新增 `NEGATIVE_NODE_NOT_FAILED`：control 声明的 `node` 必须在 evidence 中以 FAILED 出现
+  - 规则：**刻意不变**：脚本形态的 control 保留自己的非零约定（P-0.4 部署门 exit 2、P-1.1 错 revision SQL 探针 exit 3 都是真实对照）
+  - 规则：新增自检 tamper `negative_control_collection_error`（M6）复现该坏形状并被拒绝
+  - 对步骤状态的影响：无——这是 instrument 变更，`current_step` 仍为 P-1.3，未改动任何产品文件；自检 14 项篡改全部被拒、0 跳过；`tests/test_ghidra_plan_preflight.py` 56 passed（原 51）
+
+## 六、后继者必须知道的事
 
 - This status is separate from `.scratch/structure-status.json` and must not be merged with it.
 - `complete` here means the STEP is complete; it never means T1-T8/G5/3080 capability acceptance.
