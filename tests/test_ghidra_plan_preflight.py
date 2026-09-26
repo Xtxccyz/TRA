@@ -14,6 +14,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import subprocess
+import sys
 
 import pytest
 
@@ -346,6 +348,68 @@ def test_the_scope_escape_tamper_declares_itself_inapplicable_when_nothing_can_e
                               changed_files=["scripts/ghidra-plan-preflight.py"])
     with pytest.raises(PREFLIGHT.NotApplicable):
         PREFLIGHT._tamper("scope_escape", {}, {}, artifact)
+
+
+def test_a_new_failure_node_outside_every_baseline_is_a_regression() -> None:
+    """P-1.7: "全量失败节点集合不得新增" - compared as a SET, which is why a count can never satisfy it."""
+    status = json.loads(json.dumps(STATUS))
+    status["baseline_failure_nodes"] = ["tests/test_a.py::test_one"]
+    status["baseline_failure_nodes_original_p0_2"] = ["tests/test_a.py::test_one", "tests/test_b.py::test_two"]
+    artifact = _base_artifact(full_failure_nodes_after=["tests/test_a.py::test_one", "tests/test_b.py::test_two"])
+    assert "REGRESSION_NEW_FAILURES" not in _codes(PREFLIGHT.validate("P-0.3", status, OWNERSHIP, artifact, []))
+    artifact["full_failure_nodes_after"] = ["tests/test_c.py::test_three"]
+    violations = PREFLIGHT.validate("P-0.3", status, OWNERSHIP, artifact, [])
+    assert "REGRESSION_NEW_FAILURES" in _codes(violations)
+
+
+def test_a_focused_run_that_gains_a_failure_is_rejected() -> None:
+    artifact = _base_artifact(focused_failure_nodes_before=["tests/test_a.py::test_one"],
+                              focused_failure_nodes_after=["tests/test_a.py::test_one", "tests/test_b.py::test_two"])
+    assert "FOCUSED_NEW_FAILURES" in _codes(_validate(artifact))
+
+
+def test_an_artifact_that_disagrees_with_its_own_capture_is_rejected() -> None:
+    """The artifact must report the set of the file it points at, otherwise the capture proves nothing."""
+    completed = subprocess.run([sys.executable, "-m", "pytest", "-q", "tests/test_ghidra_plan_preflight.py",
+                                "-k", "no_such_test_exists", "-p", "no:randomly"], cwd=ROOT, capture_output=True,
+                               text=True, encoding="utf-8", errors="replace")
+    capture = ROOT / ".scratch" / "ghidra-c3" / "preflight" / "selftest-capture-control.txt"
+    capture.parent.mkdir(parents=True, exist_ok=True)
+    capture.write_text(completed.stdout, encoding="utf-8")
+    clean = _base_artifact(full_suite_capture=".scratch/ghidra-c3/preflight/selftest-capture-control.txt",
+                           full_failure_nodes_after=[])
+    assert "CAPTURE_MISMATCH" not in _codes(_validate(clean)), "an empty capture and an empty claim agree"
+    lying = _base_artifact(full_suite_capture=".scratch/ghidra-c3/preflight/selftest-capture-control.txt",
+                           full_failure_nodes_after=["tests/test_a.py::test_one"])
+    assert "CAPTURE_MISMATCH" in _codes(_validate(lying))
+    missing = _base_artifact(full_suite_capture=".scratch/ghidra-c3/preflight/does-not-exist.txt")
+    assert "CAPTURE_MISSING" in _codes(_validate(missing))
+
+
+def test_a_content_hash_may_match_its_source_at_a_named_commit() -> None:
+    """MEASURED: P-0.3 hashed the preflight script itself, so every later edit broke a strict re-check of an ALREADY
+    ACCEPTED step. A historical match is accepted only when the record NAMES the commit; without the name it stays a
+    violation, so "the file moved on" is never a blanket excuse."""
+    import hashlib
+    import subprocess as sp
+
+    source = "scripts/ghidra-plan-preflight.py"
+    old_commit = sp.run(["git", "rev-parse", "b5e0c66795a2"], cwd=ROOT, capture_output=True, text=True,
+                        check=True).stdout.strip()
+    blob = sp.run(["git", "show", f"{old_commit}:{source}"], cwd=ROOT, capture_output=True).stdout
+    old_digest = hashlib.sha256(blob).hexdigest()
+    record = {"task_id": "t", "revision_id": "r", "content_sha256": old_digest, "started_at": "t0",
+              "finished_at": "t1", "sql_text": "SELECT 1", "connection": "sqlite3 probe",
+              "schema_query": "SELECT name FROM sqlite_master", "content_source": source,
+              "exit_code": 0, "rows": [["row"]]}
+    status = json.loads(json.dumps(STATUS))
+    unnamed = _base_artifact(claims_runtime_fact=True, task_revision_content_records=[dict(record)],
+                             wrong_sample_or_revision_control={"name": "wrong_revision", "exit_code": 1})
+    assert "M3_CONTENT_MISMATCH" in _codes(PREFLIGHT.validate("P-0.3", status, OWNERSHIP, unnamed, []))
+    named = _base_artifact(claims_runtime_fact=True,
+                           task_revision_content_records=[dict(record, content_source_at_commit=old_commit)],
+                           wrong_sample_or_revision_control={"name": "wrong_revision", "exit_code": 1})
+    assert "M3_CONTENT_MISMATCH" not in _codes(PREFLIGHT.validate("P-0.3", status, OWNERSHIP, named, []))
 
 
 @pytest.mark.parametrize("tamper", [name for name, _ in PREFLIGHT.TAMPERS])

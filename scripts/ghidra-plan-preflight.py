@@ -313,10 +313,16 @@ def _check_sql_records(violations: Violations, artifact: Mapping[str, Any]) -> N
             path = ROOT / source
             if path.is_file():
                 actual = hashlib.sha256(path.read_bytes()).hexdigest()
-                if actual != str(record.get("content_sha256") or ""):
+                declared = str(record.get("content_sha256") or "")
+                # A record may legitimately hash a file that LATER changed - P-0.3 hashed the preflight script itself.
+                # It must then name the commit whose bytes it hashed; without that name a mismatch is still a violation,
+                # so "the file moved on" can never become a blanket excuse.
+                if actual != declared and _blob_sha256_at(str(record.get("content_source_at_commit") or ""),
+                                                          source) != declared:
                     violations.add("M3_CONTENT_MISMATCH", f"task_revision_content_records[{index}] content_sha256 "
-                                                          f"{str(record.get('content_sha256'))[:12]} does not match "
-                                                          f"{source} ({actual[:12]})")
+                                                          f"{declared[:12]} matches neither {source} ({actual[:12]}) "
+                                                          f"nor that path at commit "
+                                                          f"{record.get('content_source_at_commit') or '(none named)'}")
             elif "sql_text" not in record:
                 violations.add("M3_CONTENT_UNVERIFIED", f"task_revision_content_records[{index}] content_source is not a "
                                                         f"local file and no SQL is recorded to have produced it")
@@ -522,6 +528,67 @@ def _check_phase_deployment_state(violations: Violations, step: str, status: Map
                                               f"{gate or 'unset'!r}")
 
 
+_CAPTURE_NODE_RE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+)", re.M)
+
+
+def _nodes_from_capture(path: pathlib.Path) -> set[str]:
+    """The FAILURE NODE SET of a captured `pytest -q` run, parsed from the file rather than taken from the artifact."""
+    raw = path.read_bytes()
+    text = raw.decode("utf-16", errors="replace") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") \
+        else raw.decode("utf-8-sig", errors="replace")
+    return {match.group(1) for match in _CAPTURE_NODE_RE.finditer(text.replace("\x00", ""))}
+
+
+def _check_failure_node_sets(violations: Violations, artifact: Mapping[str, Any], status: Mapping[str, Any]) -> None:
+    """P-1.7's own condition: "全量失败节点集合不得新增". This compares SETS, never counts.
+
+    The known set is the UNION of the plan's original P-0.2 baseline and the status' current baseline, because the
+    generator re-points `baseline_failure_nodes` as nodes get FIXED: comparing only against the shrunken list would
+    have called an older artifact's (larger, already-accepted) set a regression. Unioning cannot hide a NEW failure -
+    a node absent from both lists is new by definition.
+    """
+    known = {str(node) for node in status.get("baseline_failure_nodes") or []}
+    known |= {str(node) for node in status.get("baseline_failure_nodes_original_p0_2") or []}
+    after = {str(node) for node in artifact.get("full_failure_nodes_after") or []}
+    regressions = sorted(after - known)
+    if regressions:
+        violations.add("REGRESSION_NEW_FAILURES", f"the full-suite failure set gained node(s) that are in no baseline: "
+                                                  f"{regressions}")
+    capture = str(artifact.get("full_suite_capture") or "").strip()
+    if capture:
+        path = ROOT / capture
+        if not path.is_file():
+            violations.add("CAPTURE_MISSING", f"`full_suite_capture` names {capture!r}, which does not exist")
+        else:
+            parsed = _nodes_from_capture(path)
+            if parsed != after:
+                violations.add("CAPTURE_MISMATCH",
+                               f"`full_failure_nodes_after` ({len(after)} node(s)) does not match the capture "
+                               f"{capture!r} ({len(parsed)} node(s)); the artifact must report the set of the file it "
+                               f"points at. in-artifact-only: {sorted(after - parsed)}; capture-only: "
+                               f"{sorted(parsed - after)}")
+    # A focused run must not gain failures either: that is where a step's own regression shows up first.
+    before = {str(node) for node in artifact.get("focused_failure_nodes_before") or []}
+    focused = {str(node) for node in artifact.get("focused_failure_nodes_after") or []}
+    if before and (focused - before):
+        violations.add("FOCUSED_NEW_FAILURES", f"the focused run gained failure node(s): {sorted(focused - before)}")
+
+
+def _blob_sha256_at(commit: str, path: str) -> str:
+    """SHA256 of `path` as stored in `commit`, or "" when the commit is absent/unreadable.
+
+    Read-only (`git show`), never a tree-level command. The path is converted to a POSIX spec because a Windows
+    backslash path is not a valid git object spec (`git show HEAD:src\\x.py` exits 128).
+    """
+    if not commit.strip():
+        return ""
+    spec = f"{commit.strip()}:{pathlib.PurePosixPath(path).as_posix()}"
+    completed = subprocess.run(["git", "show", spec], cwd=ROOT, capture_output=True)
+    if completed.returncode != 0:
+        return ""
+    return hashlib.sha256(completed.stdout).hexdigest()
+
+
 def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]) -> None:
     controls = artifact.get("negative_controls") or []
     if not controls:
@@ -578,6 +645,7 @@ def validate(step: str, status: Mapping[str, Any], ownership: Mapping[str, Any],
     _check_state_machine(violations, step, status)
     _check_artifact_fields(violations, artifact, step)
     _check_phase_deployment_state(violations, step, status, artifact)
+    _check_failure_node_sets(violations, artifact, status)
     _check_ownership(violations, ownership, files)
     _check_structure_conflicts(violations, ownership, step)
     _check_deployment(violations, step, status)
