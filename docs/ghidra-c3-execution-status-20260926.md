@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.1`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = 7951628f0f3453dab838a5f9787cb373287ba1a0`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = b76afb06647919a13c9d63b943e0884c3311f903`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -39,6 +39,14 @@
 - `tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions`
 
 
+### 最近一次全量测量（覆盖 P-0.2 之后的所有修复）
+
+- 结果：**2 failed / 2815 passed / 3 skipped in 233s**（`.scratch/ghidra-c3/baseline/pytest-r164-failures.txt`）
+- 相对 P-0.2 基线：NEW = `[]`；GONE = 10 个
+- 判定：9 nodes at P-0.2-r2 -> 2 nodes now, with no regression: the three baseline repairs of rounds 161-163 (protocol slot precedence, remote-thread seed, EC-5 self-check) removed 5, and the in-flight P-1.1 work removes the other 2 (`test_analysis_api` end-to-end and the structure-gate gap test)
+- 仍失败：['tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']
+- 原因：both need `service.py`, which the active P-1.1 step holds; they are T3 scope and are the first thing to take once that step releases the file
+
 ### 基线的已修缺陷（不是计划步骤，`current_step` 不动）
 
 - **protocol slot precedence: a NAMED object outranks a bare address, and a consumer coupled to a superseded output is dropped**（`src/threat_report_agent/facts/investigation_protocol.py`）
@@ -69,7 +77,7 @@
 
 ```json
 {
-  "measured_at_head": "7951628f0f3453dab838a5f9787cb373287ba1a0",
+  "measured_at_head": "b76afb06647919a13c9d63b943e0884c3311f903",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -83,7 +91,7 @@
 
 ```json
 {
-  "measured_at_head": "7951628f0f3453dab838a5f9787cb373287ba1a0",
+  "measured_at_head": "b76afb06647919a13c9d63b943e0884c3311f903",
   "p1_3_observation_cap": {
     "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
     "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
