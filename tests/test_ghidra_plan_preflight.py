@@ -217,6 +217,50 @@ def test_m6_blocks_a_scope_escape() -> None:
     assert "SCOPE" in _codes(_validate(artifact))
 
 
+def test_a_completed_step_can_always_be_re_validated() -> None:
+    """MEASURED: after the status advanced to P-1.1, `--step P-0.4` reported STEP_NOT_ALLOWED, so already-accepted
+    artifacts could not be re-checked. Re-reading evidence is not advancing the state."""
+    status = json.loads(json.dumps(STATUS))
+    status["allowed_steps"] = ["P-1.1"]
+    status["steps"] = [{"step": "P-0.1", "decision": "complete"}, {"step": "P-0.2", "decision": "complete"},
+                       {"step": "P-0.3", "decision": "complete"}, {"step": "P-0.4", "decision": "complete"}]
+    assert "STEP_NOT_ALLOWED" not in _codes(PREFLIGHT.validate("P-0.4", status, OWNERSHIP,
+                                                               _base_artifact(step="P-0.4"), []))
+
+
+def test_a_phase_step_is_not_gated_by_the_per_sub_step_allow_list() -> None:
+    status = json.loads(json.dumps(STATUS))
+    status["allowed_steps"] = ["P-1.1"]
+    status["steps"] = [{"step": sub, "decision": "complete"} for sub in PREFLIGHT.sub_steps_of("P-1")]
+    assert "STEP_NOT_ALLOWED" not in _codes(PREFLIGHT.validate("P-1", status, OWNERSHIP,
+                                                               _base_artifact(step="P-1"), []))
+
+
+def test_a_phase_step_requires_every_sub_step_to_be_complete() -> None:
+    """The plan's P-1.7 gate is literally `--step P-1`: naming a phase must not skip the sub-steps it contains."""
+    status = json.loads(json.dumps(STATUS))
+    status["allowed_steps"] = None
+    status["steps"] = [{"step": "P-1.1", "decision": "complete"}]
+    violations = PREFLIGHT.validate("P-1", status, OWNERSHIP, _base_artifact(step="P-1"), [])
+    codes = _codes(violations)
+    assert "PHASE_INCOMPLETE" in codes
+    assert "P-1.7" in " ".join(str(item) for item in violations), "the missing sub-steps must be named"
+
+
+def test_a_phase_step_passes_once_every_sub_step_is_complete() -> None:
+    status = json.loads(json.dumps(STATUS))
+    status["allowed_steps"] = None
+    status["steps"] = [{"step": sub, "decision": "complete"} for sub in PREFLIGHT.sub_steps_of("P-1")]
+    assert "PHASE_INCOMPLETE" not in _codes(PREFLIGHT.validate("P-1", status, OWNERSHIP,
+                                                               _base_artifact(step="P-1"), []))
+
+
+def test_an_unknown_step_name_is_still_rejected() -> None:
+    status = json.loads(json.dumps(STATUS))
+    status["allowed_steps"] = None
+    assert "STEP_UNKNOWN" in _codes(PREFLIGHT.validate("P-99", status, OWNERSHIP, _base_artifact(step="P-99"), []))
+
+
 def test_m6_blocks_a_step_whose_dependency_is_not_complete() -> None:
     status = json.loads(json.dumps(STATUS))
     status["steps"] = []

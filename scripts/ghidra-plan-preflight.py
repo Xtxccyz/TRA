@@ -83,9 +83,21 @@ DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "T8": ("T4",),
 }
 
+#: Phase-level steps. The plan's own P-1.7 / P-2 gate commands are `--step P-1` and `--step P-2`, which name a PHASE
+#: rather than a sub-step; without this table the documented command would fail with `STEP_UNKNOWN` and P-1.7 could never
+#: be discharged as written. A phase step means "every sub-step of this phase is complete, and the phase artifact
+#: validates on its own".
+PHASE_PREFIXES = ("P-0", "P-1", "P-2", "P-3", "P-4", "P-5", "P-6", "P-7", "P-8")
+
+
+def sub_steps_of(phase: str) -> tuple[str, ...]:
+    """The sub-steps that belong to a phase name (`P-1` -> `P-1.1` ... `P-1.7`)."""
+    return tuple(step for step in STEPS if step.startswith(phase + "."))
+
+
 #: Steps that may NOT be claimed while the deployment gate is not MATCHED_TO_HEAD (plan P-1.7 / P-2 rule). A local
 #: pytest run is not a deployment result, so this gate is deliberately independent of the test outcome.
-DEPLOYMENT_DEPENDENT = ("P-2.1", "P-2.2", "P-2.3", "P-3", "P-4", "P-5", "P-6", "P-7", "P-8", "T1", "T2", "T3",
+DEPLOYMENT_DEPENDENT = ("P-2", "P-2.1", "P-2.2", "P-2.3", "P-3", "P-4", "P-5", "P-6", "P-7", "P-8", "T1", "T2", "T3",
                         "T4", "T5", "T8")
 
 REQUIRED_STEP_FIELDS = (
@@ -385,14 +397,27 @@ def _check_plan_identity(violations: Violations, status: Mapping[str, Any]) -> N
 
 
 def _check_state_machine(violations: Violations, step: str, status: Mapping[str, Any]) -> None:
-    if step not in STEPS:
+    if step not in STEPS and step not in PHASE_PREFIXES:
         violations.add("STEP_UNKNOWN", f"{step} is not a step of this plan")
         return
-    allowed = status.get("allowed_steps")
-    if allowed is not None and step not in allowed:
-        violations.add("STEP_NOT_ALLOWED", f"the status' state machine does not allow {step} (allowed: {allowed})")
     completed = {str(item.get("step")) for item in status.get("steps") or []
                  if isinstance(item, Mapping) and item.get("decision") == "complete"}
+    if step in completed:
+        # RE-VALIDATING A FINISHED STEP IS ALWAYS ALLOWED. MEASURED: once the status advanced to P-1.1, `--step P-0.4`
+        # started reporting STEP_NOT_ALLOWED, so the two artifacts that had already been accepted could no longer be
+        # re-checked - a gate that forbids re-reading its own evidence.
+        return
+    allowed = status.get("allowed_steps")
+    if allowed is not None and step not in allowed and step not in PHASE_PREFIXES:
+        violations.add("STEP_NOT_ALLOWED", f"the status' state machine does not allow {step} (allowed: {allowed})")
+    if step in PHASE_PREFIXES:
+        # A phase step is allowed only when EVERY sub-step of the phase is complete; naming a phase must never be a way
+        # to skip the sub-steps it contains (plan P-1.7's own command is `--step P-1`). The `allowed_steps` list is
+        # generated per sub-step, so a phase name is deliberately not required to appear in it.
+        missing = [sub for sub in sub_steps_of(step) if sub not in completed]
+        if missing:
+            violations.add("PHASE_INCOMPLETE", f"{step} still has incomplete sub-step(s): {missing}")
+        return
     for dependency in DEPENDENCIES.get(step, ()):  # a step may run only after its dependencies are complete
         if dependency not in completed:
             violations.add("STEP_DEPENDENCY", f"{step} requires {dependency} to be complete first")
