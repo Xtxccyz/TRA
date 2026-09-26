@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.1`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = 97d13901c34a86dcececc1bee76b04615b8c35a5`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = b5e0c66795a2bd1253c5edc3a21e2fbccadea2f5`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -55,6 +55,40 @@
   - 影响面：265 focused tests over 9 files that touch seed clustering / thread starts: no new failure
   - 仍开放：[]
   - 受阻于：nothing
+
+### 下一步的实测底稿（read-only 测量，`current_step` 不动）
+
+- **`p1_2_premeasurement`**
+
+```json
+{
+  "measured_at_head": "b5e0c66795a2bd1253c5edc3a21e2fbccadea2f5",
+  "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
+  "what_is_still_missing": [
+    "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
+    "the PROOF P-1.2 demands: a DB fixture per status (CANCELLED / TIMED_OUT / FAILED) whose official Markdown is rendered from the SAME revision, a wrong-sample/wrong-revision control, the negative case that a SUCCEEDED run without an error adds no limitation, and that a cancelled task no longer produces an unlimited body"
+  ],
+  "consequence_for_the_next_step": "P-1.2 is therefore mostly a WIRING + PROOF step, not a new-projection step; do not write a second projection, and do not read Evidence JSON in place of the rendered Markdown"
+}
+```
+
+- **`p1_3_and_p1_5_premeasurement`**
+
+```json
+{
+  "measured_at_head": "b5e0c66795a2bd1253c5edc3a21e2fbccadea2f5",
+  "p1_3_observation_cap": {
+    "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
+    "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
+    "blocked_on": "`report/reporting.py` is held by the active P-1.1 step"
+  },
+  "p1_5_window_classification": {
+    "where": "`NO_GRANTED_WINDOW` is produced in `tools/tool_execution.py:804/812/824` (`None if windows else \"NO_GRANTED_WINDOW\"`), `emulation/policy.py:143/153`, and `investigation/derivation.py:3181`; `EMULATION_OUTPUT_UNREADABLE` does not exist anywhere in `src/` yet (measured)",
+    "state": "so today a content-store read failure and a genuinely ungranted window are indistinguishable, and P-1.5's new token has to be introduced at the read-failure branch in `service.py`",
+    "blocked_on": "`service.py` is held by the active P-1.1 step"
+  }
+}
+```
 
 ## 三、ownership 与锁
 
