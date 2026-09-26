@@ -589,6 +589,34 @@ def _blob_sha256_at(commit: str, path: str) -> str:
     return hashlib.sha256(completed.stdout).hexdigest()
 
 
+def _check_skill_audit(violations: Violations, artifact: Mapping[str, Any]) -> None:
+    """The plan requires a DENIAL-BASED self-review before a step claims completion.
+
+    MEASURED (P-1.2): the artifact carried `"skill_audit": {}` and the gate accepted it, because only the KEY's presence
+    was checked. A present-but-empty self-review is the same family of hole as a tamper that breaks nothing: it reads as
+    evidence and carries none.
+    """
+    audit = artifact.get("skill_audit")
+    if not isinstance(audit, Mapping):
+        violations.add("SKILL_AUDIT_SHAPE", "`skill_audit` is not an object")
+        return
+    skill = str(audit.get("skill") or "").strip()
+    pending = {"pending", "pending-final-self-review", "none", "todo", ""}
+    if skill.casefold() in pending:
+        violations.add("SKILL_AUDIT_SKILL", f"`skill_audit.skill` is {skill!r}; name the skill that was actually run")
+    findings = audit.get("findings")
+    if not isinstance(findings, list):
+        violations.add("SKILL_AUDIT_FINDINGS", "`skill_audit.findings` is not a list")
+    elif not findings and not str(audit.get("why_no_findings") or "").strip():
+        violations.add("SKILL_AUDIT_EMPTY", "`skill_audit.findings` is empty and no `why_no_findings` sentence explains "
+                                            "a review that found nothing")
+    else:
+        for index, item in enumerate(findings):
+            if not isinstance(item, Mapping) or not str(item.get("status") or "").strip():
+                violations.add("SKILL_AUDIT_FINDING", f"skill_audit.findings[{index}] has no `status` "
+                                                     f"(FIXED / OPEN / RECORDED), so it cannot be told apart from prose")
+
+
 def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]) -> None:
     controls = artifact.get("negative_controls") or []
     if not controls:
@@ -644,6 +672,7 @@ def validate(step: str, status: Mapping[str, Any], ownership: Mapping[str, Any],
     _check_plan_identity(violations, status)
     _check_state_machine(violations, step, status)
     _check_artifact_fields(violations, artifact, step)
+    _check_skill_audit(violations, artifact)
     _check_phase_deployment_state(violations, step, status, artifact)
     _check_failure_node_sets(violations, artifact, status)
     _check_ownership(violations, ownership, files)

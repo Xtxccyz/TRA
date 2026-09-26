@@ -60,7 +60,8 @@ def _base_artifact(**overrides) -> dict:
                          "compile_or_typecheck": "py -m compileall -q scripts/ghidra-plan-preflight.py"}],
         "py_compile_or_typecheck": "pass",
         "deployment_manifest": {"gate_state": "BLOCKED"},
-        "skill_audit": {"skill": "improve-codebase-architecture", "findings": []},
+        "skill_audit": {"skill": "improve-codebase-architecture", "method": "denial-based",
+                        "findings": [{"id": "X", "severity": "LOW", "status": "RECORDED", "finding": "base fixture"}]},
         "decision": "complete",
         "mechanisms_exercised": ["M1", "M2", "M3", "M4", "M5", "M6"],
         "object_dumps": [{"name": "probe", "type": "Path", "has_dict": False,
@@ -349,6 +350,22 @@ def test_the_scope_escape_tamper_declares_itself_inapplicable_when_nothing_can_e
                               changed_files=["scripts/ghidra-plan-preflight.py"])
     with pytest.raises(PREFLIGHT.NotApplicable):
         PREFLIGHT._tamper("scope_escape", {}, {}, artifact)
+
+
+def test_an_empty_self_review_is_rejected() -> None:
+    """MEASURED (P-1.2): the artifact carried `"skill_audit": {}` and the gate accepted it, because only the KEY's
+    presence was checked. A present-but-empty self-review reads as evidence and carries none - the same family of hole
+    as a tamper that breaks nothing."""
+    assert "SKILL_AUDIT_SHAPE" in _codes(_validate(_base_artifact(skill_audit=[])))
+    assert "SKILL_AUDIT_SKILL" in _codes(_validate(_base_artifact(skill_audit={"skill": "pending", "findings": []})))
+    assert "SKILL_AUDIT_EMPTY" in _codes(_validate(_base_artifact(
+        skill_audit={"skill": "analysis-verification", "findings": []})))
+    explained = _base_artifact(skill_audit={"skill": "analysis-verification", "findings": [],
+                                            "why_no_findings": "every claim survived the attacks, listed in `commands`"})
+    assert "SKILL_AUDIT_EMPTY" not in _codes(_validate(explained))
+    vague = _base_artifact(skill_audit={"skill": "analysis-verification",
+                                        "findings": [{"id": "F", "severity": "LOW", "finding": "no status"}]})
+    assert "SKILL_AUDIT_FINDING" in _codes(_validate(vague))
 
 
 def test_a_new_failure_node_outside_every_baseline_is_a_regression() -> None:
