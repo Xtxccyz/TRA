@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.3`**；状态机当前允许：`['P-1.3']`
-- 代码提交 `git_head = cd8c970fbe50e9a71b2723cd5dc8585f8eaee25b`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 1b104d01f0013f48bad74e5d40fa9eec912491a5`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -17,7 +17,7 @@
 | P-0.3 | complete | `.scratch/ghidra-c3/preflight/P-0.3-artifact.json` | blocking preflight delivered: 11 self-test tamper(s) rejected with real non-zero exits, 2 skipped and covered by named unit tests; 12 negative control(s) recorded; M3 bound to a real SQL round trip against a schema created by the product's own `Database.create_schema()`. |
 | P-0.4 | complete | `.scratch/ghidra-c3/preflight/P-0.4-artifact.json` | call contract pinned without touching the gate: default services ['api', 'intake-worker', 'document-worker', 'parser-worker', 'script-worker', 'control-worker', 'emu-worker', 'ghidra-worker']; deployment BLOCKED (deployment_gate_head_unverified); 4 negative control(s) recorded. |
 | P-1.1 | complete | `.scratch/ghidra-c3/preflight/P-1.1-artifact.json` | 6 file(s) changed; 21 negative control(s), 21 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: input_partition; SQL-bound task 0432d5eb |
-| P-1.2 | complete | `.scratch/ghidra-c3/preflight/P-1.2-artifact.json` | 2 file(s) changed; 5 negative control(s), 5 with a real non-zero exit; mechanisms exercised []; render proof: [pipeline] Tool run <tool_name> ended <STATUS>: <error|no error recorded>.; SQL-bound task 4dab87ff |
+| P-1.2 | complete | `.scratch/ghidra-c3/preflight/P-1.2-artifact.json` | 2 file(s) changed; 5 negative control(s), 5 with a real non-zero exit; mechanisms exercised []; render proof: [pipeline] Tool run <tool_name> ended <STATUS>: <error|no error recorded>.; SQL-bound task 33d31cb5 |
 | P-0.2-r2 | complete | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 12; NEW (regressions) = none; GONE (fixed) = ['tests/test_model_package_contract.py::test_no_production_module_imports_a_moved_model_module_by_its_old_path', 'tests/test_structure_diff_gate.py::test_a_pure_move_passes_the_surface_gate', 'tests/test_structure_diff_gate.py::test_the_surface_file_is_current']. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
@@ -92,7 +92,7 @@
 
 ```json
 {
-  "measured_at_head": "cd8c970fbe50e9a71b2723cd5dc8585f8eaee25b",
+  "measured_at_head": "1b104d01f0013f48bad74e5d40fa9eec912491a5",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -106,16 +106,38 @@
 
 ```json
 {
-  "measured_at_head": "cd8c970fbe50e9a71b2723cd5dc8585f8eaee25b",
+  "measured_at_head": "1b104d01f0013f48bad74e5d40fa9eec912491a5",
   "p1_3_observation_cap": {
-    "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
-    "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
-    "blocked_on": "`report/reporting.py` is held by the active P-1.1 step"
+    "sites_measured_by_ast": [
+      {
+        "site": "report/reporting.py:2399",
+        "enclosing": "_build_investigation_timeline",
+        "line": "return timeline[:256]",
+        "identity_key": "the rows carry `evidence_id` and `claim_id`, so the identity key is the pair (kind, evidence_id, claim_id)",
+        "seam": "the slice is the RETURN, so the FULL list exists first and both differences are computable without moving anything upstream"
+      },
+      {
+        "site": "report/reporting.py:6382",
+        "enclosing": "build_behavior_relations",
+        "line": "return projected[:256]  (after apply_adversarial_downgrades)",
+        "identity_key": "the relation rows, i.e. their (source, relation, target) identity",
+        "seam": "again the RETURN, and the adversarial downgrade has already run, so the dropped tail must be described AFTER downgrades or the boundary would describe a different set"
+      },
+      {
+        "site": "static/static_analysis.py:6133",
+        "enclosing": "_scan_x86_code",
+        "line": "'patterns': patterns[:256]  (same dict also caps 'api_calls': api_calls[:4096])",
+        "identity_key": "the pattern/api entries themselves",
+        "seam": "TWO caps in one dict, and the same dict publishes `api_call_count: len(api_calls)` computed on the FULL list - a count beside a truncated list, which is exactly what the plan's M5 forbids: a reader sees the count and the list and still cannot compute the difference"
+      }
+    ],
+    "state": "the cap is a bare slice at each site: the elements outside it are discarded with no recorded identity key, so `expected_minus_actual` is not computable today even though the seam is local",
+    "blocked_on": "`report/reporting.py` is listed as P-1.2's allowed file; P-1.2 changed NO source file, so the file is free in practice and P-1.3 may take it once the step is allowed"
   },
   "p1_5_window_classification": {
     "where": "`NO_GRANTED_WINDOW` is produced in `tools/tool_execution.py:804/812/824` (`None if windows else \"NO_GRANTED_WINDOW\"`), `emulation/policy.py:143/153`, and `investigation/derivation.py:3181`; `EMULATION_OUTPUT_UNREADABLE` does not exist anywhere in `src/` yet (measured)",
     "state": "so today a content-store read failure and a genuinely ungranted window are indistinguishable, and P-1.5's new token has to be introduced at the read-failure branch in `service.py`",
-    "blocked_on": "`service.py` is held by the active P-1.1 step"
+    "blocked_on": "`service.py` is listed as P-1.2's allowed file and P-1.2 changed no source; free in practice"
   }
 }
 ```
