@@ -132,18 +132,28 @@ def test_the_mapping_call_sites_are_still_the_recorded_gap() -> None:
     # A MAPPING call site passes a bare row/item NAME. MEASURED reason for exactly this filter: the first version
     # also counted `_mechanism_catalog_id(row.get(key), registry)`, because `row.get(...)` is a Call and not an
     # Attribute - but `.get(...)` returns a SCALAR, which is the form that works.
-    mapping_call_sites = [
-        node.lineno
-        for node in ast.walk(_implementation_tree())
+    #
+    # IDENTITY IS (enclosing function), NOT an absolute line number. MEASURED (round 166): the pin used to read
+    # `== [1161, 1203]`, so ANY edit above line 1203 in `report/analyst_report.py` broke a test that has nothing to do
+    # with the edit - the P-1.1 step had to hide an import inside a function to avoid shifting those lines. A pin that
+    # forbids unrelated edits gets worked around instead of obeyed. The defect itself is still pinned twice over: by the
+    # behavioural assertion above, and by these two call sites still taking a bare NAME inside these two functions.
+    mapping_call_sites = sorted(
+        function_name
+        for function in _implementation_tree().body
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for function_name in [function.name]
+        for node in ast.walk(function)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "_mechanism_catalog_id"
         and node.args
         and isinstance(node.args[0], ast.Name)
-    ]
-    assert mapping_call_sites == [1161, 1203], (
-        f"expected the two recorded mapping call sites [1161, 1203], measured {mapping_call_sites}; if one was "
-        "fixed or moved, this record and the known_behavior_gap entry must be updated deliberately"
+    )
+    assert mapping_call_sites == ["_mechanism_label", "_topic_status"], (
+        f"expected the two recorded mapping call sites in ['_mechanism_label', '_topic_status'], measured "
+        f"{mapping_call_sites}; if one was fixed or moved, this record and the known_behavior_gap entry must be updated "
+        f"deliberately"
     )
 
 
