@@ -465,8 +465,14 @@ def _check_artifact_fields(violations: Violations, artifact: Mapping[str, Any], 
             violations.add("STEP_FIELD_MISSING", f"the step record has no `{field}`")
     if str(artifact.get("step") or "") != step:
         violations.add("STEP_MISMATCH", f"the artifact is for {artifact.get('step')!r}, not {step!r}")
-    if str(artifact.get("decision") or "") not in {"complete", "blocked"}:
-        violations.add("DECISION", f"decision must be complete/blocked, got {artifact.get('decision')!r}")
+    decision = str(artifact.get("decision") or "")
+    allowed_decisions = {"complete", "blocked"}
+    if step in PHASE_PREFIXES:
+        # P-1.7: "部署门若仍 blocked，状态是 `P-1_COMPLETE_DEPLOYMENT_BLOCKED`，不能写成产品验收完成." The state machine has
+        # to encode that name - a hand-written explanation is exactly what the plan forbids here.
+        allowed_decisions.add(phase_deployment_blocked_state(step))
+    if decision not in allowed_decisions:
+        violations.add("DECISION", f"decision must be one of {sorted(allowed_decisions)}, got {decision!r}")
     if artifact.get("worktree_manifest_sha") in (None, "") or artifact.get("source_sha") in (None, ""):
         violations.add("MANIFEST", "the step record must carry both `source_sha` and `worktree_manifest_sha`")
     changed = [str(item) for item in artifact.get("changed_files") or []]
@@ -474,6 +480,46 @@ def _check_artifact_fields(violations: Violations, artifact: Mapping[str, Any], 
     outside = [item for item in changed if item not in allowed]
     if outside:
         violations.add("SCOPE", f"changed files outside `allowed_files`: {outside}")
+
+
+def phase_deployment_blocked_state(phase: str) -> str:
+    """The ONLY way a phase may be recorded as finished while the deployment gate is not MATCHED_TO_HEAD."""
+    return f"{phase}_COMPLETE_DEPLOYMENT_BLOCKED"
+
+
+def _deployment_gate_state(status: Mapping[str, Any]) -> str:
+    return str((status.get("deployment") or {}).get("gate_state") or status.get("deployment_gate_state") or "")
+
+
+def _check_phase_deployment_state(violations: Violations, step: str, status: Mapping[str, Any],
+                                  artifact: Mapping[str, Any]) -> None:
+    """P-1.7 / P-2: a phase that finished on a blocked deployment gate must SAY so, and must not read as acceptance.
+
+    Both directions are required:
+      * a PHASE artifact's `decision` must be `complete` when the gate is MATCHED_TO_HEAD, and
+        `<phase>_COMPLETE_DEPLOYMENT_BLOCKED` when it is not - so nobody can mistake a locally-green phase for a
+        deployed one;
+      * the status may not carry a phase row marked plain `complete` while the gate is blocked (`PHASE_OVERCLAIM`),
+        which is how "P-1 done" would otherwise become "P-1 accepted".
+    """
+    gate = _deployment_gate_state(status)
+    matched = gate == "MATCHED_TO_HEAD"
+    if step in PHASE_PREFIXES:
+        decision = str(artifact.get("decision") or "")
+        if matched and decision != "complete":
+            violations.add("PHASE_DECISION", f"{step} has the gate MATCHED_TO_HEAD but its decision is {decision!r}, "
+                                             f"not 'complete'")
+        if not matched and decision == "complete":
+            violations.add("PHASE_DEPLOYMENT_OVERCLAIM",
+                           f"{step} may not be recorded as 'complete' while the deployment gate is {gate or 'unset'!r}; "
+                           f"the plan's name for this state is {phase_deployment_blocked_state(step)!r}")
+    for row in status.get("steps") or []:
+        if not isinstance(row, Mapping):
+            continue
+        name = str(row.get("step") or "")
+        if name in PHASE_PREFIXES and str(row.get("decision") or "") == "complete" and not matched:
+            violations.add("PHASE_OVERCLAIM", f"the status records {name} as 'complete' while the deployment gate is "
+                                              f"{gate or 'unset'!r}")
 
 
 def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]) -> None:
@@ -531,6 +577,7 @@ def validate(step: str, status: Mapping[str, Any], ownership: Mapping[str, Any],
     _check_plan_identity(violations, status)
     _check_state_machine(violations, step, status)
     _check_artifact_fields(violations, artifact, step)
+    _check_phase_deployment_state(violations, step, status, artifact)
     _check_ownership(violations, ownership, files)
     _check_structure_conflicts(violations, ownership, step)
     _check_deployment(violations, step, status)

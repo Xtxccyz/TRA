@@ -261,6 +261,42 @@ def test_an_unknown_step_name_is_still_rejected() -> None:
     assert "STEP_UNKNOWN" in _codes(PREFLIGHT.validate("P-99", status, OWNERSHIP, _base_artifact(step="P-99"), []))
 
 
+def test_a_phase_may_only_be_recorded_complete_when_the_gate_is_matched() -> None:
+    """P-1.7's own words: with the deployment gate blocked the state is `P-1_COMPLETE_DEPLOYMENT_BLOCKED`.
+
+    The state machine - not a sentence in a report - has to make 'locally green' impossible to read as 'deployed'.
+    """
+    status = json.loads(json.dumps(STATUS))
+    status["allowed_steps"] = None
+    status["steps"] = [{"step": sub, "decision": "complete"} for sub in PREFLIGHT.sub_steps_of("P-1")]
+    status["deployment"] = {"gate_state": "BLOCKED"}
+    complete = _base_artifact(step="P-1", decision="complete")
+    assert "PHASE_DEPLOYMENT_OVERCLAIM" in _codes(PREFLIGHT.validate("P-1", status, OWNERSHIP, complete, []))
+    named = _base_artifact(step="P-1", decision="P-1_COMPLETE_DEPLOYMENT_BLOCKED")
+    assert list(PREFLIGHT.validate("P-1", status, OWNERSHIP, named, [])) == [], (
+        "the plan's own name for this state must be accepted"
+    )
+
+
+def test_a_matched_gate_requires_the_phase_to_be_recorded_complete() -> None:
+    status = json.loads(json.dumps(STATUS))
+    status["allowed_steps"] = None
+    status["steps"] = [{"step": sub, "decision": "complete"} for sub in PREFLIGHT.sub_steps_of("P-1")]
+    status["deployment"] = {"gate_state": "MATCHED_TO_HEAD"}
+    blocked = _base_artifact(step="P-1", decision="P-1_COMPLETE_DEPLOYMENT_BLOCKED")
+    violations = PREFLIGHT.validate("P-1", status, OWNERSHIP, blocked, [])
+    assert "PHASE_DECISION" in _codes(violations)
+
+
+def test_a_status_that_claims_a_phase_complete_on_a_blocked_gate_is_rejected() -> None:
+    status = json.loads(json.dumps(STATUS))
+    status["allowed_steps"] = None
+    status["deployment"] = {"gate_state": "BLOCKED"}
+    status["steps"] = [*status["steps"], {"step": "P-1", "decision": "complete"}]
+    assert "PHASE_OVERCLAIM" in _codes(PREFLIGHT.validate("P-1.7", status, OWNERSHIP,
+                                                          _base_artifact(step="P-1.7"), []))
+
+
 def test_m6_blocks_a_step_whose_dependency_is_not_complete() -> None:
     status = json.loads(json.dumps(STATUS))
     status["steps"] = []
