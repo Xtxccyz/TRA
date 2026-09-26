@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.1`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = 2e6d3ffe22ae25aefb2aaa4caa5c5499fc288791`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 7951628f0f3453dab838a5f9787cb373287ba1a0`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -55,6 +55,13 @@
   - 影响面：265 focused tests over 9 files that touch seed clustering / thread starts: no new failure
   - 仍开放：[]
   - 受阻于：nothing
+- **the EC-5 self-check read the wrong document shape, and the tests grading it ran a gitignored scratch oracle through Postgres**（`src/threat_report_agent/report/report_verification.py + tests/test_detection_rule_indicator_correctness.py`）
+  - 修掉的失败节点：['tests/test_detection_rule_indicator_correctness.py::test_the_verifier_flags_a_self_referential_and_resource_digest_indicator', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_is_quiet_on_a_correct_rule']
+  - 原因：two defects in one place. (1) `_document_identities` resolved the sample digest ONLY from an IOC row with a file-hash source, so a document carrying the identity on its `pe_basics` row resolved NOTHING, the row's own digest fell into `internal`, and the gate reported a rule built from the SAMPLE'S OWN HASH as an ERROR - a self-check that fires on a correct rule is the EC-2 failure mode and M06 makes this check a gate. (2) the two tests loaded `.scratch/verify-report-correctness.py` - a GITIGNORED file, absent from any fresh checkout - and its checker reached Postgres through `docker exec psql`, so a tracked test needed a running stack and graded the product with an oracle copy instead of the shipped checker
+  - 证明：the tests now call `report.report_verification.verify_report_correctness`, the module `report/revision_writer.py` actually runs, with every original assertion kept (the BAD rule still yields 2 ERRORs naming the projection digest, the resource digest and `pe_structure`; the honest boundary line still yields nothing; the short list still yields EC-4). A new test pins both directions of the identity fix. Can-fail via byte snapshot in .scratch/canfail-sample-identity-resolution.py - neutralising the fallback fails the new test, restore is byte-exact (sha256 68834766682e)
+  - 影响面：97 focused tests over 5 files: no new failure; compileall, import graph --strict and structure diff --strict all green with no surface change
+  - 仍开放：[]
+  - 受阻于：nothing
 
 ### 下一步的实测底稿（read-only 测量，`current_step` 不动）
 
@@ -62,7 +69,7 @@
 
 ```json
 {
-  "measured_at_head": "2e6d3ffe22ae25aefb2aaa4caa5c5499fc288791",
+  "measured_at_head": "7951628f0f3453dab838a5f9787cb373287ba1a0",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -76,7 +83,7 @@
 
 ```json
 {
-  "measured_at_head": "2e6d3ffe22ae25aefb2aaa4caa5c5499fc288791",
+  "measured_at_head": "7951628f0f3453dab838a5f9787cb373287ba1a0",
   "p1_3_observation_cap": {
     "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
     "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
