@@ -219,6 +219,34 @@ def test_seed_clustering_does_not_open_http_from_missing_export_or_url() -> None
     assert any(item["category"] == "decode" for item in clusters)
 
 
+def test_a_remote_thread_start_is_not_a_local_thread_how_seed() -> None:
+    """MEASURED: `_THREAD_START_ARG_INDEX` covers the REMOTE variants while its consumer reads "same-process".
+
+    A CreateRemoteThread start routine lives in the TARGET process, so it must not answer "does this artifact open its
+    own OS thread" - that is the T2 semantic negative (remote thread creation is injection). The address is still
+    recoverable through `recovered_thread_start_address` for injection questions.
+    """
+    from threat_report_agent.facts.thread_start import (
+        is_remote_thread_api,
+        recovered_local_thread_start_address,
+        recovered_thread_start_address,
+    )
+
+    remote = {
+        "api": "CreateRemoteThread",
+        "arguments": [{"index": 3, "name": "lpStartAddress", "value": "0x140010000", "resolved": True}],
+    }
+    local = {
+        "api": "CreateThread",
+        "arguments": [{"index": 2, "name": "lpStartAddress", "value": "0x140038ae0", "resolved": True}],
+    }
+    assert is_remote_thread_api("CreateRemoteThread")
+    assert not is_remote_thread_api("CreateThread")
+    assert recovered_thread_start_address(remote) == "0x140010000", "injection evidence must stay available"
+    assert recovered_local_thread_start_address(remote) is None
+    assert recovered_local_thread_start_address(local) == "0x140038ae0"
+
+
 def test_seed_clustering_opens_unique_os_thread_from_recovered_start() -> None:
     """Kunglao leftover remainder: CreateThread with lpStartAddress is a HOW seed."""
     clusters = cluster_static_seeds(

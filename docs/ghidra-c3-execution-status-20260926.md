@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.1`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = 4269839a13cf35cf280951f4ec5ae533b0135ae4`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 97d13901c34a86dcececc1bee76b04615b8c35a5`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -48,6 +48,13 @@
   - 影响面：233 focused tests across the 12 files that touch the protocol: no new failure
   - 仍开放：['tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions (1 distinct action type, needs >= 3)', 'tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives (no NO_NEW_EVIDENCE rows recorded)']
   - 受阻于：the two service-loop nodes need `service.py`, which the active P-1.1 step holds; they are T3 scope and will be taken when that step releases the file
+- **a REMOTE thread start is not a local thread-callback HOW seed**（`src/threat_report_agent/facts/thread_start.py + src/threat_report_agent/static/static_analysis.py`）
+  - 修掉的失败节点：['tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start']
+  - 原因：`_THREAD_START_ARG_INDEX` covers `createremotethread`/`createremotethreadex` while the consumer reads "same-process thread APIs", so a CreateRemoteThread trace seeded the unique-OS-thread HOW question with an address that lives in the TARGET process - the plan's T2 semantic negative
+  - 证明：`is_remote_thread_api` + `recovered_local_thread_start_address` (local-only) with the old function left intact for injection questions; can-fail via byte snapshot in .scratch/canfail-local-thread-seed.py - neutralising the guard fails both the new predicate test and the pre-existing clustering test, restore is byte-exact (sha256 5c947d69504c)
+  - 影响面：265 focused tests over 9 files that touch seed clustering / thread starts: no new failure
+  - 仍开放：[]
+  - 受阻于：nothing
 
 ## 三、ownership 与锁
 

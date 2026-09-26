@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from threat_report_agent.facts.thread_start import recovered_thread_start_address
+from threat_report_agent.facts.thread_start import recovered_local_thread_start_address, recovered_thread_start_address
 from threat_report_agent.facts.decode_primitives import decrypt_candidates
 from threat_report_agent.static.literal_table import discover_hex_literal_table
 from threat_report_agent.static.function_simhash import fingerprint_mnemonics, hamming_distance
@@ -2359,7 +2359,10 @@ def cluster_static_seeds(
         # These are still bounded per category/function below.
         if not matches:
             matches = [("generic", 8)]
-        if recovered_thread_start_address(value if isinstance(value, Mapping) else {}):
+        if recovered_local_thread_start_address(value if isinstance(value, Mapping) else {}):
+            # LOCAL thread APIs only: a CreateRemoteThread start routine lives in the TARGET process, so it answers an
+            # injection question, not "does this artifact open its own OS thread" (plan T2 semantic negative; pinned by
+            # tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start).
             matches.append(("thread", 23))
         function = ""
         anchor = row.get("anchor") if isinstance(row.get("anchor"), Mapping) else {}

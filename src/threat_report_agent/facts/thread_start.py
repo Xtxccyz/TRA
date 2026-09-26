@@ -34,6 +34,27 @@ _THREAD_START_ARG_INDEX = {
 }
 _CODE_ADDRESS_RE = re.compile(r"^(?:0x)?[0-9a-f]{4,16}$", re.I)
 _CODE_SYMBOL_RE = re.compile(r"^(?:FUN_|sub_|thunk_)[0-9a-fA-F]+$")
+
+#: APIs that start a thread in ANOTHER process. MEASURED (`tests/test_deep_static_recovery.py::test_seed_clustering_
+#: opens_unique_os_thread_from_recovered_start`): `_THREAD_START_ARG_INDEX` covers the remote variants, so a
+#: CreateRemoteThread trace seeded the "unique OS thread" HOW question even though its own docstring promises
+#: "same-process thread APIs". Remote thread creation is INJECTION evidence; calling it a thread-callback seed answers
+#: the wrong question with the right-looking address (the plan's T2 semantic negative).
+_REMOTE_THREAD_APIS = frozenset(
+    {
+        "createremotethread",
+        "createremotethreadex",
+        "createremotethreadwow64",
+        "ntcreatethreadex",
+        "rtlcreateuserthread",
+    }
+)
+
+
+def is_remote_thread_api(api: object) -> bool:
+    """True for an API that starts a thread in another process."""
+    return normalize_api_symbol(str(api or "")) in _REMOTE_THREAD_APIS
+
 def canonical_code_address(raw: object) -> str | None:
     """Return a hex or FUN_/sub_ identity; skip memory operands and UNKNOWN."""
     text = str(raw or "").strip().strip(",")
@@ -87,7 +108,7 @@ def recovered_thread_argument(
             return canonical_code_address(raw) or text
     return None
 def recovered_thread_start_address(value: Mapping[str, object]) -> str | None:
-    """lpStartAddress/callback for same-process thread APIs, else None."""
+    """lpStartAddress/callback for thread APIs, else None. Includes the REMOTE variants; see the local-only variant."""
     api = _thread_api_from_value(value)
     index = _THREAD_START_ARG_INDEX.get(api)
     if index is None:
@@ -98,3 +119,15 @@ def recovered_thread_start_address(value: Mapping[str, object]) -> str | None:
         names=("lpstartaddress", "startaddress", "callback", "pfnapc", "start_routine"),
         require_code_address=True,
     )
+
+
+def recovered_local_thread_start_address(value: Mapping[str, object]) -> str | None:
+    """Same-process thread start only - what the function above DOCUMENTS but does not enforce.
+
+    Use this wherever the question is "is there a thread-callback HOW seed": a CreateRemoteThread trace names a start
+    routine in the TARGET process, so it cannot answer that question. Use `recovered_thread_start_address` where the
+    question is injection itself.
+    """
+    if is_remote_thread_api(_thread_api_from_value(value)):
+        return None
+    return recovered_thread_start_address(value)
