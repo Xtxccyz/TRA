@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.1`**；状态机当前允许：`['P-1.1']`
-- 代码提交 `git_head = b5e0c66795a2bd1253c5edc3a21e2fbccadea2f5`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 2e6d3ffe22ae25aefb2aaa4caa5c5499fc288791`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -62,7 +62,7 @@
 
 ```json
 {
-  "measured_at_head": "b5e0c66795a2bd1253c5edc3a21e2fbccadea2f5",
+  "measured_at_head": "2e6d3ffe22ae25aefb2aaa4caa5c5499fc288791",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -76,7 +76,7 @@
 
 ```json
 {
-  "measured_at_head": "b5e0c66795a2bd1253c5edc3a21e2fbccadea2f5",
+  "measured_at_head": "2e6d3ffe22ae25aefb2aaa4caa5c5499fc288791",
   "p1_3_observation_cap": {
     "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
     "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
@@ -89,6 +89,19 @@
   }
 }
 ```
+
+### 行为轨道移交的事项（root 负责）
+
+- **CLOSED at commit 2e6d3ff** — a non-DSH client could still store a provider 402/timeout as STATIC_BOUNDARY（来自 dsh_depth_control (B00/B04)）
+  - 处理方式：`contracts.FailureInterpretation.MODEL_TRANSPORT_FAILURE` + `main.py`'s token list, request Literal and transport-FIRST coercion, so "could not establish STATIC_BOUNDARY: provider 402" is recorded as a platform fault. Can-fail via byte snapshot (.scratch/canfail-transport-failure-token.py); the one-line surface change was re-recorded deliberately; 173 focused tests green
+- **OPEN - any manifest version bump raises Unknown prompt** — prompt versions are hard-coded "1.0.0" at every call site in service.py（来自 dsh_depth_control (B00)）
+  - 归属：root, when a step next edits the prompt call sites; P-1.1 currently holds service.py
+- **OPEN - the workbench only normalises what the submission returns** — B11: whether `GET .../tasks/{id}/report` reports the id `submit_analyst_draft` just published（来自 dsh_depth_control (B11 product half)）
+  - 归属：the P-1.1/P-1.2 report-revision steps
+- **OPEN - needs DSH core, which core-guard forbids** — two persona clauses have no enforcement (write to the desktop, read a pre-existing report)（来自 dsh_depth_control (B04)）
+  - 归属：dsh_depth_control or a dedicated B04 step with a core-guard decision
+- **OPEN - the producer side is tested, the writer-level one is not** — `report/revision_writer.py` persists the verdicts but has no writer-level assertion（来自 behavior_reporting (M04/M06)）
+  - 归属：P-1.2 owns the revision-writer half and is free to take the file
 
 ## 三、ownership 与锁
 
