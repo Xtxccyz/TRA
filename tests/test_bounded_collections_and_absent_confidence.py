@@ -466,28 +466,29 @@ def test_the_official_body_prints_the_absence_instead_of_a_level() -> None:
     )
 
 
-def test_the_atomic_layer_defect_is_recorded_as_a_known_gap(test_settings) -> None:
-    """ATOMIC LAYER: MEASURED, RECORDED, NOT FIXED - and this test says so rather than implying a repair.
+def test_the_atomic_layer_patch_is_now_takeable_and_still_unapplied(test_settings) -> None:
+    """ATOMIC LAYER: the lock gap that blocked the patch is CLOSED, and the defect is still UNAPPLIED.
 
-    `models.Claim.confidence` still carries `default="MEDIUM"`, so an insert that never states a confidence is
-    stored as a LEVEL nobody asserted. P-1.6 could not change it: the plan's own allowed list names `models.py`,
-    but the ownership lock's file table does not contain that path AT ALL, and a file absent from the lock cannot
-    be taken silently (`OWNERSHIP_UNLISTED`). The step artifact records the layer as BLOCKED with the exact patch.
-    This test pins the measured shape so the artifact's Part A line cannot be read as a completed repair of the
-    storage layer, and so that whoever DOES take the file has the patch and the reason in front of them.
+    P-1.6 recorded this layer BLOCKED for a bookkeeping reason: the plan's own P-1.6 allowed list names
+    `models.py`, but the ownership lock's file table did not contain that path, and a file absent from the
+    lock cannot be taken silently (`OWNERSHIP_UNLISTED`). The plan owner has since listed it. This test
+    therefore asserts the TWO facts that must hold now, instead of the one it used to:
 
-    It is deliberately a RECORDED-GAP test, in the idiom of
-    `tests/test_structure_diff_gate.py::test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap`.
-    Applying the patch makes it fail, which is the point: the failure is the signal that the recorded gap closed.
+      1. the lock lists the file, so the patch the artifact publishes is TAKEABLE (the earlier form asserted
+         the opposite, and failed when the gap closed - exactly as its own message instructed);
+      2. the model STILL manufactures a level on insert, so no reader may treat the layer as repaired.
+
+    It fails when the patch lands (`default` removed, column made nullable), which is the point: that failure
+    is the signal that this record - and the P-1.6 artifact's Part A "atomic" line - has gone stale.
     """
     root = pathlib.Path(__file__).resolve().parents[1]
     lock = json.loads(
         (root / ".scratch" / "ghidra-c3-ownership.json").read_text(encoding="utf-8")
     )
     listed = {str(item.get("file")) for item in lock.get("files") or []}
-    assert "src/threat_report_agent/models.py" not in listed, (
-        "the ownership lock now lists models.py, so the atomic-layer patch recorded as BLOCKED can be taken - "
-        "this recorded-gap test must be replaced by a real assertion"
+    assert "src/threat_report_agent/models.py" in listed, (
+        "the ownership lock no longer lists models.py, so the atomic-layer patch is BLOCKED again - the "
+        "artifact's Part A 'atomic' entry cannot be read as takeable until the lock is reinstated"
     )
 
     column = Claim.__table__.columns["confidence"]
@@ -513,10 +514,13 @@ def test_the_provider_layer_is_measured_and_not_claimed_fixed() -> None:
     """PROVIDER LAYER: P-1.6 may NOT edit these files. This test pins what was measured, and nothing more.
 
     `methodology.py`, `static/static_simulation.py` and `static/static_analysis.py` are absent from P-1.6's
-    allowed list, and the first two are absent from the ownership lock entirely, so a change there is refused as
-    `OWNERSHIP_UNLISTED`. The step artifact records them as BLOCKED with the exact patch. What CAN be asserted
-    here is the measured shape of the defect - a dataclass field whose default IS a level - so that a later step
-    cannot read the artifact's "provider" line as a completed repair either.
+    allowed list, so a change there inside P-1.6 would have exceeded its grant. The first two were also absent
+    from the ownership lock entirely at the time of the measurement; the lock now lists them under
+    `main-plan:P-1`, which makes them TAKEABLE by a later P-1 phase step but does NOT make them P-1.6's - the
+    plan's permission list is the authority, not the lock. The step artifact records them as BLOCKED with the
+    exact patch. What CAN be asserted here is the measured shape of the defect - a dataclass field whose
+    default IS a level - so that a later step cannot read the artifact's "provider" line as a completed repair
+    either.
     """
     from threat_report_agent import methodology
     from threat_report_agent.static import static_analysis, static_simulation
