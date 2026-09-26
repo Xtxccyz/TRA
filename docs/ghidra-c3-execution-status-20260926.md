@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-1.2`**；状态机当前允许：`['P-1.2']`
-- 代码提交 `git_head = 86131beee2fa815b5f2731d0a14679cac22e6bb6`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 57820b44546cafb8acd70701def3a27c4494c021`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -85,7 +85,7 @@
 
 ```json
 {
-  "measured_at_head": "86131beee2fa815b5f2731d0a14679cac22e6bb6",
+  "measured_at_head": "57820b44546cafb8acd70701def3a27c4494c021",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -99,7 +99,7 @@
 
 ```json
 {
-  "measured_at_head": "86131beee2fa815b5f2731d0a14679cac22e6bb6",
+  "measured_at_head": "57820b44546cafb8acd70701def3a27c4494c021",
   "p1_3_observation_cap": {
     "where": "`report/reporting.py:2399` (`return timeline[:256]`) and `:6382` (`return projected[:256]`); `static/static_analysis.py:6133` (`patterns[:256]`) is a third, separate cap",
     "state": "the cap is a bare slice: the elements that fall outside it are discarded BEFORE any set is kept, which is exactly what P-1.3 says must move - `enumerated_set` has to be captured on the near side of the slice",
@@ -112,6 +112,19 @@
   }
 }
 ```
+
+### P-1.1 自审中未关闭的发现（各有归属步骤，不是悄悄丢掉）
+
+- **F3 / MEDIUM / 归属 P-1.6**：the MODEL's own limitation list is capped at [:16]/[:400] with no boundary statement in the body (probe: 20 in, 16 printed, boundary_statement_present false)
+  - 为什么重要：P-1.6 exists to declare truncations; this is one of them, and today the body silently prints a shorter list than the document holds
+- **F4 / MEDIUM / 归属 P-1.2**：P-1.1 exercised mechanism-closure limitations only; CANCELLED / TIMED_OUT / model-truncation kinds are not measured there
+  - 为什么重要：this is exactly P-1.2's scope, which is running now
+- **F5 / LOW / 归属 P-1.6 or T6/T7**：the printed isolation sentence is a product invariant (FR-18) while the per-task row in the SAME document says `not_present`; the two make different claims
+  - 为什么重要：a reader comparing the sentence with the row cannot tell which one is about this task
+- **F6 / LOW / 归属 the structure plan (a tracked gate, not editable from the main plan)**：`check-structure-diff.py` still prints `accepted (recorded gap)` for the narrow-limitation fixture and `structure_behavior_probe` still carries the open-gap prose, although both now report the rejection
+  - 为什么重要：gate prose that contradicts the gate's own output is the stale-status failure this repository keeps paying for
+- **F7 / INFO / 归属 closed**：the first skill probe used a substring test and reported a false limitation-injection
+  - 为什么重要：recorded because the corrected probes now compare LINES, which is why the MEDIUM hole was real and the false positive was not
 
 ### 行为轨道移交的事项（root 负责）
 
