@@ -82,6 +82,14 @@ SIMULATOR_DISTRIBUTIONS = {
 QILING_VENV_PYTHON = Path("/opt/qiling-venv/bin/python")
 QILING_LINUX_RUNNER = Path("/opt/qiling_linux_runner.py")
 
+#: The Unicorn instruction-observation cap. This is the value the guard ALWAYS had (it was the literal
+#: `if len(observations) < 256`); naming it changes neither the bound nor its meaning, and it is what the
+#: boundary record cites and what a test sizes its fixture against.
+_UNICORN_INSTRUCTION_OBSERVATION_CAP = 256
+#: How many unexpanded instructions the boundary record NAMES. The count is exact; this list is a sample and the
+#: record says so, because keeping every dropped address is the cost the cap exists to bound.
+_DROPPED_INSTRUCTION_IDENTITY_SAMPLE = 8
+
 
 def benign_pe32_ret(code: bytes = b"\xc3") -> bytes:
     """Tiny PE32 EXE whose entry immediately runs ``code`` (default: RET).
@@ -661,6 +669,17 @@ def _unicorn_adapter(request: SimulationRequest) -> SimulationResult:
     observations: list[dict[str, object]] = []
     executed = 0
     cancelled = False
+    # P-1.3: the instruction-observation cap below is an EXISTING bound (it was the literal
+    # `if len(observations) < 256`). What it removes used to vanish, leaving `len(observations)` - which the
+    # report reads as `observation_count` - indistinguishable from a complete set. The cap keeps its value; the
+    # boundary record published on the summary observation says exactly how many instruction observations it
+    # removed. The identity KEYS of the dropped instructions are carried only as a LABELLED sample, because
+    # storing all of them is precisely the memory cost this cap exists to bound - the record says so itself
+    # (`expected_minus_actual_identity_sample_is_partial`) instead of letting a sample read as the set.
+    instruction_observations: list[dict[str, object]] = []
+    dropped_instruction_keys: list[str] = []
+    dropped_instructions = 0
+    last_dropped_instruction = ""
     started = time.monotonic()
     if request.cancellation_requested is not None and request.cancellation_requested():
         return SimulationResult(
@@ -708,17 +727,22 @@ def _unicorn_adapter(request: SimulationRequest) -> SimulationResult:
         )
 
     def on_code(_uc: object, address: int, size: int, _user_data: object) -> None:
-        nonlocal executed, cancelled
+        nonlocal executed, cancelled, dropped_instructions, last_dropped_instruction
         checker = request.cancellation_requested
         if checker is not None and checker():
             cancelled = True
             getattr(_uc, "emu_stop")()
             return
         executed += 1
-        if len(observations) < 256:
-            observations.append(
-                {"event": "instruction", "address": hex(address), "size": size}
-            )
+        if len(instruction_observations) < _UNICORN_INSTRUCTION_OBSERVATION_CAP:
+            row = {"event": "instruction", "address": hex(address), "size": size}
+            instruction_observations.append(row)
+            observations.append(row)
+        else:
+            dropped_instructions += 1
+            last_dropped_instruction = hex(address)
+            if len(dropped_instruction_keys) < _DROPPED_INSTRUCTION_IDENTITY_SAMPLE:
+                dropped_instruction_keys.append(f"instruction|{hex(address)}")
 
     uc.hook_add(UC_HOOK_CODE, on_code)
     stop_reason = "END_ADDRESS"
@@ -759,7 +783,32 @@ def _unicorn_adapter(request: SimulationRequest) -> SimulationResult:
     except Exception:
         registers = {}
     elapsed_ms = int((time.monotonic() - started) * 1000)
-    observations.append({"event": "summary", "instructions": executed, "elapsed_ms": elapsed_ms})
+    observations.append({
+        "event": "summary",
+        "instructions": executed,
+        "elapsed_ms": elapsed_ms,
+        "instruction_observation_boundary": {
+            "name": "unicorn.instruction_observations",
+            "identity_key": "instruction|address|occurrence",
+            "cap": _UNICORN_INSTRUCTION_OBSERVATION_CAP,
+            "cap_source": "simulation_adapters.py::_UNICORN_INSTRUCTION_OBSERVATION_CAP",
+            "enumerated_count": executed,
+            "rendered_count": len(instruction_observations),
+            "unexpanded_count": dropped_instructions,
+            "rendered_set": [str(row.get("address")) for row in instruction_observations],
+            "expected_minus_actual_count": dropped_instructions,
+            "expected_minus_actual_identity_sample": list(dropped_instruction_keys),
+            "expected_minus_actual_identity_sample_is_partial": bool(
+                dropped_instructions > len(dropped_instruction_keys)
+            ),
+            "last_unexpanded_identity": last_dropped_instruction,
+            "expected_minus_actual_full_set_stored": False,
+            "expected_minus_actual_full_set_not_stored_because": (
+                "every executed instruction would have to be kept to store the full identity set, which is "
+                "exactly the memory cost this cap bounds; the COUNT and the last identity are exact"
+            ),
+        },
+    })
     if status != "CANCELLED" and executed >= request.instruction_budget:
         stop_reason = "INSTRUCTION_BUDGET"
         status = "TIMED_OUT"
@@ -1231,22 +1280,50 @@ def _speakeasy_adapter(request: SimulationRequest) -> SimulationResult:
         entry_point_cap = 64
         api_cap = 256
         dropped_apis = 0
+        # P-1.3: the ENUMERATED identity keys are captured at the same seam the slice is taken at, so the record
+        # can state both directions of the difference. Identity is the API NAME, occurrence-qualified (`#2` for a
+        # second occurrence), because the same API is called many times and a bare-name set would collapse rows
+        # and misreport the size of what was dropped.
+        enumerated_api_keys: list[str] = []
+        seen_api_keys: dict[str, int] = {}
         for item in entry[:entry_point_cap]:
             if isinstance(item, Mapping):
                 for api in item.get("apis", []) if isinstance(item.get("apis"), list) else []:
                     if not isinstance(api, Mapping):
                         continue
+                    name = str(api.get("api_name") or api.get("name") or "")
+                    occurrence = seen_api_keys.get(name, 0) + 1
+                    seen_api_keys[name] = occurrence
+                    enumerated_api_keys.append(name if occurrence == 1 else f"{name}#{occurrence}")
                     if len(apis) >= api_cap:
                         # Count what the cap removes instead of letting it vanish; the reader is told further
                         # down the pipeline, and an unstated bound reads as completeness.
                         dropped_apis += 1
                         continue
-                    name = str(api.get("api_name") or api.get("name") or "")
                     observations.append({"event": "api", "name": name, "kind": "api_call"})
                     if name:
                         apis.append(name)
         entries_dropped = max(0, len(entry) - entry_point_cap)
         if dropped_apis or entries_dropped:
+            # The API-name boundary: the keys captured ABOVE, split at the same point the list was split at, so
+            # `rendered_set` and `expected_minus_actual` partition `enumerated_set` and the chapter can name the
+            # APIs the capped list no longer carries.
+            # Once the cap is reached EVERY later api entry is dropped (`continue` below), so the split point is
+            # exact: the first `enumerated - dropped` keys are the ones the loop kept.
+            rendered_keys = enumerated_api_keys[: len(enumerated_api_keys) - dropped_apis]
+            api_boundary = {
+                "name": "speakeasy.observed_api_names",
+                "identity_key": "api_name|occurrence",
+                "cap": api_cap,
+                "cap_source": "simulation_adapters.py::_speakeasy_adapter api_cap (pre-existing literal)",
+                "enumerated_count": len(enumerated_api_keys),
+                "rendered_count": len(rendered_keys),
+                "unexpanded_count": len(enumerated_api_keys) - len(rendered_keys),
+                "enumerated_set": enumerated_api_keys,
+                "rendered_set": rendered_keys,
+                "expected_minus_actual": enumerated_api_keys[len(rendered_keys):],
+                "actual_minus_expected": [],
+            }
             observations.append(
                 {
                     "event": "api_truncated",
@@ -1255,6 +1332,8 @@ def _speakeasy_adapter(request: SimulationRequest) -> SimulationResult:
                     "entry_points_dropped": entries_dropped,
                     "api_cap": api_cap,
                     "entry_point_cap": entry_point_cap,
+                    # P-1.3: the set difference itself, not only its size.
+                    "boundary": api_boundary,
                 }
             )
         status, stop_reason, detail = _speakeasy_stop(

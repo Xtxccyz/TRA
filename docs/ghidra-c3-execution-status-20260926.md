@@ -3,8 +3,8 @@
 > 本文件由 `.scratch/ghidra-c3-execution-status.json` **程序化生成**（`.scratch/render-ghidra-status.py`）。`.scratch/` 被 gitignore，因此把主计划的权威状态在此留一份被跟踪的记录。**本文件与结构计划的状态是两套状态，不得合并**：结构计划见 `docs/structure-execution-status-20260922.md`。
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
-- **当前步骤 `current_step = P-1.3`**；状态机当前允许：`['P-1.3']`
-- 代码提交 `git_head = 3b17d97b8892e931f51d1c8c4b74cf29573e920a`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- **当前步骤 `current_step = P-1.4`**；状态机当前允许：`['P-1.4']`
+- 代码提交 `git_head = 81101ce9c393bac870b9571ff649e9ecc6bc1126`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -18,6 +18,7 @@
 | P-0.4 | complete | `.scratch/ghidra-c3/preflight/P-0.4-artifact.json` | call contract pinned without touching the gate: default services ['api', 'intake-worker', 'document-worker', 'parser-worker', 'script-worker', 'control-worker', 'emu-worker', 'ghidra-worker']; deployment BLOCKED (deployment_gate_head_unverified); 4 negative control(s) recorded. |
 | P-1.1 | complete | `.scratch/ghidra-c3/preflight/P-1.1-artifact.json` | 6 file(s) changed; 21 negative control(s), 21 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: input_partition; SQL-bound task 0432d5eb |
 | P-1.2 | complete | `.scratch/ghidra-c3/preflight/P-1.2-artifact.json` | 2 file(s) changed; 18 negative control(s), 18 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: [pipeline] Tool run <tool_name> ended <STATUS>: <error|no error recorded>.; SQL-bound task 30e93c94 |
+| P-1.3 | complete | `.scratch/ghidra-c3/preflight/P-1.3-artifact.json` | 6 file(s) changed; 26 negative control(s), 26 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: document['observation_boundaries'] (one record per capped projection); SQL-bound task 13411806 |
 | P-0.2-r2 | blocked | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 0; NEW (regressions) = ['tests/test_analysis_api.py::test_end_to_end_static_analysis_and_report_revisions', 'tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_flags_a_self_referential_and_resource_digest_indicator', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_is_quiet_on_a_correct_rule', 'tests/test_structure_diff_gate.py::test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap', 'tests/test_t3_callback_fixture.py::test_t3_one_start_discovers_global_relation_for_behavior_explanation', 'tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer', 'tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']; GONE (fixed) = none. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
@@ -28,23 +29,14 @@
 - 与结构计划基线的区别：the structure plan's own baseline is a DIFFERENT set (6 failed / 2358 passed / 3 skipped, recorded in `.scratch/structure-status.json`); this file's set is the main plan's and the two must never be conflated
 - 并发说明：the parallel behaviour tracks were editing this worktree while the suite ran, so P-0.2-r2 must re-measure once they stop and require the new node set to be a SUBSET of this one
 
-共 **9** 个失败节点：
+共 **0** 个失败节点：
 
-- `tests/test_analysis_api.py::test_end_to_end_static_analysis_and_report_revisions`
-- `tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start`
-- `tests/test_detection_rule_indicator_correctness.py::test_the_verifier_flags_a_self_referential_and_resource_digest_indicator`
-- `tests/test_detection_rule_indicator_correctness.py::test_the_verifier_is_quiet_on_a_correct_rule`
-- `tests/test_structure_diff_gate.py::test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap`
-- `tests/test_t3_callback_fixture.py::test_t3_one_start_discovers_global_relation_for_behavior_explanation`
-- `tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer`
-- `tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives`
-- `tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions`
 
 
 ### 最近一次全量测量（覆盖 P-0.2 之后的所有修复）
 
-- 结果：**2843 passed / 3 skipped / 0 failed - the suite is GREEN (was 2 failed / 2815 passed at r164)**（`.scratch/ghidra-c3/baseline/pytest-r170-failures.txt`）
-- 相对 P-0.2 基线：NEW = `['tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']`；GONE = 0 个
+- 结果：**2871 passed, 3 skipped, 2 warnings in 262.76s (0:04:22) - measured by the gate owner on the frozen P-1.3 tree, with the worktree manifest re-taken before and after the run (identical, so no parallel writer moved the tree mid-run)**（`.scratch/ghidra-c3/preflight/pytest-P-1.3-failures.txt`）
+- 相对 P-0.2 基线：NEW = `[]`；GONE = 0 个
 - 判定：9 nodes at P-0.2-r2 -> 2 nodes now, with no regression: the three baseline repairs of rounds 161-163 (protocol slot precedence, remote-thread seed, EC-5 self-check) removed 5, and the in-flight P-1.1 work removes the other 2 (`test_analysis_api` end-to-end and the structure-gate gap test)
 - 仍失败：['tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']
 - 原因：both need `service.py`, which the active P-1.1 step holds; they are T3 scope and are the first thing to take once that step releases the file
@@ -92,7 +84,7 @@
 
 ```json
 {
-  "measured_at_head": "3b17d97b8892e931f51d1c8c4b74cf29573e920a",
+  "measured_at_head": "81101ce9c393bac870b9571ff649e9ecc6bc1126",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -106,7 +98,7 @@
 
 ```json
 {
-  "measured_at_head": "3b17d97b8892e931f51d1c8c4b74cf29573e920a",
+  "measured_at_head": "81101ce9c393bac870b9571ff649e9ecc6bc1126",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -203,21 +195,23 @@
 
 门禁是唯一能把「本机绿」与「验收通过」分开的东西，因此它自己的缺陷也记录在这里，而不是只留在 `.scratch` 的本地证据里。
 
-- **`negative-control-must-fail-its-assertion-not-just-exit-non-zero`**（commit `364b605`）：`_check_negative_controls` 接受**任意非零退出**，因此一个全部由 pytest collection error （exit 4）组成的负向对照运行会被读成「全部按要求失败」。现在要求断言真的失败。
+- **`negative-control-must-fail-its-assertion-not-just-exit-non-zero`**（commit `364b605`）：`_check_negative_controls` 接受**任意非零退出**，因此一个全部由 pytest collection error（exit 4）组成的负向对照运行会被读成「全部按要求失败」。现在要求断言真的失败。
   - 实测：触发实测（P-1.3）：`.scratch/ghidra-c3/preflight/P-1.3-canfail.json` 记录 `verdict: ALL_CONTROLS_FAILED_AS_REQUIRED`，而 10 条 control 全部 `exit_code: 4`、`evidence: ERROR tests/test_analyst_report_acceptance.py`（测试文件正在被写入时收集到的半成品），没有一个 tamper 被真正执行
-  - 实测：同一文件的更早一次（23:21:04）判定 `CONTROL_DID_NOT_FAIL` 是**正确**的：`api_boundary_is_not_forwarded_by_the_projection` 退出 0
+  - 实测：同一文件更早一次（23:21:04）判定 `CONTROL_DID_NOT_FAIL` 是**正确**的：`api_boundary_is_not_forwarded_by_the_projection` 退出 0，因为它的测试喂的是投影的**输出**，看不见会丢字段的白名单
   - 实测：向后兼容实测：P-0.3/P-0.4/P-1.1/P-1.2 四个已记录 artifact 重新校验仍 exit 0，55 条真负向对照未被误伤
+  - 实测：自检 14 项篡改全部被拒、0 跳过；`tests/test_ghidra_plan_preflight.py` 56 passed（原 51）
   - 规则：新增 `NEGATIVE_NO_TEST_RAN`：evidence 出现 collection/usage/internal error 标记即拒绝
   - 规则：新增 `NEGATIVE_NOT_A_TEST_FAILURE`：evidence 报告了 pytest 失败时退出码必须是 1（2/3/4/5 是中止，不是失败）
   - 规则：新增 `NEGATIVE_NODE_NOT_FAILED`：control 声明的 `node` 必须在 evidence 中以 FAILED 出现
   - 规则：**刻意不变**：脚本形态的 control 保留自己的非零约定（P-0.4 部署门 exit 2、P-1.1 错 revision SQL 探针 exit 3 都是真实对照）
   - 规则：新增自检 tamper `negative_control_collection_error`（M6）复现该坏形状并被拒绝
-  - 对步骤状态的影响：无——这是 instrument 变更，`current_step` 仍为 P-1.3，未改动任何产品文件；自检 14 项篡改全部被拒、0 跳过；`tests/test_ghidra_plan_preflight.py` 56 passed（原 51）
+  - 对步骤状态的影响：无——instrument 变更，`current_step` 不变，未改动任何产品文件
 
 ## 六、后继者必须知道的事
 
 - This status is separate from `.scratch/structure-status.json` and must not be merged with it.
 - `complete` here means the STEP is complete; it never means T1-T8/G5/3080 capability acceptance.
 - The failure node sets above are compared as SETS; a passed/failed count is never the acceptance signal.
+- P-1.3 的否认式自审（skill `analysis-verification`）共 9 条发现：5 条本步修复，其余**如实保留**而不是声称关闭 —— ['F2(HIGH)=RECORDED - the limitation is published i', 'F5(MEDIUM)=OPEN - owned by whoever next touches rep', 'F8(MEDIUM)=RECORDED', 'F9(LOW)=OPEN - owned by P-2']。其中 F2（Unicorn 余量只是**精确计数 + 标注为抽样的身份样本**，不是完整集合）与 F5（boundary record 实测 88,747 B = 文档的 15.6%，且 `enumerated_set` 可由另两个集合重建）是被记录下来的真实代价，不是已完成项；F9 属于 P-2。
 - 每一步都必须交出 artifact（`.scratch/ghidra-c3/preflight/<step>-artifact.json`），并让 `py scripts/ghidra-plan-preflight.py --step <step>` 退出 0；**没有 artifact 的步骤不算完成**。
 - 该 artifact 必须带：真实对象 dump（M1）、编辑前后 SHA256 与编译命令（M2）、绑定 SQL 元数据的 task/revision/content hash（M3）、producer→consumer→官方 Markdown 重渲染证明（M4）、集合差而非计数（M5）、以及**实际非零退出**的负向对照（M6）。

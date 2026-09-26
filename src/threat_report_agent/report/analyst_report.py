@@ -29,6 +29,7 @@ from threat_report_agent.investigation.mechanism_ready import inspect_mechanism_
 from threat_report_agent.product_certification import repair_static_runtime_wording
 from threat_report_agent.product_certification import static_wording_violations
 from threat_report_agent.report.reporting import (
+    OBSERVATION_BOUNDARIES_DOCUMENT_KEY,
     _STRING_FACT_PATTERNS,
     _is_file_hash_source,
     build_process_flag_projections,
@@ -39,6 +40,18 @@ from threat_report_agent.static.static_analysis import credible_windows_process_
 
 ANALYST_CONCLUSION_HEADING = "## 分析结论"
 ANALYST_APPENDIX_HEADING = "## 调查附录（内部账本，非分析结论）"
+
+#: P-1.3: the appendix chapter that states what a published observation cap did NOT expand. The wording is fixed
+#: here (it is a product statement about the report, not about the sample), while every NUMBER in it is read from
+#: the Document's boundary record.
+OBSERVATION_BOUNDARY_HEADING = "### 观测上限与未展开元素（下列列表不是全集）"
+OBSERVATION_BOUNDARY_PREAMBLE = (
+    "下列列表按产品既有的观测上限截断后发布，**不是该集合的全集**：被上限挡住的元素在截断前已经枚举，"
+    "其稳定身份键与两个方向的集合差（`expected_minus_actual` / `actual_minus_expected`）记录在文档字段 "
+    "`observation_boundaries`。已展开数量等于上限值而不是集合大小，**不能据此推断样本的总数**。"
+)
+#: How many unexpanded identity keys the BODY names before it points at the Document for the rest.
+_OBSERVATION_BOUNDARY_IDENTITY_SAMPLE = 8
 
 _GENERIC_SEEDS = frozenset(
     {
@@ -4646,6 +4659,64 @@ def _operational_limitation_lines(document: Mapping[str, object]) -> list[str]:
     return lines
 
 
+def _observation_boundary_lines(document: Mapping[str, object]) -> list[str]:
+    """State what a published observation cap did NOT expand, from the Document's own boundary record.
+
+    WHY THIS EXISTS. `report/reporting.py` bounds two published collections, and until this step a reader of the
+    official body saw a 256-row list with nothing saying the run had enumerated more - the plan's M5 rule, and
+    EC-4 at the reader's end: the cap reads as the size of the collection. The Document now carries one boundary
+    record per capped projection (`enumerated_set` / `rendered_set` / `expected_minus_actual` /
+    `actual_minus_expected`); this chapter is the CONSUMER that states it in the body.
+
+    THE NUMBERS ARE READ, NEVER WRITTEN HERE. `test_the_renderer_prints_the_boundary_it_was_given_and_not_one_of_
+    its_own` substitutes marker values for the name, the cap, the counts and the dropped identities and requires
+    every marker to appear, so a renderer that re-derived or hard-coded the cap fails.
+
+    A record with an EMPTY `expected_minus_actual` renders NOTHING. A "0 unexpanded" notice on every report would
+    assert a truncation that did not happen, which is the same class of defect pointing the other way; a document
+    with no record at all renders nothing either, so an older revision gains no block it never had.
+
+    The block belongs in the appendix with the other investigation bookkeeping: the rows it describes are ledger
+    material, and the primary body is reserved for sample-facing conclusions.
+    """
+    boundaries = document.get(OBSERVATION_BOUNDARIES_DOCUMENT_KEY)
+    if not isinstance(boundaries, (list, tuple)):
+        return []
+    blocks: list[str] = []
+    for record in boundaries:
+        if not isinstance(record, Mapping):
+            continue
+        dropped = [str(item) for item in (record.get("expected_minus_actual") or []) if str(item)]
+        if not dropped:
+            # Nothing was removed by the cap, so there is no remainder to state. Silence is the honest output.
+            continue
+        try:
+            enumerated = int(record.get("enumerated_count") or 0)
+            rendered = int(record.get("rendered_count") or 0)
+            cap = int(record.get("cap") or 0)
+        except (TypeError, ValueError):
+            continue
+        name = str(record.get("name") or "?")
+        identity_key = str(record.get("identity_key") or "?")
+        cap_source = str(record.get("cap_source") or "?")
+        blocks.append(
+            f"- `{name}`：可枚举 `{enumerated}` 项，已展开 `{rendered}` 项，"
+            f"**未展开 `{len(dropped)}` 项**（上限 `{cap}`，来源 `{cap_source}`，身份键 `{identity_key}`）。"
+        )
+        shown = dropped[:_OBSERVATION_BOUNDARY_IDENTITY_SAMPLE]
+        listing = "、".join(f"`{identity}`" for identity in shown)
+        if len(dropped) > len(shown):
+            blocks.append(
+                f"  - 未展开元素（前 {len(shown)} 项）：{listing}；其余 {len(dropped) - len(shown)} 项的稳定身份键"
+                f"与两个方向的集合差保存在文档字段 `{OBSERVATION_BOUNDARIES_DOCUMENT_KEY}`。"
+            )
+        else:
+            blocks.append(f"  - 未展开元素：{listing}")
+    if not blocks:
+        return []
+    return [OBSERVATION_BOUNDARY_HEADING, "", OBSERVATION_BOUNDARY_PREAMBLE, "", *blocks, ""]
+
+
 def _verification_note(document: Mapping[str, object], rows: Sequence[Mapping[str, object]]) -> list[str]:
     coverage = document.get("analysis_coverage")
     if not isinstance(coverage, Mapping):
@@ -5006,6 +5077,35 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
         if stop_reason:
             parts.append(f"停止原因 `{stop_reason}`")
         lines.append("　".join(parts) if len(parts) > 1 else parts[0])
+        # P-1.3: the Unicorn instruction-observation cap, stated where the run's own coverage is stated. The
+        # run used to publish `observation_count` with no way to tell a bounded list from a complete one; the
+        # COUNT below is exact and the identity list is the record's own labelled sample, named as a sample so a
+        # reader is never told the sample is the set. A run below the cap carries no record and prints nothing.
+        instruction_boundary = item.get("instruction_observation_boundary")
+        if isinstance(instruction_boundary, Mapping):
+            lines.append(
+                f"  - 指令观测上限：本次执行 `{instruction_boundary.get('enumerated_count')}` 条指令，"
+                f"保留 `{instruction_boundary.get('rendered_count')}` 条指令观测，"
+                f"**未展开 `{instruction_boundary.get('unexpanded_count')}` 条**"
+                f"（上限 `{instruction_boundary.get('cap')}`，"
+                f"来源 `{instruction_boundary.get('cap_source')}`，"
+                f"身份键 `{instruction_boundary.get('identity_key')}`）。"
+            )
+            sample = [
+                str(identity)
+                for identity in (
+                    instruction_boundary.get("expected_minus_actual_identity_sample") or []
+                )
+                if str(identity)
+            ]
+            if sample:
+                sample_note = "、".join(f"`{identity}`" for identity in sample)
+                if instruction_boundary.get("expected_minus_actual_identity_sample_is_partial"):
+                    sample_note += (
+                        f" 等，**均为抽样**（完整身份集合未保存："
+                        f"{instruction_boundary.get('expected_minus_actual_full_set_not_stored_because')}）"
+                    )
+                lines.append(f"  - 未展开指令观测（身份键抽样）：{sample_note}")
         # What the simulator OBSERVED, before why it stopped. MEASURED: a run that observed 256 API calls
         # and made 1,031 modelled VB6 runtime calls rendered as a bare failure, because only
         # status/stop_reason/limitations were published. "FAILED" and "observed 256 calls" are not
@@ -5042,6 +5142,24 @@ def _emulation_status_section(rows: Sequence[Mapping[str, object]]) -> list[str]
                         f"，另有 `{dropped}` 个未展开"
                         f"（每次运行最多保留 `{cap}` 个 API 名，**该上限不是本样本的调用总数**）"
                     )
+                    # P-1.3: NAME the identity key and (bounded) the identities the cap removed, so the list
+                    # above and the count beside it can be reconciled by a reader instead of trusted. The
+                    # remainder is a SET, not only a size; only the printed PREFIX of it is bounded, and the
+                    # sentence says so rather than letting the prefix read as the whole remainder.
+                    boundary = truncation.get("boundary")
+                    if isinstance(boundary, Mapping):
+                        identities = [
+                            str(identity)
+                            for identity in (boundary.get("expected_minus_actual") or [])
+                            if str(identity)
+                        ][:_OBSERVATION_BOUNDARY_IDENTITY_SAMPLE]
+                        if identities:
+                            bound_note += (
+                                f"；未展开元素（身份键 `{boundary.get('identity_key')}`）："
+                                + "、".join(f"`{identity}`" for identity in identities)
+                            )
+                            if int(boundary.get("unexpanded_count") or 0) > len(identities):
+                                bound_note += f" 等 {boundary.get('unexpanded_count')} 项"
             lines.append(f"  - 已观测 API 调用：{total} 次（{rendered}）{bound_note}")
         elif _observation_count(item) > 0:
             # The run EXECUTED and produced observations, but not one of them was an API call.
@@ -5567,6 +5685,10 @@ def render_analyst_chapters(
     lines.extend(["", ANALYST_APPENDIX_HEADING, ""])
     lines.extend(_ten_question_section(rows, planned, document))
     lines.extend(_verification_note(document, rows))
+    # P-1.3: the observation caps' remainders, from the Document's own boundary record. It sits with the other
+    # appendix bookkeeping because the collections it describes (investigation timeline, behavior relations) are
+    # ledger material; a run that lost nothing prints nothing.
+    lines.extend(_observation_boundary_lines(document))
     # Bounded to ONE token per occurrence and gated on the payload's own signature, so a line without
     # payload is returned byte-identical. Verified on the real lines: the repair clears the fragment while
     # keeping the sibling `UNKNOWN(loop: ...)` / `UNKNOWN(fallback)` tokens intact

@@ -5939,6 +5939,79 @@ def _annotate_create_thread_call(
     return item
 
 
+#: The two published-collection caps of the x86 scanner. Both are the values the scanner ALWAYS applied - they
+#: WERE the literals `api_calls[:4096]` and `patterns[:256]` before this step - named here so the boundary record
+#: can cite the cap it applied and so a test can size a fixture against the cap the PRODUCT holds rather than a
+#: number typed into the test. Neither value nor meaning changes.
+_X86_API_CALL_CAP = 4096
+_X86_PATTERN_CAP = 256
+
+
+def _occurrence_qualified_signal_keys(keys: "list[str]") -> list[str]:
+    """One identity per SIGNAL: a repeated stable key gets a `#2`, `#3` ... suffix so no row is collapsed away."""
+    seen: dict[str, int] = {}
+    qualified: list[str] = []
+    for key in keys:
+        count = seen.get(key, 0) + 1
+        seen[key] = count
+        qualified.append(key if count == 1 else f"{key}#{count}")
+    return qualified
+
+
+def _api_call_signal_identity(row: Mapping[str, object]) -> str:
+    """Stable identity of one recovered call site: the resolved API and the call's RVA."""
+    return f"{row.get('api')}@{row.get('address')}"
+
+
+def _pattern_signal_identity(row: Mapping[str, object]) -> str:
+    """Stable identity of one recovered instruction pattern: its kind and the instruction's RVA."""
+    return f"{row.get('kind')}@{row.get('address')}"
+
+
+def _bounded_signal_boundary(
+    rows: "list[dict[str, object]]",
+    *,
+    name: str,
+    identity_key: str,
+    identity: "Callable[[Mapping[str, object]], str]",
+    cap: int,
+    cap_source: str,
+) -> dict[str, object]:
+    """Record what an EXISTING cap removes, so the truncated list cannot be read as the whole set.
+
+    The scanner's dict published `api_calls[:4096]` and `patterns[:256]` with no record of what the slices
+    removed, while the SAME dict published `api_call_count: len(api_calls)` computed on the full list - a count
+    beside a truncated list, which is the plan's M5 defect: a reader sees both numbers and still cannot compute
+    the difference. The caps keep their values and their meaning; this is the missing record.
+
+    The identity keys are captured BEFORE the slice and are occurrence-qualified, so `published` and
+    `expected_minus_actual` partition `enumerated_set` exactly even when two signals share an identity.
+    `actual_minus_expected` is COMPUTED rather than asserted empty.
+
+    This is a SECOND implementation of the contract `report/reporting.py::_bound_published_collection` states,
+    and deliberately so: `static/` may not import `report/` (the import policy records every runtime edge, and
+    adding one would be an unregistered edge), and the contract is four lines of set arithmetic. The key names
+    are identical so one reader - and one test - can read both.
+    """
+    keys = _occurrence_qualified_signal_keys([identity(row) for row in rows])
+    published_keys = keys[:cap]
+    dropped = keys[cap:]
+    enumerated = set(keys)
+    return {
+        "name": name,
+        "identity_key": identity_key,
+        "cap": cap,
+        "cap_source": cap_source,
+        "enumerated_count": len(keys),
+        "rendered_count": len(published_keys),
+        "unexpanded_count": len(dropped),
+        "enumerated_set": keys,
+        "rendered_set": published_keys,
+        "expected_minus_actual": dropped,
+        "actual_minus_expected": [key for key in published_keys if key not in enumerated],
+    }
+
+
 def _scan_x86_code(
     data: bytes,
     sections: list[dict[str, object]],
@@ -5955,7 +6028,33 @@ def _scan_x86_code(
     instruction constants. It never emulates or executes sample code.
     """
     if Cs is None:
-        return {"architecture": "x86-capstone-unavailable", "api_calls": [], "patterns": []}
+        # NO CAP WAS APPLIED on this path: the scanner could not disassemble, so both collections are EMPTY
+        # rather than bounded. The boundary keys are still present and say so (`unexpanded_count: 0`), so a
+        # consumer may read the key unconditionally and a reader can tell "nothing enumerated" apart from "the
+        # bound removed something" - the two have different meanings and must not share a shape.
+        empty_api = _bounded_signal_boundary(
+            [],
+            name="pe_code_signals.api_calls",
+            identity_key="api|address",
+            identity=_api_call_signal_identity,
+            cap=_X86_API_CALL_CAP,
+            cap_source="static/static_analysis.py::_X86_API_CALL_CAP",
+        )
+        empty_patterns = _bounded_signal_boundary(
+            [],
+            name="pe_code_signals.patterns",
+            identity_key="kind|address",
+            identity=_pattern_signal_identity,
+            cap=_X86_PATTERN_CAP,
+            cap_source="static/static_analysis.py::_X86_PATTERN_CAP",
+        )
+        return {
+            "architecture": "x86-capstone-unavailable",
+            "api_calls": [],
+            "api_calls_boundary": empty_api,
+            "patterns": [],
+            "patterns_boundary": empty_patterns,
+        }
     iat: dict[int, str] = {}
     for imported in imports:
         module = str(imported.get("module", ""))
@@ -6129,9 +6228,29 @@ def _scan_x86_code(
                     )
     return {
         "architecture": "x86-64" if is_64 else "x86",
-        "api_calls": api_calls[:4096],
-        "patterns": patterns[:256],
+        "api_calls": api_calls[:_X86_API_CALL_CAP],
+        "api_calls_boundary": _bounded_signal_boundary(
+            api_calls,
+            name="pe_code_signals.api_calls",
+            identity_key="api|address",
+            identity=_api_call_signal_identity,
+            cap=_X86_API_CALL_CAP,
+            cap_source="static/static_analysis.py::_X86_API_CALL_CAP",
+        ),
+        "patterns": patterns[:_X86_PATTERN_CAP],
+        "patterns_boundary": _bounded_signal_boundary(
+            patterns,
+            name="pe_code_signals.patterns",
+            identity_key="kind|address",
+            identity=_pattern_signal_identity,
+            cap=_X86_PATTERN_CAP,
+            cap_source="static/static_analysis.py::_X86_PATTERN_CAP",
+        ),
         "compression_format_2": compression_format_2,
+        # KEEPS ITS EXISTING MEANING: the number of API call sites the scanner ENUMERATED, not the number the
+        # truncated `api_calls` list publishes. It used to sit beside that list with nothing joining the two, so
+        # a reader could see "4099" and 4096 rows and still not know which three were missing (plan M5).
+        # `api_calls_boundary` is what makes the difference computable.
         "api_call_count": len(api_calls),
     }
 

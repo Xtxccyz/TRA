@@ -5,7 +5,7 @@ import json
 import re
 import hashlib
 from html import escape
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from docx import Document
 from reportlab.lib.enums import TA_LEFT
@@ -2311,9 +2311,123 @@ def _claim_row(
     return _apply_name_only_seed_downgrades([row])[0]
 
 
+#: ---------------------------------------------------------------------------
+#: Bounded published collections (P-1.3)
+#: ---------------------------------------------------------------------------
+#: The two caps below are the values these projections have ALWAYS applied: they WERE the literals
+#: `return timeline[:256]` (`_build_investigation_timeline`) and `return projected[:256]`
+#: (`build_behavior_relations`) before this step. Naming them changes neither the bound nor its meaning - it is
+#: what lets the boundary record cite the cap it applied, and what lets a test size a fixture against the cap the
+#: PRODUCT holds instead of against a number typed into the test. No new number is introduced here.
+_INVESTIGATION_TIMELINE_CAP = 256
+_BEHAVIOR_RELATION_CAP = 256
+
+#: The Report Document key that carries one boundary record per capped collection. The canonical official
+#: renderer reads THIS key (never a sentence of its own) when it states the unexpanded remainder.
+OBSERVATION_BOUNDARIES_DOCUMENT_KEY = "observation_boundaries"
+
+#: Ordered most-specific-first: the FIRST field a timeline row actually carries names that row.
+_TIMELINE_IDENTITY_FIELDS = (
+    "relation_id",
+    "action_id",
+    "hypothesis_id",
+    "thread_id",
+    "cluster_id",
+    "claim_id",
+    "evidence_id",
+    "artifact_id",
+)
+_TIMELINE_IDENTITY_KEY_SPEC = (
+    "phase|<first non-empty of relation_id/action_id/hypothesis_id/thread_id/cluster_id/claim_id/"
+    "evidence_id/artifact_id>=<id>|occurrence"
+)
+_BEHAVIOR_RELATION_IDENTITY_KEY_SPEC = "source_artifact_id|relation_type|target_artifact_id|occurrence"
+
+
+def _bound_published_collection(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    name: str,
+    identity_key: str,
+    identity: "Callable[[Mapping[str, object]], str]",
+    cap: int,
+    cap_source: str,
+) -> tuple[list[Mapping[str, object]], dict[str, object]]:
+    """Apply an EXISTING cap and return both the published rows AND the boundary that cap creates.
+
+    WHY THIS EXISTS. Both call sites used to end in a bare slice (`return timeline[:256]`,
+    `return projected[:256]`). A bare slice destroys the only record of what it removed, so the published
+    collection could not be told apart from the whole set - the plan's M5 defect (EC-4: a bounded list read as
+    complete). The cap itself is NOT changed here: it keeps the value it always had, passed in by the caller
+    together with the name of the constant that holds it, and no new number is introduced.
+
+    The identity keys are captured BEFORE the slice and are OCCURRENCE-QUALIFIED: two rows that share a stable
+    key (two `CONTAINS` edges between the same artifacts, say) would otherwise collapse into one set element and
+    the published list would be longer than the set that describes it. `#2`, `#3` ... keep one identity per ROW,
+    so `rendered_set` and `expected_minus_actual` PARTITION `enumerated_set` exactly.
+
+    `actual_minus_expected` is COMPUTED (rendered keys that the enumerated set does not hold), not asserted
+    empty: a projection that invented a row would have to show up here.
+    """
+    keys = _occurrence_qualified([identity(row) for row in rows])
+    rendered_keys = keys[:cap]
+    published = list(rows[:cap])
+    dropped = keys[cap:]
+    enumerated = set(keys)
+    return published, {
+        "name": name,
+        "identity_key": identity_key,
+        "cap": cap,
+        "cap_source": cap_source,
+        "enumerated_count": len(keys),
+        "rendered_count": len(rendered_keys),
+        "unexpanded_count": len(dropped),
+        "enumerated_set": keys,
+        "rendered_set": rendered_keys,
+        "expected_minus_actual": dropped,
+        "actual_minus_expected": [key for key in rendered_keys if key not in enumerated],
+    }
+
+
+def _occurrence_qualified(keys: Sequence[str]) -> list[str]:
+    """One identity per ROW: a repeated stable key gets a `#2`, `#3` ... suffix so no row is collapsed away."""
+    seen: dict[str, int] = {}
+    qualified: list[str] = []
+    for key in keys:
+        count = seen.get(key, 0) + 1
+        seen[key] = count
+        qualified.append(key if count == 1 else f"{key}#{count}")
+    return qualified
+
+
+def _timeline_row_identity(row: Mapping[str, object]) -> str:
+    """Stable identity of one timeline row: its phase plus the most specific ledger id it carries.
+
+    The rows are heterogeneous by design (a seed ranking has no claim, a claim row has no relation), so a fixed
+    tuple key would be mostly empty. `_TIMELINE_IDENTITY_FIELDS` is ordered most-specific-first and the FIRST
+    non-empty one names the row; `_TIMELINE_IDENTITY_KEY_SPEC` states that rule so a reader can recompute the
+    key from the Document instead of guessing it.
+    """
+    phase = str(row.get("phase") or "event")
+    for field in _TIMELINE_IDENTITY_FIELDS:
+        value = str(row.get(field) or "").strip()
+        if value:
+            return f"{phase}|{field}={value}"
+    return phase
+
+
+def _behavior_relation_identity(row: Mapping[str, object]) -> str:
+    """Stable identity of one projected behavior relation: the endpoints and the edge type."""
+    return (
+        f"{row.get('source_artifact_id')}|{row.get('relation_type')}|"
+        f"{row.get('target_artifact_id')}"
+    )
+
+
 def _build_investigation_timeline(
     *, claims: list[Any], evidence: list[Any], relations: list[Any], task: Any,
-    links_by_claim: dict[str, list[str]]
+    links_by_claim: dict[str, list[str]],
+    boundaries: list[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     """Render an auditable event sequence, never private model reasoning."""
     timeline: list[dict[str, object]] = []
@@ -2396,7 +2510,17 @@ def _build_investigation_timeline(
             "evidence_id": relation.evidence_id,
             "claim_id": relation.claim_id,
         })
-    return timeline[:256]
+    kept, boundary = _bound_published_collection(
+        timeline,
+        name="investigation_timeline",
+        identity_key=_TIMELINE_IDENTITY_KEY_SPEC,
+        identity=_timeline_row_identity,
+        cap=_INVESTIGATION_TIMELINE_CAP,
+        cap_source="report/reporting.py::_INVESTIGATION_TIMELINE_CAP",
+    )
+    if boundaries is not None:
+        boundaries.append(boundary)
+    return kept
 
 
 def _claim_row_list(
@@ -6251,6 +6375,7 @@ def build_behavior_relations(
     links_by_claim: Mapping[str, list[str]] | None = None,
     claim_evidence: list[Any] | tuple[Any, ...] | None = None,
     artifacts: list[Any] | tuple[Any, ...] | None = None,
+    boundaries: list[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     """Project supported component Relations into behavior graph edges.
 
@@ -6379,7 +6504,19 @@ def build_behavior_relations(
             ),
         })
     projected, _ = apply_adversarial_downgrades(projected)
-    return projected[:256]
+    # The boundary is taken AFTER the downgrades, because the downgraded rows ARE the published set: a boundary
+    # computed from the pre-downgrade list would describe a collection this function never returns.
+    kept, boundary = _bound_published_collection(
+        projected,
+        name="behavior_relations",
+        identity_key=_BEHAVIOR_RELATION_IDENTITY_KEY_SPEC,
+        identity=_behavior_relation_identity,
+        cap=_BEHAVIOR_RELATION_CAP,
+        cap_source="report/reporting.py::_BEHAVIOR_RELATION_CAP",
+    )
+    if boundaries is not None:
+        boundaries.append(boundary)
+    return kept
 
 
 def _build_assessment(
@@ -8467,6 +8604,54 @@ def build_tls_callback_projection(
     return {"type": "tls_callbacks", "entries": entries, "count": len(entries)}
 
 
+def build_code_signal_boundary_projection(
+    evidence_by_id: Mapping[str, Any],
+) -> list[dict[str, object]]:
+    """Lift the x86 scanner's OWN boundary records out of the `pe_structure` Evidence values.
+
+    WHY THIS EXISTS. `static/static_analysis.py::_scan_x86_code` bounds two published collections
+    (`api_calls[:4096]`, `patterns[:256]`) and now records what each cap removed - including the
+    `api_call_count` case, where a count published beside a truncated list let a reader see both numbers and
+    still not compute the difference (plan M5). Those records live inside the `pe_structure` Evidence value,
+    and NOTHING projected them: `build_pe_basics_projection` carries only entry_rva/imports/sections/exports/
+    pdb_path, so a boundary that no reader could reach would be an Evidence-only fact dressed as a fix.
+
+    The records are folded into the SAME `document["observation_boundaries"]` list the two report projections
+    write, so ONE renderer states every remainder (P-1.1's "exactly one canonical official renderer" property is
+    untouched: this adds a producer, not a second renderer).
+
+    A record with an empty `expected_minus_actual` is NOT carried: nothing was removed, and a copy of it in the
+    Document would only invite a "0 unexpanded" notice - a fabricated truncation. Keys are copied explicitly
+    rather than forwarded wholesale, like every other projection in this module.
+    """
+    records: list[dict[str, object]] = []
+    for item in evidence_by_id.values():
+        if str(_evidence_field(item, "kind", "") or "").casefold() != "pe_structure":
+            continue
+        value = _evidence_field(item, "value", {})
+        signals = value.get("code_signals") if isinstance(value, Mapping) else None
+        if not isinstance(signals, Mapping):
+            continue
+        for key in ("api_calls_boundary", "patterns_boundary"):
+            record = signals.get(key)
+            if not isinstance(record, Mapping) or not record.get("expected_minus_actual"):
+                continue
+            records.append({
+                "name": record.get("name"),
+                "identity_key": record.get("identity_key"),
+                "cap": record.get("cap"),
+                "cap_source": record.get("cap_source"),
+                "enumerated_count": record.get("enumerated_count"),
+                "rendered_count": record.get("rendered_count"),
+                "unexpanded_count": record.get("unexpanded_count"),
+                "enumerated_set": list(record.get("enumerated_set") or []),
+                "rendered_set": list(record.get("rendered_set") or []),
+                "expected_minus_actual": list(record.get("expected_minus_actual") or []),
+                "actual_minus_expected": list(record.get("actual_minus_expected") or []),
+            })
+    return records
+
+
 def build_pe_basics_projection(
     evidence_by_id: Mapping[str, Any],
 ) -> dict[str, object] | None:
@@ -8945,11 +9130,43 @@ def build_emulation_status_projection(
         # 102 evidence rows over 34 tasks hold exactly 256 api names and none holds 257, so the cap saturates
         # and the body published "已观测 API 调用：256 次" as though it were a total.
         api_truncation: dict[str, object] | None = None
+        # The Unicorn instruction-observation cap's boundary (P-1.3). It arrives on the `summary` observation,
+        # and this dict is a WHITELIST - the comment two branches below records the measured cost of forgetting
+        # that: a field the producer carries but this projection does not name never reaches the chapter, so the
+        # remainder would be an Evidence-only fact. The exact counts are forwarded; the record's own flags say
+        # that its identity list is a labelled SAMPLE, and the renderer repeats that rather than implying a set.
+        instruction_boundary: dict[str, object] | None = None
         for observation in observations:
             if not isinstance(observation, Mapping):
                 continue
             event = str(observation.get("event") or "")
-            if event == "api_truncated":
+            if event == "summary":
+                candidate = observation.get("instruction_observation_boundary")
+                if isinstance(candidate, Mapping) and int(candidate.get("unexpanded_count") or 0) > 0:
+                    instruction_boundary = {
+                        "name": candidate.get("name"),
+                        "identity_key": candidate.get("identity_key"),
+                        "cap": candidate.get("cap"),
+                        "cap_source": candidate.get("cap_source"),
+                        "enumerated_count": candidate.get("enumerated_count"),
+                        "rendered_count": candidate.get("rendered_count"),
+                        "unexpanded_count": candidate.get("unexpanded_count"),
+                        "expected_minus_actual_count": candidate.get("expected_minus_actual_count"),
+                        "expected_minus_actual_identity_sample": list(
+                            candidate.get("expected_minus_actual_identity_sample") or []
+                        ),
+                        "expected_minus_actual_identity_sample_is_partial": candidate.get(
+                            "expected_minus_actual_identity_sample_is_partial"
+                        ),
+                        "expected_minus_actual_full_set_stored": candidate.get(
+                            "expected_minus_actual_full_set_stored"
+                        ),
+                        "expected_minus_actual_full_set_not_stored_because": candidate.get(
+                            "expected_minus_actual_full_set_not_stored_because"
+                        ),
+                        "last_unexpanded_identity": candidate.get("last_unexpanded_identity"),
+                    }
+            elif event == "api_truncated":
                 # This dict is a WHITELIST like every other branch here, so each field is named explicitly
                 # rather than forwarded wholesale.
                 api_truncation = {
@@ -8958,6 +9175,10 @@ def build_emulation_status_projection(
                     "entry_points_dropped": observation.get("entry_points_dropped"),
                     "api_cap": observation.get("api_cap"),
                     "entry_point_cap": observation.get("entry_point_cap"),
+                    # P-1.3: the SET DIFFERENCE, not only its size. `dropped` alone told a reader that something
+                    # was removed; the boundary says which API names were removed, which is what makes the
+                    # published list reconcilable with the counts beside it (plan M5).
+                    "boundary": observation.get("boundary"),
                 }
             elif event == "api":
                 name = str(observation.get("name") or "").strip()
@@ -9015,6 +9236,8 @@ def build_emulation_status_projection(
                 # Whitelisted like everything else here: without this key the chapter cannot know the api list
                 # was bounded, and a bounded list published as a total is the defect this carries.
                 "api_truncation": api_truncation,
+                # P-1.3: the instruction-observation cap's remainder, named here or the chapter cannot see it.
+                "instruction_observation_boundary": instruction_boundary,
             }
         )
     if results:
@@ -9131,6 +9354,9 @@ def build_report_document(
     investigation_threads = investigation_threads or []
     investigation_hypotheses = investigation_hypotheses or []
     investigation_actions = investigation_actions or []
+    # P-1.3: every capped projection below appends its boundary here, so the revision's Document carries the
+    # enumerated set, the published set and BOTH differences beside the truncated lists themselves.
+    observation_boundaries: list[dict[str, object]] = []
     # Post-action Turn results are exposed through the task/trace APIs.  Keep
     # the report builder forward-compatible without duplicating the audit
     # ledger in every report module.
@@ -9197,6 +9423,7 @@ def build_report_document(
         links_by_claim=links_by_claim,
         claim_evidence=claim_evidence,
         artifacts=artifacts,
+        boundaries=observation_boundaries,
     )
     finding_by_id = {
         str(item.get("finding_id") or item.get("id")): item
@@ -9228,6 +9455,7 @@ def build_report_document(
         relations=relations,
         task=task,
         links_by_claim=links_by_claim,
+        boundaries=observation_boundaries,
     )
     investigation_timeline.extend(
         {
@@ -10456,6 +10684,16 @@ def build_report_document(
     partition_fact = _input_partition_fact(request)
     if partition_fact:
         document[INPUT_PARTITION_DOCUMENT_KEY] = partition_fact
+    # P-1.3: the caps applied above are only auditable if the revision CARRIES what they removed. The record is
+    # written unconditionally when a capped projection ran (even with empty differences), because "nothing was
+    # dropped" and "the projection never ran" are different facts - the renderer states a remainder only for a
+    # record whose `expected_minus_actual` is non-empty, so an ordinary report gains no sentence.
+    #
+    # The x86 scanner's own boundaries are folded into the SAME list so one renderer states every remainder
+    # (`build_code_signal_boundary_projection`); that projection already drops the records that removed nothing.
+    observation_boundaries.extend(build_code_signal_boundary_projection(evidence_by_id))
+    if observation_boundaries:
+        document[OBSERVATION_BOUNDARIES_DOCUMENT_KEY] = observation_boundaries
     revision_id = str(
         getattr(task, "authoritative_revision_id", None)
         or getattr(task, "report_revision_id", None)

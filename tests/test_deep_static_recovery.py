@@ -1266,3 +1266,153 @@ def test_forwarded_export_match_is_explicit() -> None:
     assert matched["status"] == "RESOLVED"
     assert matched["matches"][0]["forwarded"] is True
     assert matched["matches"][0]["forwarded_module"] == "KERNELBASE"
+
+
+# -----------------------------------------------------------------------------------------------------------
+# P-1.3 (site 3): `_scan_x86_code` published `api_calls[:4096]` and `patterns[:256]` BESIDE
+# `api_call_count: len(api_calls)` computed on the FULL list.
+# -----------------------------------------------------------------------------------------------------------
+# WHY THIS IS A DEFECT AND NOT A DISPLAY CHOICE. A reader of that dict sees a count and a list and STILL cannot
+# compute the difference, because the elements the count includes and the list does not are nowhere - the plan's
+# M5 rule ("a count beside a truncated list"). The caps keep their existing values; what is added is the
+# ENUMERATED set's stable identity keys and both directions of the difference, so the truncated list can no
+# longer be read as the whole set.
+#
+# NO TEST HERE RE-TYPES 4096 OR 256: the caps are read from the product, and the fixtures are sized relative to
+# them, so moving a cap moves the fixtures with it instead of silently making them vacuous.
+
+_IMAGE_BASE = 0x400000
+_THUNK_RVA = 0x1000
+#: `push 0x6033a96d` - a real 5-byte x86 immediate the scanner records as a `xor_state_multiplier` pattern.
+_PUSH_MULTIPLIER = bytes.fromhex("686da93360")
+
+
+def _x86_cap(name: str) -> int:
+    from threat_report_agent.static import static_analysis as module
+
+    value = getattr(module, name)
+    assert isinstance(value, int) and value > 0, (name, value)
+    return value
+
+
+def _import_calls_fixture(count: int) -> tuple[bytes, list[dict[str, object]], list[dict[str, object]]]:
+    """`count` direct `call dword ptr [abs32]` instructions, each resolving to its OWN import slot.
+
+    x86-32 keeps the encoding unambiguous: `FF 15 <abs32>` is six bytes with the absolute IAT slot as its only
+    operand, so the scanner's `iat.get(target_address)` lookup is exact and no RIP-relative arithmetic is needed.
+    """
+    functions = [f"api_{index:04d}" for index in range(count)]
+    imports: list[dict[str, object]] = [
+        {"module": "FIXTURE", "thunk_rva": _THUNK_RVA, "thunk_width": 4, "functions": functions}
+    ]
+    code = bytearray()
+    for index in range(count):
+        slot = _IMAGE_BASE + _THUNK_RVA + index * 4
+        code += b"\xff\x15" + slot.to_bytes(4, "little")
+    sections = [
+        {
+            "name": ".text",
+            "raw_offset": 0,
+            "raw_size": len(code),
+            "virtual_address": 0x1000,
+            "executable": True,
+        }
+    ]
+    return bytes(code), sections, imports
+
+
+def _pattern_fixture(count: int) -> tuple[bytes, list[dict[str, object]], list[dict[str, object]]]:
+    """`count` `push 0x6033a96d` instructions: one recorded `xor_state_multiplier` pattern each."""
+    code = _PUSH_MULTIPLIER * count
+    sections = [
+        {
+            "name": ".text",
+            "raw_offset": 0,
+            "raw_size": len(code),
+            "virtual_address": 0x1000,
+            "executable": True,
+        }
+    ]
+    return code, sections, []
+
+
+def test_the_api_call_cap_publishes_the_enumerated_set_and_both_differences() -> None:
+    """PRODUCER (M5): the count and the truncated list are joined by a computable set difference."""
+    from threat_report_agent.static.static_analysis import _scan_x86_code
+
+    cap = _x86_cap("_X86_API_CALL_CAP")
+    count = cap + 3
+    data, sections, imports = _import_calls_fixture(count)
+    signals = _scan_x86_code(data, sections, _IMAGE_BASE, imports, is_64=False)
+
+    assert len(signals["api_calls"]) == cap, "the existing cap must keep its existing value"
+    boundary = signals["api_calls_boundary"]
+    assert boundary["name"] == "pe_code_signals.api_calls"
+    assert boundary["identity_key"] == "api|address"
+    assert boundary["cap"] == cap
+    assert boundary["cap_source"]
+    assert boundary["enumerated_count"] == count
+    assert boundary["rendered_count"] == cap
+    assert boundary["unexpanded_count"] == 3
+    assert signals["api_call_count"] == count, "the count keeps its documented meaning: the ENUMERATED count"
+    enumerated = list(boundary["enumerated_set"])
+    rendered = list(boundary["rendered_set"])
+    dropped = list(boundary["expected_minus_actual"])
+    assert len(enumerated) == count
+    assert rendered == enumerated[:cap]
+    assert dropped == enumerated[cap:]
+    assert boundary["actual_minus_expected"] == []
+    # THE READER'S ACTUAL COMPLAINT, asserted directly: count and list must now reconcile.
+    assert len(signals["api_calls"]) + len(dropped) == signals["api_call_count"]
+    assert set(rendered).isdisjoint(dropped)
+    assert sorted(rendered + dropped) == sorted(enumerated)
+    # ...and the dropped identities name the APIs the truncated list no longer carries.
+    dropped_names = {identity.split("@")[0] for identity in dropped}
+    assert dropped_names == {f"FIXTURE!api_{index:04d}" for index in range(cap, count)}, dropped_names
+    assert dropped_names.isdisjoint({row["api"] for row in signals["api_calls"]})
+
+
+def test_the_pattern_cap_publishes_the_enumerated_set_and_both_differences() -> None:
+    """The SECOND cap in the same dict gets the same contract; a fix for one cap is not a fix for the dict."""
+    from threat_report_agent.static.static_analysis import _scan_x86_code
+
+    cap = _x86_cap("_X86_PATTERN_CAP")
+    count = cap + 5
+    data, sections, imports = _pattern_fixture(count)
+    signals = _scan_x86_code(data, sections, _IMAGE_BASE, imports, is_64=False)
+
+    assert len(signals["patterns"]) == cap
+    boundary = signals["patterns_boundary"]
+    assert boundary["name"] == "pe_code_signals.patterns"
+    assert boundary["identity_key"] == "kind|address"
+    assert boundary["cap"] == cap
+    assert boundary["enumerated_count"] == count
+    assert boundary["unexpanded_count"] == 5
+    assert len(boundary["expected_minus_actual"]) == 5
+    assert boundary["actual_minus_expected"] == []
+    assert len(signals["patterns"]) + len(boundary["expected_minus_actual"]) == boundary["enumerated_count"]
+    assert {identity.split("@")[0] for identity in boundary["expected_minus_actual"]} == {"xor_state_multiplier"}
+
+
+def test_below_both_caps_no_remainder_is_invented() -> None:
+    """NEGATIVE CONTROL: a small sample dropped nothing, so both boundaries must be empty in both directions."""
+    from threat_report_agent.static.static_analysis import _scan_x86_code
+
+    data, sections, imports = _import_calls_fixture(4)
+    signals = _scan_x86_code(data, sections, _IMAGE_BASE, imports, is_64=False)
+    calls = signals["api_calls_boundary"]
+    assert len(signals["api_calls"]) == 4
+    assert calls["enumerated_count"] == 4
+    assert calls["unexpanded_count"] == 0
+    assert calls["expected_minus_actual"] == [], "a collection below the cap reported unexpanded elements"
+    assert calls["actual_minus_expected"] == []
+    assert calls["rendered_set"] == calls["enumerated_set"]
+    assert signals["api_call_count"] == 4
+
+    data, sections, imports = _pattern_fixture(2)
+    signals = _scan_x86_code(data, sections, _IMAGE_BASE, imports, is_64=False)
+    patterns = signals["patterns_boundary"]
+    assert patterns["enumerated_count"] == 2
+    assert patterns["unexpanded_count"] == 0
+    assert patterns["expected_minus_actual"] == []
+    assert patterns["actual_minus_expected"] == []

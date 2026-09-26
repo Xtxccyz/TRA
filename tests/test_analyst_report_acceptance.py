@@ -21,7 +21,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from threat_report_agent.analyst_report import (
+    ANALYST_APPENDIX_HEADING,
     ANALYST_CONCLUSION_HEADING,
+    _emulation_status_section,
     apply_model_topic_plan,
     compose_official_markdown,
     plan_analyst_topics,
@@ -2692,4 +2694,821 @@ def test_the_official_body_does_not_route_through_the_ledger_projection() -> Non
         "the official body carries the ledger's numbered V3 sections; it is the ledger projection"
     )
 
+
+# -----------------------------------------------------------------------------------------------------------
+# P-1.3: the 256 observation cap and its remainder
+# -----------------------------------------------------------------------------------------------------------
+# WHAT THESE TESTS ARE FOR. `report/reporting.py` bounds two published collections with a bare `[:256]`
+# (`_build_investigation_timeline`, `build_behavior_relations`). A reader of the published body therefore saw a
+# 256-row list with nothing saying that the run had enumerated more, which is the plan's M5 defect: a bounded
+# list read as the whole set (EC-4). The fix keeps the existing cap and its value EXACTLY, but captures the
+# enumerable set and its stable identity keys BEFORE the slice, publishes both sets and BOTH differences into the
+# Report Document, and states the unexpanded remainder in the official body.
+#
+# NO TEST HERE RE-TYPES 256. The cap is read from the product (`reporting._INVESTIGATION_TIMELINE_CAP` /
+# `_BEHAVIOR_RELATION_CAP`) and every fixture is sized RELATIVE to it, so a future change to the cap moves the
+# fixtures with it instead of silently making them vacuous.
+
+
+def _cap(name: str) -> int:
+    """The cap as the PRODUCT holds it, measured at runtime - never a literal in this file."""
+    import threat_report_agent.report.reporting as reporting_module
+
+    value = getattr(reporting_module, name)
+    assert isinstance(value, int) and value > 0, (name, value)
+    return value
+
+
+def _timeline_relations(count: int) -> list[SimpleNamespace]:
+    """`count` relations, each one timeline row, each with its own stable identity."""
+    return [
+        SimpleNamespace(
+            id=f"relation-{index:05d}",
+            relation_type="CONTAINS",
+            status="CANDIDATE",
+            evidence_id=f"evidence-{index:05d}",
+            claim_id=None,
+        )
+        for index in range(count)
+    ]
+
+
+def _timeline_identity_key_spec() -> str:
+    """The identity-key spec the PRODUCT declares for a timeline row - not a copy typed into this test."""
+    from threat_report_agent.report.reporting import _TIMELINE_IDENTITY_KEY_SPEC
+
+    return _TIMELINE_IDENTITY_KEY_SPEC
+
+
+def _behavior_relation_identity_key_spec() -> str:
+    from threat_report_agent.report.reporting import _BEHAVIOR_RELATION_IDENTITY_KEY_SPEC
+
+    return _BEHAVIOR_RELATION_IDENTITY_KEY_SPEC
+
+
+def _empty_task() -> SimpleNamespace:
+    return SimpleNamespace(strategy_snapshot={})
+
+
+def test_the_timeline_projection_records_the_enumerated_set_and_both_differences() -> None:
+    """PRODUCER (M5): the full identity set is captured BEFORE the slice, and both differences are published.
+
+    The fixture is `cap + 7` rows, so exactly 7 elements are unexpanded. The assertion that matters is NOT the
+    count: it is that `rendered_set` and `expected_minus_actual` PARTITION `enumerated_set` - a reader can
+    reconstruct the difference from the published record alone.
+    """
+    from threat_report_agent.report.reporting import _build_investigation_timeline
+
+    cap = _cap("_INVESTIGATION_TIMELINE_CAP")
+    relations = _timeline_relations(cap + 7)
+    boundaries: list[dict[str, object]] = []
+    kept = _build_investigation_timeline(
+        claims=[],
+        evidence=[],
+        relations=relations,
+        task=_empty_task(),
+        links_by_claim={},
+        boundaries=boundaries,
+    )
+
+    assert len(boundaries) == 1, boundaries
+    boundary = boundaries[0]
+    assert len(kept) == cap, (len(kept), cap)
+    assert boundary["name"] == "investigation_timeline"
+    assert boundary["identity_key"] == _timeline_identity_key_spec()
+    assert boundary["cap"] == cap, "the record must carry the SAME cap the projection applied"
+    assert boundary["cap_source"], "a cap with no named source is a number a reader cannot check"
+    assert boundary["enumerated_count"] == cap + 7
+    assert boundary["rendered_count"] == cap
+    assert boundary["unexpanded_count"] == 7
+    enumerated, rendered, dropped = (
+        list(boundary["enumerated_set"]),
+        list(boundary["rendered_set"]),
+        list(boundary["expected_minus_actual"]),
+    )
+    assert len(enumerated) == cap + 7, "the enumerated set must be the PRE-slice collection"
+    assert rendered == enumerated[:cap]
+    assert dropped == enumerated[cap:]
+    assert len(dropped) == 7
+    assert boundary["actual_minus_expected"] == []
+    # The difference is COMPUTABLE from the record, not merely stated: the published sets partition the whole.
+    assert sorted(rendered + dropped) == sorted(enumerated)
+    assert set(rendered).isdisjoint(dropped)
+    # And the kept rows really are the rows the record calls rendered.
+    assert [row["relation_id"] for row in kept] == [
+        identity.split("relation_id=")[1] for identity in rendered
+    ]
+
+
+def test_the_timeline_projection_below_the_cap_reports_no_remainder() -> None:
+    """NEGATIVE CONTROL: below the cap nothing was dropped, so no remainder may be invented."""
+    from threat_report_agent.report.reporting import _build_investigation_timeline
+
+    cap = _cap("_INVESTIGATION_TIMELINE_CAP")
+    relations = _timeline_relations(cap - 1)
+    boundaries: list[dict[str, object]] = []
+    kept = _build_investigation_timeline(
+        claims=[],
+        evidence=[],
+        relations=relations,
+        task=_empty_task(),
+        links_by_claim={},
+        boundaries=boundaries,
+    )
+    boundary = boundaries[0]
+    assert len(kept) == cap - 1
+    assert boundary["enumerated_count"] == cap - 1
+    assert boundary["unexpanded_count"] == 0
+    assert boundary["expected_minus_actual"] == [], (
+        "a run below the cap reported unexpanded elements; that is a fabricated remainder"
+    )
+    assert boundary["actual_minus_expected"] == []
+    assert boundary["rendered_set"] == boundary["enumerated_set"]
+
+
+def test_the_behavior_relation_projection_bounds_the_set_it_actually_publishes() -> None:
+    """The cap applies AFTER `apply_adversarial_downgrades`, so the boundary must describe THAT set.
+
+    `build_behavior_relations` filters, projects and then downgrades before slicing. Computing the boundary from
+    the raw input would describe a different collection than the one published - the boundary has to be taken at
+    the same seam the slice is taken at.
+    """
+    from threat_report_agent.report.reporting import build_behavior_relations
+
+    cap = _cap("_BEHAVIOR_RELATION_CAP")
+    artifacts = [SimpleNamespace(id="artifact-a", logical_path="a.bin"),
+                 SimpleNamespace(id="artifact-b", logical_path="b.bin")]
+    evidence = {
+        f"evidence-{index:05d}": SimpleNamespace(id=f"evidence-{index:05d}", kind="function_call", value={})
+        for index in range(cap + 5)
+    }
+    relations = [
+        SimpleNamespace(
+            id=f"relation-{index:05d}",
+            relation_type="CONTAINS",
+            status="OBSERVED",
+            source_artifact_id="artifact-a",
+            target_artifact_id="artifact-b",
+            evidence_id=f"evidence-{index:05d}",
+            evidence_ids=[f"evidence-{index:05d}"],
+            claim_id=None,
+            condition="fixture",
+        )
+        for index in range(cap + 5)
+    ]
+    boundaries: list[dict[str, object]] = []
+    kept = build_behavior_relations(
+        relations,
+        [],
+        evidence_by_id=evidence,
+        links_by_claim={},
+        claim_evidence=[],
+        artifacts=artifacts,
+        boundaries=boundaries,
+    )
+
+    boundary = boundaries[0]
+    assert boundary["name"] == "behavior_relations"
+    assert boundary["cap"] == cap
+    assert boundary["cap_source"]
+    assert boundary["identity_key"] == _behavior_relation_identity_key_spec()
+    assert len(kept) == cap
+    assert boundary["enumerated_count"] == cap + 5, (
+        "every fixture relation survives the projection, so the enumerated set is the projected set"
+    )
+    assert boundary["unexpanded_count"] == 5
+    assert boundary["actual_minus_expected"] == []
+    assert len(boundary["expected_minus_actual"]) == 5
+    # The published rows and the record agree, element for element, on the identity key. The record qualifies a
+    # repeated key with `#2`, `#3` ... so the published row's identity is the key BEFORE that suffix.
+    kept_keys = [f"{row['source_artifact_id']}|{row['relation_type']}|{row['target_artifact_id']}" for row in kept]
+    recorded_keys = [str(key).split("#")[0] for key in boundary["rendered_set"]]
+    assert kept_keys == recorded_keys
+    # Repeated endpoints collapse under the bare identity key, so the record must qualify occurrences - otherwise
+    # `rendered_set` would be shorter than the published list and the differences would not add up.
+    assert len(set(boundary["enumerated_set"])) == len(boundary["enumerated_set"])
+
+
+def test_the_report_document_carries_the_observation_boundaries_it_published() -> None:
+    """PRODUCER -> DOCUMENT: the record reaches the revision's Document, which is what the renderer reads."""
+    from threat_report_agent.report.reporting import OBSERVATION_BOUNDARIES_DOCUMENT_KEY
+
+    cap = _cap("_BEHAVIOR_RELATION_CAP")
+    artifacts = [
+        SimpleNamespace(
+            id="artifact-a",
+            case_id="case-p13",
+            task_id="task-p13",
+            logical_path="a.bin",
+            content_sha256="a" * 64,
+            detected_type="PE32",
+            role="primary",
+            obligation="analyze",
+            parent_artifact_id=None,
+            created_at=None,
+            disposed_at=None,
+        ),
+        SimpleNamespace(
+            id="artifact-b",
+            case_id="case-p13",
+            task_id="task-p13",
+            logical_path="b.bin",
+            content_sha256="b" * 64,
+            detected_type="data",
+            role="embedded",
+            obligation="analyze",
+            parent_artifact_id="artifact-a",
+            created_at=None,
+            disposed_at=None,
+        ),
+    ]
+    evidence = [
+        SimpleNamespace(id=f"evidence-{index:05d}", artifact_id="artifact-a", tool_run_id=None,
+                        module="static_triage", kind="function_call", nature="STATIC_OBSERVED",
+                        value={}, anchor={})
+        for index in range(cap + 3)
+    ]
+    relations = [
+        SimpleNamespace(
+            id=f"relation-{index:05d}",
+            task_id="task-p13",
+            relation_type="CONTAINS",
+            status="OBSERVED",
+            source_artifact_id="artifact-a",
+            target_artifact_id="artifact-b",
+            evidence_id=f"evidence-{index:05d}",
+            evidence_ids=[f"evidence-{index:05d}"],
+            claim_id=None,
+            condition="fixture",
+        )
+        for index in range(cap + 3)
+    ]
+    task = SimpleNamespace(
+        id="task-p13",
+        case_id="case-p13",
+        lifecycle="SUCCEEDED",
+        outcome="PARTIAL",
+        target_breadth="B1",
+        target_depth="D2",
+        actual_granularity={},
+        request_snapshot=_four_channel_request_snapshot(),
+        limitations=[],
+        strategy_snapshot={},
+    )
+    document = build_report_document(
+        case=SimpleNamespace(id="case-p13"),
+        task=task,
+        artifacts=artifacts,
+        tool_runs=[],
+        evidence=evidence,
+        claims=[],
+        claim_evidence=[],
+        relations=relations,
+        gates=[],
+        model_calls=[],
+        selected_modules=["behavior_attack"],
+    )
+    records = document.get(OBSERVATION_BOUNDARIES_DOCUMENT_KEY)
+    assert isinstance(records, list) and records, (
+        f"`{OBSERVATION_BOUNDARIES_DOCUMENT_KEY}` is {records!r}; the boundary was computed and then dropped"
+    )
+    by_name = {str(record["name"]): record for record in records}
+    assert "behavior_relations" in by_name, sorted(by_name)
+    assert "investigation_timeline" in by_name, sorted(by_name)
+    assert by_name["behavior_relations"]["expected_minus_actual"], (
+        "the fixture is above the cap, so the published Document must carry the unexpanded identities"
+    )
+
+
+def _boundary_document(records: list[dict[str, object]]) -> dict[str, object]:
+    from threat_report_agent.report.reporting import OBSERVATION_BOUNDARIES_DOCUMENT_KEY
+
+    return _v3_document(**{OBSERVATION_BOUNDARIES_DOCUMENT_KEY: records})
+
+
+def _boundary_record(**overrides: object) -> dict[str, object]:
+    record: dict[str, object] = {
+        "name": "investigation_timeline",
+        "identity_key": "phase|<field>=<id>",
+        "cap": 7,
+        "cap_source": "report/reporting.py::_INVESTIGATION_TIMELINE_CAP",
+        "enumerated_count": 10,
+        "rendered_count": 7,
+        "unexpanded_count": 3,
+        "enumerated_set": [f"row-{index}" for index in range(10)],
+        "rendered_set": [f"row-{index}" for index in range(7)],
+        "expected_minus_actual": ["row-7", "row-8", "row-9"],
+        "actual_minus_expected": [],
+    }
+    record.update(overrides)
+    return record
+
+
+def test_the_official_body_states_the_unexpanded_elements_of_a_capped_collection() -> None:
+    """CONSUMER -> RENDERED MARKDOWN: the body says how many were NOT expanded, and names them.
+
+    The success criterion is NOT the number: it is that a reader of the body cannot mistake the cap for the size
+    of the collection. So the body must carry (a) the enumerated size, (b) the cap, and (c) the unexpanded
+    identities.
+    """
+    official = render_official_markdown(_boundary_document([_boundary_record()]))
+    assert "未展开" in official, official[-400:]
+    assert "`3`" in official
+    assert "可枚举" in official and "`10`" in official
+    assert "`7`" in official and "_INVESTIGATION_TIMELINE_CAP" in official
+    for identity in ("row-7", "row-8", "row-9"):
+        assert identity in official, f"{identity} is unexpanded but the body does not name it"
+    assert "全集" in official
+
+
+def test_the_renderer_prints_the_boundary_it_was_given_and_not_one_of_its_own() -> None:
+    """CONSUMER PROOF: substituting the Document's numbers changes the body, so the renderer READS the record.
+
+    A renderer that re-derived (or hard-coded) the cap would print the same sentence for a document that claims a
+    different one, which is how a boundary sentence becomes decoration.
+    """
+    record = _boundary_record(
+        name="BOUNDARY-NAME-FROM-THE-DOCUMENT",
+        identity_key="IDENTITY-KEY-FROM-THE-DOCUMENT",
+        cap=4242,
+        cap_source="CAP-SOURCE-FROM-THE-DOCUMENT",
+        enumerated_count=4249,
+        rendered_count=4242,
+        unexpanded_count=7,
+        expected_minus_actual=["DROPPED-A", "DROPPED-B"],
+    )
+    official = render_official_markdown(_boundary_document([record]))
+    for token in (
+        "BOUNDARY-NAME-FROM-THE-DOCUMENT",
+        "IDENTITY-KEY-FROM-THE-DOCUMENT",
+        "CAP-SOURCE-FROM-THE-DOCUMENT",
+        "`4242`",
+        "`4249`",
+        "DROPPED-A",
+        "DROPPED-B",
+    ):
+        assert token in official, f"the renderer ignored the Document's `{token}`"
+    assert "`10`" not in official.split(ANALYST_APPENDIX_HEADING)[-1], (
+        "the renderer printed its own fixture numbers instead of the Document's"
+    )
+
+
+def test_a_document_below_the_cap_gains_no_fabricated_remainder() -> None:
+    """NEGATIVE CONTROL: `expected_minus_actual == []` must produce NO remainder sentence at all.
+
+    A boundary block that prints "0 unexpanded" for every ordinary report is a fabrication with the same shape as
+    the defect: it asserts a truncation that did not happen.
+    """
+    record = _boundary_record(
+        enumerated_count=7,
+        rendered_count=7,
+        unexpanded_count=0,
+        enumerated_set=[f"row-{index}" for index in range(7)],
+        rendered_set=[f"row-{index}" for index in range(7)],
+        expected_minus_actual=[],
+    )
+    official = render_official_markdown(_boundary_document([record]))
+    assert "未展开" not in official, (
+        "a collection that lost nothing produced a remainder notice; that is a fabricated truncation"
+    )
+    assert "row-7" not in official
+
+
+def test_a_document_without_the_boundary_key_renders_no_boundary_block() -> None:
+    """Backward compatibility: an older Document carries no boundary record and must not gain one."""
+    official = render_official_markdown(_v3_document())
+    assert "未展开" not in official
+    assert "观测上限" not in official
+
+
+# -----------------------------------------------------------------------------------------------------------
+# P-1.3 (site 4): the two caps inside `simulation_adapters.py`
+# -----------------------------------------------------------------------------------------------------------
+# Site 4a is the Speakeasy API-name cap, whose remainder ALREADY reached the body as a count; what was missing
+# was the set difference behind that count. Site 4b is the Unicorn instruction-observation cap, whose removal was
+# invisible in the run's own accounting. Both caps keep their existing values.
+
+
+def _api_truncation_row(**overrides: object) -> dict[str, object]:
+    result: dict[str, object] = {
+        "simulator": "speakeasy",
+        "status": "FAILED",
+        "stop_reason": "EXECUTION_ERROR",
+        "limitations": [],
+        "observed_apis": {"MSVBVM60.__vbaStrCopy": 256},
+        "shim": {},
+        "api_truncation": {
+            "kept": 2,
+            "dropped": 2,
+            "entry_points_dropped": 0,
+            "api_cap": 2,
+            "boundary": {
+                "name": "speakeasy.observed_api_names",
+                "identity_key": "api_name|occurrence",
+                "cap": 2,
+                "cap_source": "simulation_adapters.py::_speakeasy_adapter api_cap",
+                "enumerated_count": 4,
+                "rendered_count": 2,
+                "unexpanded_count": 2,
+                "enumerated_set": ["api-a", "api-b", "api-c", "api-d"],
+                "rendered_set": ["api-a", "api-b"],
+                "expected_minus_actual": ["api-c", "api-d"],
+                "actual_minus_expected": [],
+            },
+        },
+    }
+    result.update(overrides)
+    return {"type": "emulation_status", "overall": "FAILED", "attempted": True, "results": [result]}
+
+
+def test_the_api_cap_names_the_identities_it_removed_and_not_only_their_count() -> None:
+    """CONSUMER: the body gains the set difference, so its list and its count can be reconciled."""
+    text = "\n".join(_emulation_status_section([_api_truncation_row()]))
+
+    assert "未展开元素" in text, text[-500:]
+    assert "api_name|occurrence" in text, "the reader cannot recompute the difference without the identity key"
+    assert "`api-c`" in text and "`api-d`" in text, (
+        "the cap removed two API names and the body names neither, so the published list still reads as the set"
+    )
+    assert "`api-a`" not in text.split("未展开元素")[-1], "the KEYS that were published are not part of the remainder"
+
+
+def test_the_api_boundary_reaches_the_chapter_through_the_projection_whitelist() -> None:
+    """PRODUCER -> PROJECTION WHITELIST -> CHAPTER for the Speakeasy cap.
+
+    The chapter test above feeds the projection's OUTPUT, so it cannot see a whitelist that drops the field on the
+    way through - and `build_emulation_status_projection` is a whitelist by design. This one starts from the
+    adapter's own observation and asserts the boundary survives into the chapter's input.
+    """
+    from threat_report_agent.report.reporting import build_emulation_status_projection
+
+    boundary = {
+        "name": "speakeasy.observed_api_names",
+        "identity_key": "api_name|occurrence",
+        "cap": 2,
+        "cap_source": "simulation_adapters.py::_speakeasy_adapter api_cap (pre-existing literal)",
+        "enumerated_count": 4,
+        "rendered_count": 2,
+        "unexpanded_count": 2,
+        "enumerated_set": ["api-a", "api-b", "WIRE-DROPPED-ONE", "WIRE-DROPPED-TWO"],
+        "rendered_set": ["api-a", "api-b"],
+        "expected_minus_actual": ["WIRE-DROPPED-ONE", "WIRE-DROPPED-TWO"],
+        "actual_minus_expected": [],
+    }
+    evidence = {
+        "evidence-api": {
+            "id": "evidence-api",
+            "kind": "simulation_result",
+            "artifact_id": "artifact-a",
+            "anchor": {},
+            "value": {
+                "simulator": "speakeasy",
+                "status": "FAILED",
+                "stop_reason": "EXECUTION_ERROR",
+                "limitations": [],
+                "observations": [
+                    {"event": "api", "name": "api-a", "kind": "api_call"},
+                    {"event": "api", "name": "api-b", "kind": "api_call"},
+                    {
+                        "event": "api_truncated",
+                        "kept": 2,
+                        "dropped": 2,
+                        "entry_points_dropped": 0,
+                        "api_cap": 2,
+                        "entry_point_cap": 64,
+                        "boundary": boundary,
+                    },
+                ],
+            },
+        }
+    }
+    projection = build_emulation_status_projection(evidence)
+    results = projection["results"]
+    forwarded = results[0]["api_truncation"]["boundary"]
+    assert isinstance(forwarded, dict), (
+        "the projection dropped the api boundary before the chapter could see it: "
+        f"{sorted(results[0]['api_truncation'])}"
+    )
+    assert forwarded["expected_minus_actual"] == ["WIRE-DROPPED-ONE", "WIRE-DROPPED-TWO"]
+    text = "\n".join(
+        _emulation_status_section([{"type": "emulation_status", "overall": "FAILED", "results": results}])
+    )
+    assert "WIRE-DROPPED-ONE" in text and "WIRE-DROPPED-TWO" in text
+    assert "api_name|occurrence" in text
+
+
+def test_an_api_cap_without_a_boundary_still_renders_its_count() -> None:
+    """Backward compatibility: an older projection carries `dropped` but no boundary and must not crash."""
+    row = _api_truncation_row()
+    row["results"][0]["api_truncation"] = {
+        "kept": 2,
+        "dropped": 2,
+        "entry_points_dropped": 0,
+        "api_cap": 2,
+    }
+    text = "\n".join(_emulation_status_section([row]))
+    assert "未展开" in text
+    assert "未展开元素" not in text
+
+
+def test_the_unicorn_observation_cap_publishes_its_boundary_on_the_summary_observation() -> None:
+    """PRODUCER: a real Unicorn run above the instruction-observation cap states what the cap removed.
+
+    The fixture is a NOP sled longer than the cap, executed by the PRODUCT's own adapter: `executed` therefore
+    exceeds the number of instruction observations, and the run used to publish that difference nowhere. The
+    identity list is explicitly LABELLED partial, because storing every dropped address is the cost the cap
+    bounds - the exact count plus the last identity is what can honestly be published.
+    """
+    from threat_report_agent.emulation.policy import SimulationRequest
+    from threat_report_agent.simulation_adapters import (
+        _UNICORN_INSTRUCTION_OBSERVATION_CAP,
+        _unicorn_adapter,
+    )
+
+    cap = _UNICORN_INSTRUCTION_OBSERVATION_CAP
+    # MORE than `cap + sample size` instructions: the run must drop enough of them that the labelled identity
+    # sample is genuinely a prefix of the remainder rather than the whole of it.
+    sled = b"\x90" * (cap + 40)
+    result = _unicorn_adapter(
+        SimulationRequest(
+            simulator="unicorn",
+            sample_path="",
+            input_bytes=sled,
+            architecture="x86",
+            entry_address=0x1000000,
+            instruction_budget=cap + 50,
+            timeout_seconds=5,
+            allow_execution=True,
+            worker_isolated=True,
+        )
+    )
+    summary = next(item for item in result.observations if item.get("event") == "summary")
+    boundary = summary["instruction_observation_boundary"]
+    assert boundary["cap"] == cap
+    assert boundary["cap_source"]
+    assert boundary["identity_key"] == "instruction|address|occurrence"
+    assert boundary["enumerated_count"] == summary["instructions"] > cap, (
+        "the fixture must really exceed the cap, or this test proves nothing about the remainder"
+    )
+    assert boundary["rendered_count"] == cap
+    assert boundary["unexpanded_count"] == boundary["enumerated_count"] - cap > 0
+    assert len(boundary["rendered_set"]) == cap
+    # The remainder's identity list is a SAMPLE and is labelled one; a reader is never told it is the set, and
+    # the count plus the last identity ARE exact.
+    assert boundary["expected_minus_actual_identity_sample_is_partial"] is True
+    assert boundary["expected_minus_actual_full_set_stored"] is False
+    assert boundary["expected_minus_actual_full_set_not_stored_because"]
+    assert len(boundary["expected_minus_actual_identity_sample"]) < boundary["expected_minus_actual_count"]
+    assert boundary["last_unexpanded_identity"].startswith("0x")
+
+
+def test_a_short_unicorn_run_reports_no_instruction_remainder() -> None:
+    """NEGATIVE CONTROL: below the cap nothing was removed, so no remainder may be fabricated."""
+    from threat_report_agent.emulation.policy import SimulationRequest
+    from threat_report_agent.simulation_adapters import (
+        _UNICORN_INSTRUCTION_OBSERVATION_CAP,
+        _unicorn_adapter,
+    )
+
+    result = _unicorn_adapter(
+        SimulationRequest(
+            simulator="unicorn",
+            sample_path="",
+            input_bytes=b"\x90" * 4,
+            architecture="x86",
+            entry_address=0x1000000,
+            instruction_budget=64,
+            timeout_seconds=5,
+            allow_execution=True,
+            worker_isolated=True,
+        )
+    )
+    summary = next(item for item in result.observations if item.get("event") == "summary")
+    boundary = summary["instruction_observation_boundary"]
+    assert summary["instructions"] <= _UNICORN_INSTRUCTION_OBSERVATION_CAP
+    assert boundary["unexpanded_count"] == 0
+    assert boundary["expected_minus_actual_count"] == 0
+    assert boundary["expected_minus_actual_identity_sample"] == []
+    assert boundary["expected_minus_actual_identity_sample_is_partial"] is False
+
+
+# -----------------------------------------------------------------------------------------------------------
+# P-1.3: the CONSUMER chains for the two sites whose records live inside an Evidence value
+# -----------------------------------------------------------------------------------------------------------
+# Both records are produced where the cap is applied, and both are separated from the published body by a
+# WHITELIST: the x86 scanner's boundary sits inside a `pe_structure` value (and `build_pe_basics_projection`
+# carries only entry_rva/imports/sections/exports/pdb_path), and the instruction boundary sits on a `summary`
+# observation (and `build_emulation_status_projection` names each field it forwards). A record that no projection
+# carries is an Evidence-only fact, so both halves - the fold/forward AND the rendered sentence - are asserted.
+
+
+def _pe_structure_evidence(boundary: dict[str, object]) -> list[SimpleNamespace]:
+    """ONE `pe_structure` Evidence row whose value carries the scanner's own boundary records."""
+    return [
+        SimpleNamespace(
+            id="evidence-pe",
+            kind="pe_structure",
+            artifact_id="artifact-a",
+            tool_run_id=None,
+            module="static_triage",
+            nature="STATIC_OBSERVED",
+            anchor={},
+            value={
+                "format": "PE32",
+                "machine": "0x14c",
+                "entry_rva": 0x1000,
+                "image_base": 0x400000,
+                "imports": [],
+                "sections": [],
+                "exports": [],
+                "code_signals": {
+                    "architecture": "x86",
+                    "api_calls": [],
+                    "api_calls_boundary": boundary,
+                    "patterns": [],
+                    "patterns_boundary": {
+                        "name": "pe_code_signals.patterns",
+                        "identity_key": "kind|address",
+                        "cap": 256,
+                        "cap_source": "static/static_analysis.py::_X86_PATTERN_CAP",
+                        "enumerated_count": 0,
+                        "rendered_count": 0,
+                        "unexpanded_count": 0,
+                        "enumerated_set": [],
+                        "rendered_set": [],
+                        "expected_minus_actual": [],
+                        "actual_minus_expected": [],
+                    },
+                },
+            },
+        )
+    ]
+
+
+def _scan_boundary_record(dropped: list[str], cap: int = 4096) -> dict[str, object]:
+    enumerated = ["api-a", "api-b", *dropped]
+    rendered = enumerated[: len(enumerated) - len(dropped)]
+    return {
+        "name": "pe_code_signals.api_calls",
+        "identity_key": "api|address",
+        "cap": cap,
+        "cap_source": "static/static_analysis.py::_X86_API_CALL_CAP",
+        "enumerated_count": len(enumerated),
+        "rendered_count": len(rendered),
+        "unexpanded_count": len(dropped),
+        "enumerated_set": enumerated,
+        "rendered_set": rendered,
+        "expected_minus_actual": dropped,
+        "actual_minus_expected": [],
+    }
+
+
+def _document_with_evidence(evidence: list[SimpleNamespace]) -> dict[str, object]:
+    task = SimpleNamespace(
+        id="task-scan",
+        case_id="case-scan",
+        lifecycle="SUCCEEDED",
+        outcome="PARTIAL",
+        target_breadth="B1",
+        target_depth="D2",
+        actual_granularity={},
+        request_snapshot=_four_channel_request_snapshot(),
+        limitations=[],
+        strategy_snapshot={},
+    )
+    return build_report_document(
+        case=SimpleNamespace(id="case-scan"),
+        task=task,
+        artifacts=[],
+        tool_runs=[],
+        evidence=evidence,
+        claims=[],
+        claim_evidence=[],
+        relations=[],
+        gates=[],
+        model_calls=[],
+        selected_modules=["behavior_attack"],
+    )
+
+
+def test_the_x86_scanner_boundary_reaches_the_document_and_the_rendered_body() -> None:
+    """PRODUCER -> CONSUMER -> MARKDOWN for the scanner's cap, whose record lives inside a `pe_structure` value."""
+    from threat_report_agent.report.reporting import OBSERVATION_BOUNDARIES_DOCUMENT_KEY
+
+    record = _scan_boundary_record(["api-4096@0x1234", "api-4097@0x123a"])
+    document = _document_with_evidence(_pe_structure_evidence(record))
+    records = document.get(OBSERVATION_BOUNDARIES_DOCUMENT_KEY) or []
+    folded = [item for item in records if item.get("name") == "pe_code_signals.api_calls"]
+    assert len(folded) == 1, (
+        "the scanner's boundary never reached the Document, so its remainder cannot be stated in the body: "
+        f"{[item.get('name') for item in records]}"
+    )
+    assert folded[0]["expected_minus_actual"] == ["api-4096@0x1234", "api-4097@0x123a"]
+    assert folded[0]["cap_source"] == "static/static_analysis.py::_X86_API_CALL_CAP"
+
+    official = render_official_markdown(document)
+    assert "pe_code_signals.api_calls" in official, official[-500:]
+    assert "`api-4096@0x1234`" in official
+    assert "_X86_API_CALL_CAP" in official
+
+
+def test_a_scanner_collection_below_its_cap_adds_no_boundary_to_the_document() -> None:
+    """NEGATIVE CONTROL: the scanner's empty-remainder record is not carried, and the body stays silent."""
+    from threat_report_agent.report.reporting import OBSERVATION_BOUNDARIES_DOCUMENT_KEY
+
+    document = _document_with_evidence(_pe_structure_evidence(_scan_boundary_record([])))
+    records = document.get(OBSERVATION_BOUNDARIES_DOCUMENT_KEY) or []
+    assert [item for item in records if item.get("name") == "pe_code_signals.api_calls"] == []
+    official = render_official_markdown(document)
+    assert "pe_code_signals.api_calls" not in official
+    assert "观测上限" not in official, "a collection that lost nothing produced a boundary chapter"
+
+
+def _simulation_evidence(instruction_boundary: dict[str, object]) -> dict[str, object]:
+    return {
+        "evidence-sim": {
+            "id": "evidence-sim",
+            "kind": "simulation_result",
+            "artifact_id": "artifact-a",
+            "anchor": {"function_entry": "0x401040"},
+            "value": {
+                "simulator": "unicorn",
+                "status": "SUCCEEDED",
+                "stop_reason": "END_ADDRESS",
+                "limitations": [],
+                "observations": [
+                    {"event": "request", "entry_address": "0x401040"},
+                    {"event": "instruction", "address": "0x401040", "size": 1},
+                    {
+                        "event": "summary",
+                        "instructions": 296,
+                        "elapsed_ms": 3,
+                        "instruction_observation_boundary": instruction_boundary,
+                    },
+                ],
+            },
+        }
+    }
+
+
+def _instruction_boundary(unexpanded: int) -> dict[str, object]:
+    sample = [f"instruction|0x4010{index:02x}" for index in range(min(unexpanded, 8))]
+    return {
+        "name": "unicorn.instruction_observations",
+        "identity_key": "instruction|address|occurrence",
+        "cap": 256,
+        "cap_source": "simulation_adapters.py::_UNICORN_INSTRUCTION_OBSERVATION_CAP",
+        "enumerated_count": 256 + unexpanded,
+        "rendered_count": 256,
+        "unexpanded_count": unexpanded,
+        "rendered_set": ["0x401040"],
+        "expected_minus_actual_count": unexpanded,
+        "expected_minus_actual_identity_sample": sample,
+        "expected_minus_actual_identity_sample_is_partial": unexpanded > len(sample),
+        "last_unexpanded_identity": "0x401128",
+        "expected_minus_actual_full_set_stored": False,
+        "expected_minus_actual_full_set_not_stored_because": (
+            "every executed instruction would have to be kept to store the full identity set"
+        ),
+    }
+
+
+def test_the_instruction_observation_cap_reaches_the_rendered_body_through_the_whitelist() -> None:
+    """PRODUCER -> PROJECTION WHITELIST -> CHAPTER for the Unicorn cap.
+
+    The projection is a whitelist by design, so a record the producer carries but the whitelist omits stops here.
+    This asserts the field SURVIVES the projection (not merely that the renderer can print it) and then that the
+    body states the exact counts and calls its identity list a sample.
+    """
+    from threat_report_agent.report.reporting import build_emulation_status_projection
+
+    projection = build_emulation_status_projection(_simulation_evidence(_instruction_boundary(40)))
+    results = projection["results"]
+    assert len(results) == 1
+    forwarded = results[0]["instruction_observation_boundary"]
+    assert isinstance(forwarded, dict), (
+        "the projection dropped the boundary before the renderer could see it: "
+        f"{sorted(results[0])}"
+    )
+    assert forwarded["unexpanded_count"] == 40
+
+    text = "\n".join(_emulation_status_section([{"type": "emulation_status", "overall": "SUCCEEDED",
+                                                "results": results}]))
+    assert "指令观测上限" in text, text[-500:]
+    assert "`296`" in text and "`256`" in text and "`40`" in text
+    assert "_UNICORN_INSTRUCTION_OBSERVATION_CAP" in text, "the cap's source must be named"
+    assert "抽样" in text, "the identity list is a sample and the body must not present it as the set"
+    assert "`instruction|0x401000`" in text
+
+
+def test_an_instruction_record_without_a_remainder_is_silent_in_the_body() -> None:
+    """NEGATIVE CONTROL: `unexpanded_count == 0` is not forwarded at all, so no sentence can appear."""
+    from threat_report_agent.report.reporting import build_emulation_status_projection
+
+    projection = build_emulation_status_projection(_simulation_evidence(_instruction_boundary(0)))
+    results = projection["results"]
+    assert results[0]["instruction_observation_boundary"] is None
+    text = "\n".join(_emulation_status_section([{"type": "emulation_status", "overall": "SUCCEEDED",
+                                                "results": results}]))
+    assert "指令观测上限" not in text
 
