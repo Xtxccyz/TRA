@@ -59,8 +59,19 @@ def unique_os_thread_playbook() -> SimpleNamespace:
     return SimpleNamespace(id="unique-os-thread", mechanism_type="THREAD_CALLBACK")
 
 
-def resolve_persist_how_skip(
-    *,
+#: Cluster categories whose QUESTION is the BODY of the recovered start routine. A unique-thread close proves the start
+#: ADDRESS, which for these is the question's PREMISE, not its answer.
+#:
+#: MEASURED (round 170, T3 fixture): both seeded clusters were closed with the SAME event -
+#: "Persist-time recovered OS-thread start 0x401040; TRACE was not charged." - and the `thread_start_routine` cluster
+#: ("What unique loop runs inside the start routine at 0x401040?") was closed with ZERO actions while its own `loop` and
+#: `failure_fallback` slots stayed UNKNOWN. Its premise had been answered and its question had not, and
+#: `cluster_category` was consulted only in the `elif` below, so the close did not look at it at all. Excluding the
+#: category routes that thread to the planner instead, where the loop question can actually be worked.
+UNIQUE_THREAD_CLOSE_EXCLUDED_CATEGORIES = frozenset({"thread_start_routine"})
+
+
+def resolve_persist_how_skip(    *,
     playbook: object | None,
     evidence: Iterable[object],
     thread_id: str,
@@ -106,6 +117,7 @@ def resolve_persist_how_skip(
         and persist_ready is None
         and playbook is None
         and not model_actions_only
+        and cluster_category not in UNIQUE_THREAD_CLOSE_EXCLUDED_CATEGORIES
     ):
         unique_ready = unique_thread(
             evidence=evidence,

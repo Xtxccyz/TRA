@@ -722,6 +722,49 @@ def _seed_t3_task(test_settings, name: str):
         return database, service, task.id, artifact.id, callback_entry
 
 
+def test_a_start_routine_cluster_is_not_closed_by_the_unique_thread_finding() -> None:
+    """MEASURED (round 170): the persist-time unique-thread close answered a question it was not asked.
+
+    Both seeded clusters were closed with the SAME event - "Persist-time recovered OS-thread start 0x401040; TRACE was
+    not charged." - and the `thread_start_routine` cluster ("What unique loop runs inside the start routine at
+    0x401040?") closed with ZERO actions while its own `loop` and `failure_fallback` slots stayed UNKNOWN. The start
+    address is that question's PREMISE, not its answer, and `cluster_category` was consulted only in the `elif`, so the
+    close never looked at it. This pins the RULE directly: the same finding closes a `thread` cluster and must NOT close
+    a `thread_start_routine` one.
+    """
+    from threat_report_agent.investigation.loop_path import (
+        LOOP_PATH_PERSIST_READY,
+        LOOP_PATH_PLANNER,
+        next_investigation_loop_path,
+        resolve_persist_how_skip,
+    )
+
+    marker = object()
+
+    def decide(category: str):
+        return resolve_persist_how_skip(
+            playbook=None,
+            evidence=[],
+            thread_id="thread-fixture",
+            artifact_id="artifact-t3",
+            cluster_category=category,
+            model_actions_only=False,
+            proposed_actions=[],
+            historical_attempts=0,
+            seed_result=lambda **_kwargs: None,
+            static_boundary=lambda **_kwargs: None,
+            unique_thread=lambda **_kwargs: marker,
+            supporting_boundary=lambda **_kwargs: None,
+        )
+
+    assert next_investigation_loop_path(decide("thread"), budget_exhausted=False) == LOOP_PATH_PERSIST_READY, (
+        "a plain `thread` cluster is still closed by the recovered start address - that behaviour is unchanged"
+    )
+    assert next_investigation_loop_path(decide("thread_start_routine"), budget_exhausted=False) == LOOP_PATH_PLANNER, (
+        "the start-routine cluster must go to the planner, where its loop question can actually be worked"
+    )
+
+
 def test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives(
     test_settings,
 ) -> None:
