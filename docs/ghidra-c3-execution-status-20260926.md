@@ -3,8 +3,8 @@
 > 本文件由 `.scratch/ghidra-c3-execution-status.json` **程序化生成**（`.scratch/render-ghidra-status.py`）。`.scratch/` 被 gitignore，因此把主计划的权威状态在此留一份被跟踪的记录。**本文件与结构计划的状态是两套状态，不得合并**：结构计划见 `docs/structure-execution-status-20260922.md`。
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
-- **当前步骤 `current_step = P-4`**；状态机当前允许：`['P-4']`
-- 代码提交 `git_head = 48eed1e9e37a368f23fb10e86a8e25ba2e23ec7a`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- **当前步骤 `current_step = P-5`**；状态机当前允许：`['P-5']`
+- 代码提交 `git_head = 1394985dd344eb204bc6ad243693dc6d412fea8a`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -27,6 +27,7 @@
 | P-2.2 | complete | `.scratch/ghidra-c3/preflight/P-2.2-artifact.json` | 0 file(s) changed; 6 negative control(s), 6 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; SQL-bound task 466c0018 |
 | P-2.3 | complete | `.scratch/ghidra-c3/preflight/P-2.3-artifact.json` | 0 file(s) changed; 6 negative control(s), 6 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; SQL-bound task 120c0d73 |
 | P-3 | complete | `.scratch/ghidra-c3/preflight/P-3-artifact.json` | 0 file(s) changed; 4 negative control(s), 4 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; SQL-bound task 48ad8007 |
+| P-4 | complete | `.scratch/ghidra-c3/preflight/P-4-artifact.json` | 4 file(s) changed; 5 negative control(s), 5 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; render proof: the concrete blocker <DLL>!<export> that bounded an isolated simulation; SQL-bound task c582712e |
 | P-0.2-r2 | blocked | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 0; NEW (regressions) = ['tests/test_analysis_api.py::test_end_to_end_static_analysis_and_report_revisions', 'tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_flags_a_self_referential_and_resource_digest_indicator', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_is_quiet_on_a_correct_rule', 'tests/test_structure_diff_gate.py::test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap', 'tests/test_t3_callback_fixture.py::test_t3_one_start_discovers_global_relation_for_behavior_explanation', 'tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer', 'tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']; GONE (fixed) = none. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
@@ -43,7 +44,7 @@
 
 ### 最近一次全量测量（覆盖 P-0.2 之后的所有修复）
 
-- 结果：**2936 passed, 4 skipped, 2 warnings in 309.72s (0:05:09) - measured by the gate owner on the frozen P-3 tree, with the worktree manifest re-taken before and after the run (identical, so no parallel writer moved the tree mid-run)**（`.scratch/ghidra-c3/preflight/pytest-P-3-failures.txt`）
+- 结果：**2951 passed, 4 skipped, 4 warnings in 478.02s (0:07:58) - measured by the gate owner on the frozen P-4 tree, with the worktree manifest re-taken before and after the run (identical, so no parallel writer moved the tree mid-run)**（`.scratch/ghidra-c3/preflight/pytest-P-4-failures.txt`）
 - 相对 P-0.2 基线：NEW = `[]`；GONE = 0 个
 - 判定：9 nodes at P-0.2-r2 -> 2 nodes now, with no regression: the three baseline repairs of rounds 161-163 (protocol slot precedence, remote-thread seed, EC-5 self-check) removed 5, and the in-flight P-1.1 work removes the other 2 (`test_analysis_api` end-to-end and the structure-gate gap test)
 - 仍失败：['tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']
@@ -92,7 +93,7 @@
 
 ```json
 {
-  "measured_at_head": "48eed1e9e37a368f23fb10e86a8e25ba2e23ec7a",
+  "measured_at_head": "1394985dd344eb204bc6ad243693dc6d412fea8a",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -106,7 +107,7 @@
 
 ```json
 {
-  "measured_at_head": "48eed1e9e37a368f23fb10e86a8e25ba2e23ec7a",
+  "measured_at_head": "1394985dd344eb204bc6ad243693dc6d412fea8a",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -200,10 +201,10 @@
 
 ## 四、部署门（P-0.4 / P-2）
 
-- `gate_state = MATCHED_TO_HEAD`
-- 原因：manifest written to D:\threat report agent\.scratch\ghidra-c3\preflight\threeway-latest.json | NOTE: 20 file(s) differ from HEAD in LINE ENDINGS only (recorded repo-wide drift: core.autocrlf with no .gitattributes). They are listed under `head_vs_worktree.line_ending_only` and are NOT counted as content drift - but a byte-exact HEAD comparison does not exist in this repository. | MATCHED_TO_HEAD: HEAD == worktree, and the container sets are reported above as differences
+- `gate_state = BLOCKED`
+- 原因：container_state.services: {"api": {"state": "READ", "root": "/usr/local/lib/python3.12/site-packages/threat_report_agent", "note": "imports from /usr/local/lib/python3.12/site-packages/threat_report_agent", "hashes": {"__init__.py": "247daebb5232bc2df1d80f4af722e9202b4721fff0175fb809cc71d5fc9ba98e", "agent_runtime.py": "bc82 | manifest written to D:\threat report agent\.scratch\ghidra-c3\preflight\threeway-latest.json | BLOCKED: the working tree is NOT the commit named above, so no container comparison can speak about that commit
 - 最后一次通过：`未记录（本字段在 gate 状态改为实测后不再维护）`
-- 实测方式：`py scripts/check-deployed-code-hashes.py --three-way --services api,intake-worker,document-worker,parser-worker,script-worker,control-worker,emu-worker,ghidra-worker --manifest-json .scratch/ghidra-c3/preflight/threeway-latest.json`（exit 0）
+- 实测方式：`py scripts/check-deployed-code-hashes.py --three-way --services api,intake-worker,document-worker,parser-worker,script-worker,control-worker,emu-worker,ghidra-worker --manifest-json .scratch/ghidra-c3/preflight/threeway-latest.json`（exit 2）
 - 判据来源：MEASURED, never asserted: this field is what the preflight's DEPLOYMENT_NOT_MATCHED rule reads for `DEPLOYMENT_DEPENDENT` steps (P-2…P-8, T1-T5, T8), so it is produced by CALLING the tracked structure gate and recording its own verdict. The byte-exact statement is the container half (`container_vs_worktree` per service); the HEAD-vs-worktree half is affected repo-wide by `core.autocrlf` with no `.gitattributes`, which the gate separates into `line_ending_only` and does not count as content drift.
 - 历史（2026-09-26）：BLOCKED - Docker Desktop unreachable: `com.docker.service` Stopped, the session not elevated and approval prompts disabled, so the daemon could not be started from here.
 - 历史（2026-09-27）：the operator started Docker Desktop; the three images were rebuilt from this tree (`docker compose build api emu-worker` and `scripts/build-ghidra-worker.ps1`, whose GHIDRA_SHA256 was re-verified against the local archive) and the stack was started with `docker compose up -d`, after which every service reported missing=0 differing=0 container-only=0 and a clean import smoke.
@@ -282,8 +283,5 @@
 - **P-2.2 修正了主计划自己的前提，并发现部署门有一个覆盖缺口。**（细节与其测量见 `.scratch/ghidra-c3/preflight/P-2.2-artifact.json`）
   1. **计划说的「requirements hash」在这条构建路径上不存在。** 实测：`tool-worker/Dockerfile:42` 是 `python -m pip install .`，来源是 `pyproject.toml`，其 20 个依赖**全部是范围约束** —— 0 个 `==`、0 个哈希、0 个 `--require-hashes`、0 个约束文件，本仓库自有根目录下按 12 种 lock 模式**递归**搜索也没有 lock 文件。这条路径上**唯一**被哈希钉死的依赖是 Ghidra 归档：`GHIDRA_SHA256` 在宿主侧（`build-ghidra-worker.ps1:79-82`）与镜像内（`sha256sum --check --strict`）各校验一次；新增证据：运行中容器的 `/opt/ghidra` 与已核验归档的成员集合**逐一相同**（5225/5225，0 缺失 0 多余 0 大小差异，`Ghidra/application.properties` 摘要一致），补偿了「归档在镜像内已被删除」这一点。因此 P-2.2 的决策是**选项 1**，且只覆盖**有 lock hash 的那一个**依赖；**pip 层没有 lock hash 这件事被记为 OPEN 缺口，而不是记为已满足**。
   2. **tracked 部署门从不校验 `/opt/ghidra`。** 实测对照：把一个 scratch 容器的 `/opt/ghidra` 扰动后，P-2.2 自己的归档比对**exit 1**（点名 `Ghidra/application.properties`），而**同一个容器**上 tracked gate **exit 0** —— 因为该门只哈希 Python 包。这是结构计划所属 gate 的覆盖缺口，主计划对它**只读**，因此只记录、不修改，交给该 gate 的 owner。同一次运行还实测到：`docker-compose.yml` 里的 `SIMULATION_WORKER_IMAGE_DIGEST: sha256:emu-worker-v1` 是**哈希形状的非哈希**（emu 路径，无任何东西依赖它）。
-- **P-4 记录更正（第 253 轮的计划所有者错误）：第三次尝试不是生产者失败，是我把它掐死的。** 我在它一段时间没写新文件后检查「有没有活着的 python 进程」，没找到就判定它已死，并在 20:21:55 把树还原到 HEAD —— **而它当时仍在工作**。这个判活检查是**不充分的**：agent 在两次工具调用之间没有子进程存活，所以「没有 python 进程」**不构成死亡证据**。代价是真实的：那次尝试**已经修好 §8.2 的全部三个抑制点并证明了 RED→GREEN**（RED `pytest -k "speakeasy or grant or anchor or bai_xiang or disconnect or numeric_threshold"` = exit 1, 7 failed/3 passed；GREEN 同选择 = exit 0, 11 passed；17 个仿真/工具/API 文件的回归批 = exit 0, 222 passed 1 skipped）。
-  **当前状态**：生产者**已被恢复运行**（我给它发了 continue），所以**工作树现在是它的工作区，计划所有者不得再动**（不还原、不提交、不重生成状态，直到它说完成）。它的四个文件的**完整且已核验哈希**的副本在 `.scratch/ghidra-c3/preflight/p4-aborted-producer-work-attempt2/`（`emulation_plan.py` 40463/`256a33bd…`、`tool_execution.py` 70542/`273106a4…`、`service.py` 881986/`bd27ff83…`、`test_analysis_api.py` 74761/`197efebe…`，后者含全部 11 个绿色 T1 测试）；该目录的 `record.json` 里 `aborted_copy` 字段指向 attempt-1 目录，**以哈希为准，不要信那个字段**（那是我先跑脚本、后改名造成的）。
-  **教训，写给下一位**：判断一个生产者是否还活着，**不能**用「有没有子进程」；要么等它的完成通知，要么只做只读观测，**绝不在不确定时动工作树**。第 251 轮那次是真死（它自己在完成前失败并留下无 artifact 的改动），第 253 轮这次是我误杀。
 - 每一步都必须交出 artifact（`.scratch/ghidra-c3/preflight/<step>-artifact.json`），并让 `py scripts/ghidra-plan-preflight.py --step <step>` 退出 0；**没有 artifact 的步骤不算完成**。
 - 该 artifact 必须带：真实对象 dump（M1）、编辑前后 SHA256 与编译命令（M2）、绑定 SQL 元数据的 task/revision/content hash（M3）、producer→consumer→官方 Markdown 重渲染证明（M4）、集合差而非计数（M5）、以及**实际非零退出**的负向对照（M6）。

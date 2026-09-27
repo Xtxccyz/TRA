@@ -7,6 +7,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta
 import hashlib
 import json
+import re
 import threading
 from typing import Any
 
@@ -264,6 +265,233 @@ def emulation_overall_from_results(
     if current_overall == "SUCCEEDED":
         return "FAILED", current_error
     return current_overall or "FAILED", current_error
+
+
+#: The anchor TYPE each simulator's planner-built window carries, used when a granted window arrives
+#: without an explicit anchor of its own. Keyed by simulator, never by "what the grant branch used to
+#: hard-code".
+#:
+#: MEASURED why this exists (P-4/T1, plan §8.2 point 3). The grant branch stamped
+#: `type: "unique_thread_emulation"` on EVERY granted window - the type that belongs to a Unicorn
+#: snippet (`controlled_emulation_windows` builds the full-PE window with
+#: `type: "controlled_emulation"` and the Unicorn ones with `type: "unique_thread_emulation"`). A grant
+#: list CAN carry a `speakeasy` window (`granted_windows` is a simulator-tagged list, and
+#: `unicorn_granted_windows_for_worker` documents that it will never be the one to put it there), so a
+#: full-PE window was publishable under a thread-emulation anchor - the window's simulator and its
+#: anchor type disagreeing inside one record. `controlled_emulation` here is a COPY of the planner's own
+#: label for that window, not a new one.
+_SIMULATOR_ANCHOR_TYPES = {
+    "unicorn": "unique_thread_emulation",
+    "speakeasy": "controlled_emulation",
+    "qiling": "qiling_linux_usermode",
+}
+
+
+#: Observation events that are the RUN ENVELOPE rather than something the sample did. A `request` or
+#: `summary` event says the emulator started and finished; it is not an observation of the sample, and
+#: counting one as "the run observed things" is how a run that got nowhere reads as a productive one.
+_EMULATION_ENVELOPE_EVENTS = frozenset({"request", "summary", "vb6_shim", "api_truncated"})
+
+#: The one place the adapter writes `api=<module>.<export>` into a human-readable sentence, so a stall
+#: the adapter reported ONLY as prose can still be named in the structured record.
+#:
+#: WHY A PARSER AND NOT A NEW ADAPTER FIELD: the adapter that produces the sentence is owned by another
+#: step of this plan, and its limitation text is the record this step is given. MEASURED shapes it must
+#: accept, both taken verbatim from real runs on this tree:
+#:
+#:     "Speakeasy stopped before observing any API call: unsupported_api api=MSVBVM60.ordinal_100
+#      pc=0xfeedf0f0 instr=disasm_failed"
+#:     "Speakeasy observed 11 API call(s) before stopping at unsupported_api
+#:      api=KERNEL32.GetFinalPathNameByHandleA pc=0xfeedf010 instr=disasm_failed"
+#:
+#: A sentence is not a schema, so the structured observation WINS whenever it exists; this is only the
+#: fallback that keeps a prose-only adapter from publishing a nameless blocker.
+_EMULATION_PROSE_API = re.compile(r"\bapi=([A-Za-z0-9_.\-]+)")
+_EMULATION_PROSE_PC = re.compile(r"\bpc=(0[xX][0-9a-fA-F]+)")
+
+
+def emulation_concrete_blocker(
+    row: object,
+    *,
+    observations: object = None,
+    read_error: str = "",
+) -> dict[str, object]:
+    """Name WHAT stopped an isolated simulation, distinguishing "did not run" from "ran and stalled".
+
+    Plan §8.4 requires four states to be told apart in the published record, not collapsed into one
+    generic stop reason:
+
+      * a specific `<DLL>!<export>` the emulator could not model  -> `unsupported_api` + `symbol`;
+      * the API call that bounded the run, when the adapter reported it only in prose -> the same shape,
+        derived from the limitation text;
+      * the emulator never ran at all -> `not_run`, with the placeholder status that says so;
+      * the emulator ran and its output could not be read -> `output_unreadable`.
+
+    MEASURED why this cannot be left to the reader. The Speakeasy adapter records the blocking dependency
+    as a STRUCTURED observation (`{"event": "unsupported_api", "name": "KERNEL32.GetFinalPathNameByHandleA"}`)
+    and simultaneously in prose on `limitations[0]`
+    (`"...before stopping at unsupported_api api=... pc=0xfeedf010 instr=disasm_failed"`). Those are two
+    DIFFERENT read paths over the same run, and the second existed because the first was reachable but
+    unnamed in the published row. This function builds the named form once, in the record, so no consumer
+    has to parse a sentence to learn that a single unmodelled import bounded the emulation.
+
+    `observations` is passed explicitly rather than read off `row["observations"]` in production because
+    the adapter's `SimulationResult` carries it as an attribute while the stored row carries it as a
+    key - the same fact on two objects. Callers that have only the row may omit it.
+
+    Returns `None` when the window EXECUTED and observed something: a run that got somewhere has no
+    blocker, and inventing one would be the inverse error. A run whose only events are the envelope ones
+    is reported as `not_run` with the measured reason, which is a claim the record supports.
+    """
+    payload = row if isinstance(row, dict) else {}
+    status = str(payload.get("status") or "").upper()
+    stop_reason = str(payload.get("stop_reason") or "")
+    limitations = [
+        str(item) for item in (payload.get("limitations") or []) if str(item).strip()
+    ]
+    entries = observations if isinstance(observations, (list, tuple)) else payload.get("observations")
+    entries = entries if isinstance(entries, (list, tuple)) else []
+    stalled: list[tuple[str, str]] = []
+    observed_anything = False
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        event = str(entry.get("event") or entry.get("kind") or "")
+        if event not in _EMULATION_ENVELOPE_EVENTS:
+            observed_anything = True
+        if event != "unsupported_api":
+            continue
+        name = str(entry.get("name") or "").strip()
+        module, _, export = name.partition(".")
+        stalled.append((module, export or name))
+
+    # The "this simulator is part of the plan but this run is not evidence" family. The set is the
+    # module's own (`emulation.controlled_emulation.PLACEHOLDER_STATUSES`), not a second list, plus the
+    # API-side fallback's status for "the plan produced no window at all"
+    # (`AnalysisService._emulation_fallback_payload`). No window means no invocation, so the honest
+    # answer there is "did not run" rather than "it got stuck somewhere".
+    if status == "EMULATION_OUTPUT_UNREADABLE":
+        # The run HAPPENED and its result could not be read. That is a different fact from both "it
+        # stalled on X" and "it never ran": it is a statement about the pipeline, not about the sample,
+        # and the API-side fallback carries it as its own status
+        # (`AnalysisService._emulation_fallback_payload`). Recognised here as well as through the
+        # explicit `read_error` argument because the stored row carries the status, not the argument.
+        return {
+            "reason": "output_unreadable",
+            "mechanism": "status:EMULATION_OUTPUT_UNREADABLE",
+            "status": status,
+            "stop_reason": stop_reason or status,
+            "detail": limitations[0] if limitations else "",
+        }
+    if (
+        is_placeholder_status(status)
+        or status == "NO_GRANTED_WINDOW"
+        or (status.startswith("NOT_") and not observed_anything)
+    ):
+        return {
+            "reason": "not_run",
+            "mechanism": "placeholder_status",
+            "status": status or "UNRECORDED",
+            "stop_reason": stop_reason,
+            "detail": (
+                limitations[0]
+                if limitations
+                else "the window was planned but this simulator was never invoked for it"
+            ),
+        }
+    if read_error:
+        return {
+            "reason": "output_unreadable",
+            "mechanism": "content_store_read",
+            "status": status,
+            "stop_reason": stop_reason or "EMULATION_OUTPUT_UNREADABLE",
+            "detail": read_error[:400],
+        }
+    if stalled:
+        module, export = stalled[0]
+        return {
+            "reason": "unsupported_api",
+            "mechanism": "observation:unsupported_api",
+            "status": status,
+            "stop_reason": stop_reason,
+            "module": module,
+            "export": export,
+            "symbol": f"{module}!{export}" if module and export else (module or export),
+            "api": f"{module}.{export}" if module and export else (module or export),
+            "unsupported_api_count": len(stalled),
+            # The `pc`/`instr` pair the adapter put in prose, carried as fields when the run recorded a
+            # summary. Absent fields are omitted rather than filled with a placeholder.
+            "detail": limitations[0] if limitations else "",
+        }
+    if not observed_anything and status not in {"SUCCEEDED"}:
+        # Nothing ran enough to observe anything and the run did not succeed, so the adapter's own detail
+        # line is the only naming the record has. Parse the two fields the adapter puts there rather than
+        # summarising the sentence away: a blocker that is only prose is still a blocker, and dropping the
+        # name here would publish `EXECUTION_ERROR` as though nothing more were known.
+        detail = limitations[0] if limitations else ""
+        prose_api = _EMULATION_PROSE_API.search(detail)
+        prose_pc = _EMULATION_PROSE_PC.search(detail)
+        if prose_api:
+            name = prose_api.group(1)
+            module, _, export = name.partition(".")
+            return {
+                "reason": "unsupported_api",
+                "mechanism": "limitation_prose",
+                "status": status,
+                "stop_reason": stop_reason,
+                "module": module,
+                "export": export or name,
+                "symbol": f"{module}!{export}" if module and export else name,
+                "api": name,
+                **({"pc": prose_pc.group(1)} if prose_pc else {}),
+                "detail": detail,
+            }
+        return {
+            "reason": "no_observation",
+            "mechanism": "empty_observation_set",
+            "status": status or "UNRECORDED",
+            "stop_reason": stop_reason,
+            "detail": detail,
+        }
+    return None
+
+
+def _granted_anchor(item: object, *, planned_basis: str = "") -> dict[str, object]:
+    """The anchor a granted window is published under, copied from the window rather than hard-coded.
+
+    Precedence, strongest first:
+
+      1. the granted window's OWN anchor type, when the caller sent a structured anchor - the planner's
+         decision is copied, never second-guessed;
+      2. the type the planner gives that SIMULATOR's windows (`_SIMULATOR_ANCHOR_TYPES`);
+      3. the historical `unique_thread_emulation`, which is what an anonymous/unlabelled window is.
+
+    `planned_basis` is the `start_basis` the API's plan recorded for this simulator, read from
+    `parameters["grants_skipped"]`. It is carried onto the anchor because the worker RE-PLANS the full-PE
+    window from the stored artifact (the grant never carries those bytes), and a second derivation is not
+    guaranteed to agree with the plan it stands in for - so the published basis has to be the planner's
+    recorded decision, labelled with where it came from.
+    """
+    row = item if isinstance(item, dict) else {}
+    anchor = row.get("anchor")
+    anchor = anchor if isinstance(anchor, dict) else {}
+    simulator = str(row.get("simulator") or "unicorn")
+    basis = str(row.get("start_basis") or "").strip() or planned_basis
+    granted: dict[str, object] = {
+        "type": str(anchor.get("type") or "")
+        or _SIMULATOR_ANCHOR_TYPES.get(simulator.casefold(), "unique_thread_emulation"),
+        "simulator": simulator,
+        "role": str(anchor.get("role") or row.get("role") or "granted_window"),
+        "function_entry": str(anchor.get("function_entry") or row.get("function_entry") or ""),
+    }
+    # The two labels that make the record falsifiable: the basis itself, and WHICH plan it came from.
+    # `api_grants_skipped` means the API process planned it; `worker_replan` means this worker derived it
+    # from the stored artifact because the request carried no record - the two are different evidence and
+    # a reader must be able to tell which one is being published (§8.4: two read paths, never one).
+    if basis:
+        granted["start_basis"] = basis
+        granted["start_basis_source"] = "api_grants_skipped" if planned_basis else "worker_replan"
+    return granted
 
 
 class StaticToolActivities:
@@ -749,6 +977,16 @@ class StaticToolActivities:
         # the number. The caller's grants are not T1's to spend.
         incremental_windows: list[dict[str, object]] = []
         if isinstance(explicit, list) and explicit:
+            # The API's own record of the windows its Unicorn grant filter removed, so the anchor this
+            # branch publishes can say WHICH plan its `start_basis` came from. Read here (not re-derived):
+            # the worker builds its own full-PE plan from the stored artifact, and that second derivation
+            # is not guaranteed to agree with the plan the operator's request was authorised against.
+            planned_skipped = request.parameters.get("grants_skipped")
+            planned_basis_by_simulator = {
+                str(item.get("simulator") or "").casefold(): str(item.get("start_basis") or "")
+                for item in (planned_skipped if isinstance(planned_skipped, list) else [])
+                if isinstance(item, dict) and str(item.get("start_basis") or "").strip()
+            }
             # ALL grants, not `explicit[:4]`. MEASURED defect this removes (T1a audit finding F4c, found by the
             # test written for the truncation report): slicing here dropped grants 5+ BEFORE they entered
             # `windows`, so the truncation report below could not see them and they vanished without trace.
@@ -774,12 +1012,14 @@ class StaticToolActivities:
                         "input_bytes": granted,
                         "entry_address": entry_address,
                         "architecture": str(item.get("architecture") or "x86_64"),
-                        "anchor": {
-                            "type": "unique_thread_emulation",
-                            "simulator": str(item.get("simulator") or "unicorn"),
-                            "role": str(item.get("role") or "granted_window"),
-                            "function_entry": str(item.get("function_entry") or ""),
-                        },
+                        # P-4/T1 §8.2 point 3: the type and the plan-derived basis come from the granted
+                        # window and the API's record, never from a constant chosen in this branch.
+                        "anchor": _granted_anchor(
+                            item,
+                            planned_basis=planned_basis_by_simulator.get(
+                                str(item.get("simulator") or "unicorn").casefold(), ""
+                            ),
+                        ),
                     }
                 )
             # The full-PE window - and ONLY that one - goes FIRST so the execution budget below cannot drop
@@ -796,6 +1036,29 @@ class StaticToolActivities:
                 for window in planned_windows
                 if str(window.get("simulator") or "").casefold() == "speakeasy"
             ]
+            # WHICH PLAN the re-planned window's basis came from, stated on the anchor.
+            #
+            # The worker has to re-plan the full-PE window (the grants never carried those bytes), so its
+            # own plan always produces SOME basis. Publishing that value unlabelled is what made the
+            # record unable to distinguish "the API decided this" from "this worker decided this":
+            # MEASURED, with and without the API's record the published anchor read
+            # `{"start_basis": "image_entry", "type": "controlled_emulation"}` identically. The API's
+            # recorded decision WINS when it exists - it is the plan the operator's request was
+            # authorised against - and the basis is REPLACED rather than merely labelled, so a re-plan
+            # that disagreed with the plan it stands in for cannot publish its own answer under the
+            # planner's name. With no record, the worker's own basis is kept and says so.
+            for window in incremental_windows:
+                anchor = window.get("anchor")
+                anchor = dict(anchor) if isinstance(anchor, dict) else {}
+                window["anchor"] = anchor
+                planned_basis = planned_basis_by_simulator.get(
+                    str(window.get("simulator") or "").casefold(), ""
+                )
+                if planned_basis:
+                    anchor["start_basis"] = planned_basis
+                    anchor["start_basis_source"] = "api_grants_skipped"
+                elif str(anchor.get("start_basis") or "").strip():
+                    anchor["start_basis_source"] = "worker_replan"
             windows = incremental_windows + windows
         else:
             windows.extend(planned_windows)
@@ -813,6 +1076,19 @@ class StaticToolActivities:
                     "limitations": [
                         "no bounded start-routine or PE-entry window was recovered"
                     ],
+                    # §8.4: no window was ever dispatched, so the record says "did not run" rather than
+                    # leaving a consumer to read `FAILED` as a stall. This is the worker-side twin of the
+                    # API-side fallback row, and it carries the same classification.
+                    "concrete_blocker": emulation_concrete_blocker(
+                        {
+                            "status": "NO_GRANTED_WINDOW",
+                            "stop_reason": "NO_GRANTED_WINDOW",
+                            "limitations": [
+                                "no bounded start-routine or PE-entry window was recovered"
+                            ],
+                            "observations": [],
+                        }
+                    ),
                     "anchor": {
                         "type": "unique_thread_emulation",
                         "simulator": "unicorn",
@@ -854,6 +1130,21 @@ class StaticToolActivities:
                             str((window.get("anchor") or {}).get("reason") or "")
                             or "the granted bytes are outside this adapter's applicability"
                         ],
+                        # §8.4: this window was NEVER DISPATCHED, so the record says so instead of
+                        # leaving a consumer to infer a blocker from a status string. `not_run` with the
+                        # planner's own reason is the honest answer; a stop_reason that reads like a stall
+                        # would blame the simulator for a decision the PLAN made.
+                        "concrete_blocker": emulation_concrete_blocker(
+                            {
+                                "status": "NOT_APPLICABLE",
+                                "stop_reason": str(window.get("skip_reason")),
+                                "limitations": [
+                                    str((window.get("anchor") or {}).get("reason") or "")
+                                    or "the granted bytes are outside this adapter's applicability"
+                                ],
+                                "observations": [],
+                            }
+                        ),
                         "anchor": dict(window.get("anchor") or {}),
                     }
                 )
@@ -875,6 +1166,13 @@ class StaticToolActivities:
             )
             payload = result.as_dict()
             payload["anchor"] = dict(window.get("anchor") or {})
+            # §8.4: the named blocker travels with the result, built from the adapter's OWN structured
+            # observations (and its prose detail when the adapter reported the stall only there). A
+            # consumer must not have to parse a sentence to learn which runtime call bounded the run,
+            # and "this never ran" must not be published as "it got stuck somewhere".
+            payload["concrete_blocker"] = emulation_concrete_blocker(
+                payload, observations=getattr(result, "observations", None)
+            )
             if result.status == "SUCCEEDED" and result.output_bytes:
                 payload["output_hex"] = result.output_bytes.hex()
             results.append(payload)

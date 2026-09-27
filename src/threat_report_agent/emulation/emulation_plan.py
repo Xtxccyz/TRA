@@ -150,16 +150,31 @@ def unicorn_granted_windows_for_worker(
     windows: Iterable[Mapping[str, object]] | None,
     *,
     max_windows: int = 4,
+    skipped_out: list[dict[str, object]] | None = None,
 ) -> tuple[dict[str, object], ...]:
-    """Serialize Unicorn snippets for the isolated worker. Skip Speakeasy full-PE.
+    """Serialize Unicorn snippets for the isolated worker. Skip Speakeasy full-PE - and REPORT the skip.
 
-    CALLER CONTRACT - the skip is NOT reported. Every window whose simulator is not `unicorn` is dropped by
-    the filter below, and the caller receives a shorter tuple with no way to tell "there were only Unicorn
-    windows" from "non-Unicorn windows were dropped". That is deliberate here (this function's job is the
-    Unicorn grant payload) but it means a caller wanting the full-PE window MUST plan it separately - which is
-    what `tool_execution.py` does, prepending it as an incremental window outside the grant budget. Calling
-    this function and assuming it returns every window silently loses the others. Recorded as a known latent
-    trap in `.scratch/finding-suppression-point-1-latent.md`; reporting the skip needs a signature change.
+    CALLER CONTRACT. Every window whose simulator is not `unicorn` is still dropped from the returned
+    grants: this function's job is the Unicorn grant payload, and the caller's grant budget is not the
+    place to hand the worker a whole PE (measured: Temporal rejects payloads over 2 MiB, and a 4 MiB
+    sample inlined as hex is ~8 MiB). What is no longer true is the SILENCE. A caller may pass
+    `skipped_out` and receive, for each dropped window, WHAT was dropped: the simulator, the entry
+    address, the anchor the planner built for it, and - for the full-PE window, the only one that
+    carries it - the planner's own `start_basis`.
+
+    MEASURED why the drop has to be reported rather than re-derived downstream. The worker builds its
+    own full-PE plan from the stored artifact, because the grant never carried those bytes. An
+    independent re-derivation is NOT guaranteed to agree with the plan it stands in for. Measured on one
+    fixture: the same plan built with and without `preferred_entries` produced different Unicorn entry
+    sets, and the full-PE `start_basis` is chosen by a selector that reads the recovered function list
+    (`_speakeasy_entry_from_functions`). So the published `start_basis` has to be the planner's RECORDED
+    decision, and this function is the seam where that decision used to vanish: a caller received a
+    shorter tuple and could not tell "there were only Unicorn windows" from "non-Unicorn windows were
+    dropped". Recorded as a known latent trap in `.scratch/finding-suppression-point-1-latent.md`.
+
+    The drop record is the ONLY thing this change adds: the returned grants are byte-identical to what
+    this function returned before (MEASURED: `granted == granted_again` when the two calls differ only in
+    `skipped_out`), so no existing caller's request payload moves.
 
     PROVENANCE of `max_windows` (G2): the value 4 is NOT derived from a measurement. It mirrors the per-run
     execution budget in `tool_execution.py` (`execution_budget = 4`), which is itself the pre-existing literal
@@ -173,6 +188,18 @@ def unicorn_granted_windows_for_worker(
         if not isinstance(window, Mapping):
             continue
         if str(window.get("simulator") or "").casefold() != "unicorn":
+            if skipped_out is not None:
+                anchor = window.get("anchor") if isinstance(window.get("anchor"), Mapping) else {}
+                skipped_out.append(
+                    {
+                        "simulator": str(window.get("simulator") or ""),
+                        "entry_address": window.get("entry_address"),
+                        "anchor_type": str(anchor.get("type") or ""),
+                        "role": str(anchor.get("role") or ""),
+                        "skipped_because": "not_a_unicorn_window",
+                        "start_basis": str(anchor.get("start_basis") or ""),
+                    }
+                )
             continue
         payload = window.get("input_bytes")
         if not isinstance(payload, (bytes, bytearray)) or len(payload) < 8:

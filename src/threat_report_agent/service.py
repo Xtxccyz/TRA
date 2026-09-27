@@ -10520,6 +10520,20 @@ class AnalysisService:
             for item in functions
             if isinstance(item, dict) and item.get("planned_emulation")
         )
+        # The windows the Unicorn grant filter drops - reported here rather than vanishing at this seam.
+        #
+        # P-4/T1. The filter itself is deliberate (see the planner's own docstring: the grant budget is
+        # Unicorn-only, and inlining a whole PE into a Temporal payload is what the 2 MiB limit forbids).
+        # What was wrong was the SILENCE: this call received a shorter tuple, so the API process kept no
+        # record that it had ever planned a full-PE window, or why that window started where it did. The
+        # worker re-plans the full-PE window from the stored artifact - it must, the grant never carried
+        # those bytes - and an independent re-plan is NOT guaranteed to agree with the plan it stands in
+        # for. Carrying the drop here is what lets the published anchor say WHICH plan its `start_basis`
+        # came from instead of publishing the worker's second derivation under the planner's label.
+        #
+        # The record is a plain JSON list of scalars with NO bytes (asserted in
+        # `tests/test_analysis_api.py`), so it cannot inflate the request payload.
+        grants_skipped: list[dict[str, object]] = []
         granted_windows = unicorn_granted_windows_for_worker(
             controlled_emulation_windows(
                 sample,
@@ -10538,7 +10552,8 @@ class AnalysisService:
                 # What actually makes the full-PE window reachable is on the WORKER side: the grant branch
                 # now builds the plan itself and places the Speakeasy window ahead of the snippets
                 # (`tool_execution._execute_controlled_emulator`). Passing `allow_speakeasy` here is what
-                # authorises it, and the grant list deliberately stays Unicorn-only.
+                # authorises it, and the grant list deliberately stays Unicorn-only - the dropped windows
+                # are reported through `grants_skipped` below rather than being added to the grants.
                 allow_speakeasy=speakeasy,
                 allow_qiling=False,
                 max_windows=4,
@@ -10549,6 +10564,7 @@ class AnalysisService:
             if sample
             else (),
             max_windows=4,
+            skipped_out=grants_skipped,
         )
         parameters = {
             "functions": functions[:64],
@@ -10565,6 +10581,12 @@ class AnalysisService:
         }
         if granted_windows:
             parameters["granted_windows"] = list(granted_windows)
+        if grants_skipped:
+            # The plan's own record of what the Unicorn grant filter removed, so the worker can say which
+            # plan its published `start_basis` came from. Plain JSON scalars only - no sample bytes are
+            # inlined (the worker reads the artifact through its existing storage grant), which is what
+            # keeps this off the Temporal payload-size limit.
+            parameters["grants_skipped"] = [dict(item) for item in grants_skipped]
         if self.settings.tool_execution_mode == "temporal":
             request = ToolRunRequest(
                 case_id=case_id,
