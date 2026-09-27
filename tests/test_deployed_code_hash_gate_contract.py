@@ -138,13 +138,73 @@ def test_a_line_ending_difference_is_told_apart_from_a_content_change(gate, tmp_
     )
 
 
-def test_the_cli_reports_a_distinct_partial_state_without_a_daemon() -> None:
-    """Without a daemon the container half is UNAVAILABLE - a state, not an empty comparison that reads as "no
-    differences"."""
+def test_the_cli_names_its_container_state_and_only_a_matched_gate_exits_zero() -> None:
+    """The CLI must always NAME its state, and only a MATCHED_TO_HEAD manifest may exit zero.
+
+    MEASURED (P-2.1, the first full-suite run with the containers up): the previous form of this test asserted a
+    non-zero exit unconditionally, because on the day it was written the daemon was unreachable and the command could
+    only report PARTIAL. With the three images rebuilt and the stack running, the SAME command exits 0 and prints
+    MATCHED_TO_HEAD, so that assertion had been measuring the HOST rather than the gate - it went red with not one line
+    of product code changed. The contract that holds in both worlds is pinned here instead: the gate names one of its
+    three states, and the exit code agrees with the state. That keeps the plan's own rule - a blocked deployment gate
+    is never a pass - checkable on a day when the gate IS matched.
+    """
     completed = subprocess.run([sys.executable, str(GATE), "--three-way"], cwd=ROOT, capture_output=True, text=True,
                                encoding="utf-8", errors="replace")
     assert "container_state" in completed.stdout
-    assert completed.returncode != 0, "an unavailable container half must not exit zero"
-    assert ("PARTIAL" in completed.stdout) or ("BLOCKED" in completed.stdout), (
-        "the gate must name the state it is in: PARTIAL (HEAD == worktree, no daemon) or BLOCKED (tree is not HEAD)"
-    )
+    state = next((name for name in ("MATCHED_TO_HEAD", "PARTIAL", "BLOCKED") if name in completed.stdout), "")
+    assert state, f"the gate must name one of its three states; stdout ended with {completed.stdout[-400:]!r}"
+    expected_zero_for_a_matched_manifest = state == "MATCHED_TO_HEAD"
+    assert (completed.returncode == 0) == expected_zero_for_a_matched_manifest, (
+        f"only a MATCHED_TO_HEAD manifest may exit zero; state={state!r} exit={completed.returncode}")
+
+
+def test_a_file_present_only_in_the_tree_is_reported_as_expected_minus_actual(gate) -> None:
+    """P-2.1's control (b) in the small: because the manifest is ENUMERATED from disk, a production file the container
+    does not have can only ever appear on the EXPECTED side. MEASURED (this step, with a real extra file in `src/`):
+    the strict gate exits 1 with it under `missing`, and `--three-way` publishes it under `expected_minus_actual` for
+    every service."""
+    difference = gate.set_difference({"a.py": "1", "new.py": "2"}, {"a.py": "1"})
+    assert difference["expected_minus_actual"] == ["new.py"]
+    assert difference["actual_minus_expected"] == []
+    assert difference["content_differs"] == []
+
+
+def test_a_file_present_only_in_the_container_is_reported_as_actual_minus_expected(gate) -> None:
+    """The reverse direction, which the three-way comparison cannot see BY CONSTRUCTION: its retrieved mapping is the
+    manifest's own path list hashed inside the container, so a container-only path is never one of its keys. MEASURED
+    (P-2.1): against the nine-day-old `threat-report-agent-emu-worker:fixed` image the gate reported
+    `container-only=5`, and those five are visible only through its `container_listing()` helper."""
+    difference = gate.set_difference({"a.py": "1"}, {"a.py": "1", "leftover.py": "3"})
+    assert difference["actual_minus_expected"] == ["leftover.py"]
+    assert difference["expected_minus_actual"] == []
+    assert difference["content_differs"] == []
+
+
+def test_the_manifest_is_enumerated_from_disk_so_a_new_production_file_appears(gate, monkeypatch, tmp_path) -> None:
+    """P-2.1 asks for the ACTUAL production Python/Java/prompt files; a fixed list is how the old gate could not see a
+    moved or added implementation. The rule pinned here: whatever is under the source root is in the manifest, whatever
+    its extension, and no `__pycache__` entry ever is."""
+    (tmp_path / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "system.md").write_text("# prompt\n", encoding="utf-8")
+    (tmp_path / "ghidra_scripts").mkdir()
+    (tmp_path / "ghidra_scripts" / "Export.java").write_text("class Export {}\n", encoding="utf-8")
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "module.cpython-312.pyc").write_bytes(b"\x00\x01")
+    monkeypatch.setattr(gate, "SOURCE", tmp_path)
+    files = gate.manifest()
+    assert files == ["ghidra_scripts/Export.java", "module.py", "prompts/system.md"], files
+
+
+def test_the_head_manifest_omits_a_path_with_no_blob_at_head(gate) -> None:
+    """MEASURED (P-2.1): a file that exists only in the working tree has NO blob at HEAD, and hashing that absence as
+    an empty blob would turn "absent from the commit" into a value with a digest. It is omitted instead, which is what
+    makes the strict half of the plan's control (b) report the new file as present in the tree and absent from the
+    container rather than as an unchanged empty string."""
+    is_empty, folded, head_sha = gate.head_hashes(["__p2_1_no_such_path__.py"])
+    assert is_empty == {} and folded == {}
+    assert head_sha != "UNKNOWN", "the HEAD manifest must still report the commit it read"
+    present, present_folded, _ = gate.head_hashes(["contracts.py"])
+    assert set(present) == {"contracts.py"}
+    assert set(present_folded) == {"contracts.py"}

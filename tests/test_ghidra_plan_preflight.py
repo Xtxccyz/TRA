@@ -99,6 +99,21 @@ def test_m1_blocks_a_getattr_template() -> None:
     assert "M1_SURFACE" in codes and "M1_NO_VALUE" in codes
 
 
+def test_m1_accepts_a_mapping_dump_with_real_values_and_blocks_an_empty_one() -> None:
+    """P-2.1's M1 dumps are parsed JSON Mappings, not Python objects: a `dict` has no `vars()` and no signature, so
+    the rule has to stand on the measured field values alone. MEASURED: `record_object` on a Mapping records no `vars`
+    and no `signature` at all, so a validator that demanded a surface would reject every JSON document a step dumps -
+    and one that accepted an empty `field_values` would accept a dump that carries no value, which is the shape M1
+    exists to reject."""
+    mapping = PREFLIGHT.record_object({"head_sha": "d0bc17fc6f44", "manifest_size": 131},
+                                      name="three_way_manifest", fields=["head_sha", "manifest_size"])
+    assert mapping["has_dict"] is False
+    assert "vars" not in mapping and "signature" not in mapping
+    assert "M1_SURFACE" not in _codes(_validate(_base_artifact(object_dumps=[mapping])))
+    codes = _codes(_validate(_base_artifact(object_dumps=[dict(mapping, field_values={})])))
+    assert "M1_NO_VALUE" in codes and "M1_SURFACE" in codes
+
+
 def test_m2_blocks_a_header_only_anchor() -> None:
     artifact = _base_artifact(edit_hashes=[{
         "path": "scripts/ghidra-plan-preflight.py", "sha256_before": "a" * 64, "sha256_after": "b" * 64,
@@ -584,8 +599,18 @@ def test_a_content_hash_may_match_its_source_at_a_named_commit() -> None:
 def test_the_self_test_refuses_and_returns_non_zero_for_an_invalid_base() -> None:
     """MEASURED (round 167): the tamper loop ran unconditionally, so on an invalid artifact every tamper "failed" for a
     reason unrelated to the tamper - and the plan's own `--step P-1 --self-test` would have reported 13 rejections while
-    proving nothing. A self-test whose base case is broken measures nothing."""
+    proving nothing. A self-test whose base case is broken measures nothing.
+
+    MEASURED (P-2.1, once the deployment gate became MATCHED_TO_HEAD): this fixture used to take its invalidity from
+    the AMBIENT status file - `step="P-1"` with `decision="complete"` is a `PHASE_DEPLOYMENT_OVERCLAIM` only while the
+    gate is blocked. `run_self_test` loads the real status file from disk, so as soon as the gate reported
+    MATCHED_TO_HEAD the "invalid" base validated, the tamper loop ran for real and this node failed with
+    `assert 0 == 1`. An invalid base must be invalid for a reason NO file on disk can remove: a required field is
+    absent, which `_check_artifact_fields` reports in every state of the plan. The state-dependent rule keeps its own
+    tests (`test_a_phase_may_only_be_recorded_complete_when_the_gate_is_matched` and its two companions).
+    """
     invalid = _base_artifact(step="P-1", decision="complete")  # 'complete' is not allowed for a phase on a blocked gate
+    invalid.pop("skill_audit")
     with tempfile.TemporaryDirectory(prefix="selftest-refusal-") as raw:
         capture = pathlib.Path(raw) / "results.json"
         code = PREFLIGHT.run_self_test("P-1", invalid, capture)
