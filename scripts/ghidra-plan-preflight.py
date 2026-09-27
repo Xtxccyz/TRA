@@ -681,6 +681,11 @@ _PYTEST_NO_TEST_RAN: tuple[str, ...] = (
 )
 #: pytest's own ERROR-report prefix for a file/module, which is a collection failure rather than a test failure.
 _PYTEST_ERROR_LINE = re.compile(r"(?m)^\s*ERROR\s+\S*(?:test_|_test|conftest)\S*")
+#: What PYTEST OUTPUT looks like when a test failed: a report line naming a node. MEASURED (P-1.7): the rule below
+#: used to fire on the bare substring `failed `, and a legitimate SCRIPT control whose evidence read "the gate FAILED
+#: as required" was then rejected as `NEGATIVE_NOT_A_TEST_FAILURE` for exiting 2 - its own documented convention.
+#: Requiring the node shape keeps the rule aimed at pytest output instead of at the English word.
+_PYTEST_FAILURE_EVIDENCE = re.compile(r"FAILED\s+\S+::\S+|assertionerror|short test summary", re.IGNORECASE)
 
 
 def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]) -> None:
@@ -715,9 +720,10 @@ def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]
             violations.add("NEGATIVE_NO_TEST_RAN",
                            f"negative control {name or index!r} records a collection/usage/internal error, not a "
                            f"failing assertion: {evidence[:160]!r}")
-        elif "failed " in folded or "assertionerror" in folded:
+        elif _PYTEST_FAILURE_EVIDENCE.search(evidence):
             # The control DID run pytest and reported a failure, so the exit code must be pytest's failure code.
-            # 2/3/4/5 here means the harness aborted instead of observing the target test fail.
+            # 2/3/4/5 here means the harness aborted instead of observing the target test fail. A script-shaped
+            # control whose prose merely contains "failed" is NOT caught here - see `_PYTEST_FAILURE_EVIDENCE`.
             if code is not None and int(code) != 1:
                 violations.add("NEGATIVE_NOT_A_TEST_FAILURE",
                                f"negative control {name or index!r} reports a pytest failure but exited {code!r}; "
@@ -866,8 +872,19 @@ def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifa
         # tamper was correctly accepted, i.e. the tamper - not the validator - was wrong.
         artifact.pop("wrong_sample_or_revision_control", None)
     elif name == "m4_disconnect_consumer_from_control":
+        # M4 IS INERT WHEN NO NEW SYMBOL WAS INTRODUCED. MEASURED (P-1.7): `_check_render_proofs` returns immediately
+        # on `not artifact["introduces_symbol"]`, so for a phase gate - which introduces no symbol but still CITES a
+        # re-measured producer/consumer/render proof - breaking the control's name changes nothing the validator
+        # reads, and the self-test reported the tamper as ACCEPTED. That is not a hole in M4: it is the tamper
+        # claiming to have exercised a rule that does not apply to this step. It must say so instead, and the
+        # mechanism-coverage rule then requires a NAMED unit test for M4 - which `test_m4_blocks_a_json_only_proof_
+        # and_a_dangling_control` provides.
+        if not artifact.get("introduces_symbol"):
+            raise NotApplicable("this step introduces no symbol, so the M4 rules read none of these fields")
         need("producer_consumer_render_proof")[0]["consumer_disconnect_control"] = "a_control_that_does_not_exist"
     elif name == "m4_json_only_proof":
+        if not artifact.get("introduces_symbol"):
+            raise NotApplicable("this step introduces no symbol, so the M4 rules read none of these fields")
         need("producer_consumer_render_proof")[0]["read_from_json_only"] = True
     elif name == "m5_publish_count_only":
         need("set_differences")

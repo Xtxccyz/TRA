@@ -239,6 +239,28 @@ def test_m6_accepts_a_script_control_with_its_own_non_zero_convention() -> None:
     assert _codes(_validate(artifact)) == set(), "a genuine script-shaped control was rejected by the new rule"
 
 
+def test_m6_accepts_a_script_control_whose_prose_says_failed() -> None:
+    """MEASURED (P-1.7): a script control whose evidence read "the deployment gate FAILED as required" and exited 2
+    was rejected as `NEGATIVE_NOT_A_TEST_FAILURE`, because the rule fired on the bare substring `failed `. That is a
+    false positive against the control's OWN documented convention: the rule exists to catch pytest output, so it
+    now requires the node shape (`FAILED <file>::<test>`) or an AssertionError, not the English word."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "the_deployment_gate_really_is_blocked", "kind": "script", "exit_code": 2,
+         "evidence": "the deployment gate FAILED as required: BLOCKED - deployment consistency not verifiable"},
+    ])
+    assert "NEGATIVE_NOT_A_TEST_FAILURE" not in _codes(_validate(artifact)), (
+        "a script control was judged by pytest's exit-code convention it does not use"
+    )
+
+
+def test_m6_still_blocks_a_real_pytest_failure_with_a_non_failure_exit_code() -> None:
+    """The other half: a NODE-SHAPED pytest failure must still carry exit 1."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "aborted", "exit_code": 3,
+         "evidence": "FAILED tests/test_x.py::test_y - AssertionError: the boundary never reached the body"}])
+    assert "NEGATIVE_NOT_A_TEST_FAILURE" in _codes(_validate(artifact))
+
+
 def test_m6_blocks_a_control_that_restored_a_different_file() -> None:
     """MEASURED (P-1.3, finding F4): a restore raised `OSError [Errno 22]` and left a mutation ON DISK while the
     control still read as a pass. A control that edits a product file must show it returned to its exact bytes."""
