@@ -3,8 +3,8 @@
 > 本文件由 `.scratch/ghidra-c3-execution-status.json` **程序化生成**（`.scratch/render-ghidra-status.py`）。`.scratch/` 被 gitignore，因此把主计划的权威状态在此留一份被跟踪的记录。**本文件与结构计划的状态是两套状态，不得合并**：结构计划见 `docs/structure-execution-status-20260922.md`。
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
-- **当前步骤 `current_step = P-2.3`**；状态机当前允许：`['P-2.3']`
-- 代码提交 `git_head = fafb81152ab17caf7ab5392355d0c369ad83c108`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- **当前步骤 `current_step = P-3`**；状态机当前允许：`['P-3']`
+- 代码提交 `git_head = 09107b10ee6180ad7f2020335d08772e64363110`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -16,7 +16,6 @@
 | P-0.2 | complete | `.scratch/ghidra-c3/baseline/` | full suite captured to `pytest-full.txt` with exit code 0; 0 failure node(s); focused run exit 0; compileall exit 0. Manifest before 7d0a7c43bedf / after 7d0a7c43bedf. |
 | P-0.3 | complete | `.scratch/ghidra-c3/preflight/P-0.3-artifact.json` | blocking preflight delivered: 11 self-test tamper(s) rejected with real non-zero exits, 2 skipped and covered by named unit tests; 12 negative control(s) recorded; M3 bound to a real SQL round trip against a schema created by the product's own `Database.create_schema()`. |
 | P-0.4 | complete | `.scratch/ghidra-c3/preflight/P-0.4-artifact.json` | call contract pinned without touching the gate: default services ['api', 'intake-worker', 'document-worker', 'parser-worker', 'script-worker', 'control-worker', 'emu-worker', 'ghidra-worker']; deployment BLOCKED (deployment_gate_head_unverified); 4 negative control(s) recorded. |
-| P-1 | P-1_COMPLETE_DEPLOYMENT_BLOCKED | `.scratch/ghidra-c3/preflight/P-1-artifact.json` | 0 file(s) changed; 6 negative control(s), 6 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M4', 'M5', 'M6']; render proof: emulation_status.results_boundary / results[].limitations_boundary / results[].observed_apis_boundary - the three bounded published collections P-1.6 declared, carried into the official chapter by P-1.6's consumer; SQL-bound task c94cafe2 |
 | P-1.1 | complete | `.scratch/ghidra-c3/preflight/P-1.1-artifact.json` | 6 file(s) changed; 21 negative control(s), 21 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: input_partition; SQL-bound task 0432d5eb |
 | P-1.2 | complete | `.scratch/ghidra-c3/preflight/P-1.2-artifact.json` | 2 file(s) changed; 18 negative control(s), 18 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: [pipeline] Tool run <tool_name> ended <STATUS>: <error|no error recorded>.; SQL-bound task 30e93c94 |
 | P-1.3 | complete | `.scratch/ghidra-c3/preflight/P-1.3-artifact.json` | 6 file(s) changed; 26 negative control(s), 26 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: document['observation_boundaries'] (one record per capped projection); SQL-bound task 13411806 |
@@ -26,6 +25,7 @@
 | P-1.7 | complete | `.scratch/ghidra-c3/preflight/P-1.7-artifact.json` | 0 file(s) changed; 6 negative control(s), 6 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M4', 'M5', 'M6']; render proof: emulation_status.results_boundary / results[].limitations_boundary / results[].observed_apis_boundary - the three bounded published collections P-1.6 declared, carried into the official chapter by P-1.6's consumer; SQL-bound task c94cafe2 |
 | P-2.1 | complete | `.scratch/ghidra-c3/preflight/P-2.1-artifact.json` | 2 file(s) changed; 5 negative control(s), 5 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M5', 'M6']; SQL-bound task 10cb802a |
 | P-2.2 | complete | `.scratch/ghidra-c3/preflight/P-2.2-artifact.json` | 0 file(s) changed; 6 negative control(s), 6 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; SQL-bound task 466c0018 |
+| P-2.3 | complete | `.scratch/ghidra-c3/preflight/P-2.3-artifact.json` | 0 file(s) changed; 6 negative control(s), 6 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; SQL-bound task 120c0d73 |
 | P-0.2-r2 | blocked | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 0; NEW (regressions) = ['tests/test_analysis_api.py::test_end_to_end_static_analysis_and_report_revisions', 'tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_flags_a_self_referential_and_resource_digest_indicator', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_is_quiet_on_a_correct_rule', 'tests/test_structure_diff_gate.py::test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap', 'tests/test_t3_callback_fixture.py::test_t3_one_start_discovers_global_relation_for_behavior_explanation', 'tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer', 'tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']; GONE (fixed) = none. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
@@ -42,7 +42,7 @@
 
 ### 最近一次全量测量（覆盖 P-0.2 之后的所有修复）
 
-- 结果：**2936 passed, 4 skipped, 2 warnings in 315.19s (0:05:15) - measured by the gate owner on the frozen P-2.2 tree, with the worktree manifest re-taken before and after the run (identical, so no parallel writer moved the tree mid-run)**（`.scratch/ghidra-c3/preflight/pytest-P-2.2-failures.txt`）
+- 结果：**2936 passed, 4 skipped, 2 warnings in 308.20s (0:05:08) - measured by the gate owner on the frozen P-2.3 tree, with the worktree manifest re-taken before and after the run (identical, so no parallel writer moved the tree mid-run)**（`.scratch/ghidra-c3/preflight/pytest-P-2.3-failures.txt`）
 - 相对 P-0.2 基线：NEW = `[]`；GONE = 0 个
 - 判定：9 nodes at P-0.2-r2 -> 2 nodes now, with no regression: the three baseline repairs of rounds 161-163 (protocol slot precedence, remote-thread seed, EC-5 self-check) removed 5, and the in-flight P-1.1 work removes the other 2 (`test_analysis_api` end-to-end and the structure-gate gap test)
 - 仍失败：['tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']
@@ -91,7 +91,7 @@
 
 ```json
 {
-  "measured_at_head": "fafb81152ab17caf7ab5392355d0c369ad83c108",
+  "measured_at_head": "09107b10ee6180ad7f2020335d08772e64363110",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -105,7 +105,7 @@
 
 ```json
 {
-  "measured_at_head": "fafb81152ab17caf7ab5392355d0c369ad83c108",
+  "measured_at_head": "09107b10ee6180ad7f2020335d08772e64363110",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -183,6 +183,13 @@
   - 归属：dsh_depth_control or a dedicated B04 step with a core-guard decision
 - **OPEN - the producer side is tested, the writer-level one is not** — `report/revision_writer.py` persists the verdicts but has no writer-level assertion（来自 behavior_reporting (M04/M06)）
   - 归属：P-1.2 owns the revision-writer half and is free to take the file
+
+## 二点五、阶段门（相位）结果
+
+相位行**故意不放进** `steps`：门禁的 `_check_state_machine` 一旦看到 phase 前缀且 `decision == complete` 的行就提前 return，**会关掉** `PHASE_INCOMPLETE`（P-2.3 实测：把 P-2.3 行从状态里删掉后 `--step P-2` 仍 exit 0）。因此相位结果记在这里。
+
+- **`P-1`** = `P-1_COMPLETE_DEPLOYMENT_BLOCKED`（`.scratch/ghidra-c3/preflight/P-1-artifact.json`）
+- **`P-2`** = `complete`（`.scratch/ghidra-c3/preflight/P-2-artifact.json`）
 
 ## 三、ownership 与锁
 
