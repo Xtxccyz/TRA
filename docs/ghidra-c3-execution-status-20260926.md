@@ -3,8 +3,8 @@
 > 本文件由 `.scratch/ghidra-c3-execution-status.json` **程序化生成**（`.scratch/render-ghidra-status.py`）。`.scratch/` 被 gitignore，因此把主计划的权威状态在此留一份被跟踪的记录。**本文件与结构计划的状态是两套状态，不得合并**：结构计划见 `docs/structure-execution-status-20260922.md`。
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
-- **当前步骤 `current_step = P-5`**；状态机当前允许：`['P-5']`
-- 代码提交 `git_head = 23574c999d145fa711a514dac0cce35fe8a8b2bc`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- **当前步骤 `current_step = P-6`**；状态机当前允许：`['P-6']`
+- 代码提交 `git_head = 1b0d56cc41d8dacc79e4db6410eb46ed43e4005e`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -28,6 +28,7 @@
 | P-2.3 | complete | `.scratch/ghidra-c3/preflight/P-2.3-artifact.json` | 0 file(s) changed; 6 negative control(s), 6 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; SQL-bound task 120c0d73 |
 | P-3 | complete | `.scratch/ghidra-c3/preflight/P-3-artifact.json` | 0 file(s) changed; 4 negative control(s), 4 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; SQL-bound task 48ad8007 |
 | P-4 | complete | `.scratch/ghidra-c3/preflight/P-4-artifact.json` | 4 file(s) changed; 5 negative control(s), 5 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; render proof: the concrete blocker <DLL>!<export> that bounded an isolated simulation; SQL-bound task c582712e |
+| P-5 | complete | `.scratch/ghidra-c3/preflight/P-5-artifact.json` | 2 file(s) changed; 8 negative control(s), 8 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: vb6_shim.registered; SQL-bound task cc3be4d4 |
 | P-0.2-r2 | blocked | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 0; NEW (regressions) = ['tests/test_analysis_api.py::test_end_to_end_static_analysis_and_report_revisions', 'tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_flags_a_self_referential_and_resource_digest_indicator', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_is_quiet_on_a_correct_rule', 'tests/test_structure_diff_gate.py::test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap', 'tests/test_t3_callback_fixture.py::test_t3_one_start_discovers_global_relation_for_behavior_explanation', 'tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer', 'tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']; GONE (fixed) = none. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
@@ -44,7 +45,7 @@
 
 ### 最近一次全量测量（覆盖 P-0.2 之后的所有修复）
 
-- 结果：**2951 passed, 4 skipped, 4 warnings in 478.02s (0:07:58) - measured by the gate owner on the frozen P-4 tree, with the worktree manifest re-taken before and after the run (identical, so no parallel writer moved the tree mid-run)**（`.scratch/ghidra-c3/preflight/pytest-P-4-failures.txt`）
+- 结果：**2969 passed, 4 skipped, 4 warnings in 481.03s (0:08:01) - measured by the gate owner on the frozen P-5 tree, with the worktree manifest re-taken before and after the run (identical, so no parallel writer moved the tree mid-run)**（`.scratch/ghidra-c3/preflight/pytest-P-5-failures.txt`）
 - 相对 P-0.2 基线：NEW = `[]`；GONE = 0 个
 - 判定：9 nodes at P-0.2-r2 -> 2 nodes now, with no regression: the three baseline repairs of rounds 161-163 (protocol slot precedence, remote-thread seed, EC-5 self-check) removed 5, and the in-flight P-1.1 work removes the other 2 (`test_analysis_api` end-to-end and the structure-gate gap test)
 - 仍失败：['tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']
@@ -93,7 +94,7 @@
 
 ```json
 {
-  "measured_at_head": "23574c999d145fa711a514dac0cce35fe8a8b2bc",
+  "measured_at_head": "1b0d56cc41d8dacc79e4db6410eb46ed43e4005e",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -107,7 +108,7 @@
 
 ```json
 {
-  "measured_at_head": "23574c999d145fa711a514dac0cce35fe8a8b2bc",
+  "measured_at_head": "1b0d56cc41d8dacc79e4db6410eb46ed43e4005e",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -201,10 +202,10 @@
 
 ## 四、部署门（P-0.4 / P-2）
 
-- `gate_state = MATCHED_TO_HEAD`
-- 原因：manifest written to D:\threat report agent\.scratch\ghidra-c3\preflight\threeway-latest.json | NOTE: 20 file(s) differ from HEAD in LINE ENDINGS only (recorded repo-wide drift: core.autocrlf with no .gitattributes). They are listed under `head_vs_worktree.line_ending_only` and are NOT counted as content drift - but a byte-exact HEAD comparison does not exist in this repository. | MATCHED_TO_HEAD: HEAD == worktree, and the container sets are reported above as differences
+- `gate_state = BLOCKED`
+- 原因：container_state.services: {"api": {"state": "READ", "root": "/usr/local/lib/python3.12/site-packages/threat_report_agent", "note": "imports from /usr/local/lib/python3.12/site-packages/threat_report_agent", "hashes": {"__init__.py": "247daebb5232bc2df1d80f4af722e9202b4721fff0175fb809cc71d5fc9ba98e", "agent_runtime.py": "bc82 | manifest written to D:\threat report agent\.scratch\ghidra-c3\preflight\threeway-latest.json | BLOCKED: the working tree is NOT the commit named above, so no container comparison can speak about that commit
 - 最后一次通过：`未记录（本字段在 gate 状态改为实测后不再维护）`
-- 实测方式：`py scripts/check-deployed-code-hashes.py --three-way --services api,intake-worker,document-worker,parser-worker,script-worker,control-worker,emu-worker,ghidra-worker --manifest-json .scratch/ghidra-c3/preflight/threeway-latest.json`（exit 0）
+- 实测方式：`py scripts/check-deployed-code-hashes.py --three-way --services api,intake-worker,document-worker,parser-worker,script-worker,control-worker,emu-worker,ghidra-worker --manifest-json .scratch/ghidra-c3/preflight/threeway-latest.json`（exit 2）
 - 判据来源：MEASURED, never asserted: this field is what the preflight's DEPLOYMENT_NOT_MATCHED rule reads for `DEPLOYMENT_DEPENDENT` steps (P-2…P-8, T1-T5, T8), so it is produced by CALLING the tracked structure gate and recording its own verdict. The byte-exact statement is the container half (`container_vs_worktree` per service); the HEAD-vs-worktree half is affected repo-wide by `core.autocrlf` with no `.gitattributes`, which the gate separates into `line_ending_only` and does not count as content drift.
 - 历史（2026-09-26）：BLOCKED - Docker Desktop unreachable: `com.docker.service` Stopped, the session not elevated and approval prompts disabled, so the daemon could not be started from here.
 - 历史（2026-09-27）：the operator started Docker Desktop; the three images were rebuilt from this tree (`docker compose build api emu-worker` and `scripts/build-ghidra-worker.ps1`, whose GHIDRA_SHA256 was re-verified against the local archive) and the stack was started with `docker compose up -d`, after which every service reported missing=0 differing=0 container-only=0 and a clean import smoke.

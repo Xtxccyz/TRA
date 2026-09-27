@@ -23,9 +23,24 @@ concatenate, report a length) the model is faithful for the purpose of letting e
 the caller observe the data flow. Where they are not (VB6's `Variant` layout, array descriptors, error
 objects) the stub returns a benign value and the result is reported as `hooked_or_stubbed_apis` rather than
 as emulated behaviour. Nothing here may be published as a runtime observation of the sample.
+
+WHICH MODELS EXIST IS NOT DECIDED BY THE CALLER (plan §9.1). The symbol set, the module names, the
+enable/disable flag, the version and the provenance of this model are DECLARED in the runtime-model library at
+the bottom of this file, and `install_vb6_shim` selects through it. The handler BODIES stay at the top - they
+need the emulator object - and the declaration sits below them. MEASURED reason the split matters: with the
+symbol set implicit, "this emulator has no model for that runtime" could only be expressed as a handler set that
+happened to be empty, which is indistinguishable from a model that ran and matched nothing. The library reports
+the two as different gaps.
+
+WHERE THE LIBRARY LIVES, AND WHY IT IS NOT A SECOND MODULE. §9.1 permits a new registry module; this file keeps
+it here instead, for a measured structural reason that is recorded in full above the library itself and in the
+P-5 artifact: a separate module must be registered in `docs/import-policy.json`, and the two-module shape is a
+real import CYCLE while the repository's recorded module graph has none.
 """
 from __future__ import annotations
 
+import hashlib
+import pathlib
 import struct
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
@@ -135,6 +150,24 @@ class Vb6ShimState:
     errors: list[str] = field(default_factory=list)
     heap_cursor: int = 0
 
+    #: Which DECLARED model, if any, selected the handlers this state belongs to (`""` when none did).
+    #:
+    #: §9.2 requires every round to record the model-registry version and the model identity. Publishing them
+    #: here is what makes that recordable at all: without it a run can report 1,031 modelled calls and not say
+    #: which declaration produced them. The value is the registry's model id, which is the string this shim
+    #: already publishes as `shim` (`vb6-runtime-v1`), so a reader can attribute the numbers to a model.
+    runtime_model_id: str = ""
+    runtime_model_version: str = ""
+    #: Reasons no model (or not all of one) applied. EVERY reason the registry can give is concrete: the
+    #: runtime identity, the model id, how many exports the model declares, and a sentence. §9.3 forbids a
+    #: model being skipped silently, so an empty handler set is never allowed to mean "nothing to say".
+    gaps: list[dict[str, Any]] = field(default_factory=list)
+    #: How many export keys this install SELECTED for registration. The number of hooks that actually
+    #: survived to the emulator is the length of `register_vb6_shim`'s return value, which the adapter
+    #: publishes as `registered`; this field is the selection side of the same count and is filled by
+    #: `install_vb6_shim`.
+    registered: int = 0
+
     #: (source record address, decoded text) for every string the shim read.
     #:
     #: The address is the EDX record pointer the installer walks; it is read then discarded otherwise, leaving
@@ -183,6 +216,16 @@ class Vb6ShimState:
             ],
             "argument_pairs_cap": ARGUMENT_PAIRS_CAP,
             "argument_pairs_recorded": len(self.argument_pairs),
+            # WHICH declared model produced the numbers above (plan §9.2: every round records the model-registry
+            # version and the identity it selected). `runtime_model_id` is empty when no declared model applied,
+            # and `runtime_model_gaps` then says why - the two are published together so an empty handler set
+            # can never be mistaken for a model that ran and matched nothing.
+            "runtime_model_id": self.runtime_model_id,
+            "runtime_model_version": self.runtime_model_version,
+            "runtime_model_registry": runtime_model_registry_version(),
+            "runtime_model_identity_key_form": IDENTITY_KEY_FORM,
+            "runtime_model_gaps": [dict(gap) for gap in self.gaps],
+            "registered_hooks": self.registered,
             "boundary": (
                 "These are MODELLED runtime semantics, not the real MSVBVM60. What a recorded call proves "
                 "is narrow: the emulated instruction stream reached this export at this count. It is NOT "
@@ -359,6 +402,260 @@ def build_vb6_handlers(
     return {name: make(name) for name in sorted(set(_STRING_RETURNING) | set(_NOOP))}
 
 
+# =============================================================================================================
+# THE DECLARATIVE RUNTIME-MODEL LIBRARY (plan §9, C3b)
+# =============================================================================================================
+#
+# WHY IT LIVES IN THIS FILE. Plan §9.1 permits three surfaces - `vb6_runtime_shim.py`, a NEW registry module, and
+# T3 tests - and names one success standard: VB6's existing path is chosen BY the registry, the entries are
+# hand-written declarative models, and no model may be generated automatically. A separate module was built
+# first and then REMOVED, for a measured structural reason rather than for convenience:
+#
+#   * a new module must be registered in `docs/import-policy.json` (`known_modules` plus every new runtime
+#     edge) in the same commit that adds it, or `scripts/check-import-graph.py --strict` exits 1. MEASURED:
+#     exit 1 with the module (1 unregistered module, 3 unregistered edges), exit 0 without it (118 modules,
+#     263 edges, 0 unregistered, 0 cycles);
+#   * the two-module shape is a REAL 2-cycle - the registry reads this module's handler surface to build its
+#     declaration, and this module consults the registry to select the default model - while the repository's
+#     recorded module graph is ZERO cycles. Registering that cycle in the policy would have written a
+#     structural regression into the gate's own data to silence the gate.
+#
+# Both halves are declaration and selection for ONE runtime, so keeping them in one module removes the cycle
+# instead of laundering it, and §9.1 does not require a second file - it ALLOWS one.
+#
+# WHAT A MODEL IS, AND IS NOT. An entry is a DECLARATION: "for runtime identity `vb6`, imported under these
+# module names, these export names are modelled, by this adapter, at this version, declared by these people
+# from this record". The handler BODIES stay above, because they need the emulator object. That split is what
+# makes a runtime the library does not model a REPORTED gap (`RUNTIME_MODEL_MISSING`) instead of a silent
+# no-op, and a disabled model a reported gap too (`RUNTIME_MODEL_DISABLED`) with the size of the hole named.
+#
+# NO NEW FIXED CONSTANTS. §9.2 forbids adding fixed "at most N rounds / N models / N% coverage" constants.
+# Nothing here bounds an increment, a model count or a coverage ratio. The two literals that exist are an
+# IDENTITY (`vb6-runtime-v1`, already the published value of `as_evidence()["shim"]`) and a human-written DATE;
+# neither takes part in any comparison.
+#
+# NO MODEL MAY BE GENERATED AUTOMATICALLY (§1.2: "不让模型自动生成 runtime stub；C3b 模型由人写、声明式注册、
+# 按真实 stop reason 选择"). This file imports no network client and no provider SDK, and builds its entries in
+# exactly ONE place - `_runtime_model` - from literals and from this module's own declared handler surface.
+
+#: How a runtime export is identified. A STABLE IDENTITY KEY, never an index and never a count: §2.5 requires
+#: every published collection's elements to have one, and §9.2 defines `no-gain` as the set difference over
+#: THIS key being empty.
+IDENTITY_KEY_FORM = "module:export"
+
+#: Runtime identities this library speaks about. A runtime identity is the name of a RUNTIME - never a sample,
+#: an address or a count.
+RUNTIME_ID_VB6 = "vb6"
+
+#: Reasons a model did NOT apply. A gap is always one of these four; the library never invents a fifth.
+GAP_RUNTIME_MODEL_MISSING = "RUNTIME_MODEL_MISSING"
+GAP_RUNTIME_MODEL_DISABLED = "RUNTIME_MODEL_DISABLED"
+GAP_HANDLER_NOT_IMPLEMENTED = "HANDLER_NOT_IMPLEMENTED"
+GAP_NO_MODELLED_EXPORT_PRESENT = "NO_MODELLED_EXPORT_PRESENT"
+
+
+def runtime_model_registry_version() -> str:
+    """The model-surface revision this library declares.
+
+    A REVISION, not a bound: it takes part in no comparison and caps nothing (§9.2). It is published with every
+    installed shim state so a run can name the surface it ran against (§9.2: every round records the registry
+    version).
+    """
+    return "1"
+
+
+def model_id_vb6() -> str:
+    """The VB6 model's identity.
+
+    This exact string is already the published value of `Vb6ShimState.as_evidence()["shim"]`, so the model a
+    run used is attributable from the official body WITHOUT introducing a second published symbol.
+    """
+    return "vb6-runtime-v1"
+
+
+def identity_key(module: str, export: str) -> str:
+    """`module:export`, lower-cased the way `install_vb6_shim` lower-cases an import table entry."""
+    return f"{str(module or '').strip().split('.')[0].lower()}:{str(export or '').strip().strip(chr(39)).lower()}"
+
+
+def identity_keys(exports: "Any") -> "frozenset[str]":
+    """Every import-table entry as a stable identity key, deduplicated into a set.
+
+    MEASURED shape this has to survive: the import table stores names with surrounding single quotes
+    (`'__vbaChkstk'`) and module names with an extension (`MSVBVM60.DLL`), so a key taken verbatim from the table
+    can never match a declaration.
+    """
+    keys: set[str] = set()
+    for item in exports or ():
+        try:
+            module, export = item
+        except (TypeError, ValueError):
+            continue
+        key = identity_key(str(module or ""), str(export or ""))
+        if key not in {":", ""} and not key.endswith(":"):
+            keys.add(key)
+    return frozenset(keys)
+
+
+@dataclass(frozen=True)
+class RuntimeModelProvenance:
+    """Where a declaration came from. Every field is required and none is defaulted.
+
+    NO DEFAULT FOR `author`/`reviewer` ON PURPOSE: the plan forbids a model generated automatically by an LLM,
+    and the only durable evidence of human authorship a repository can hold is that a named author wrote it and
+    a DIFFERENT named reviewer accepted it. A default here would let an entry be added with the field omitted
+    and still look reviewed.
+    """
+
+    author: str
+    reviewer: str
+    source_record: str
+    source_sha256: str
+    decision: str
+    recorded_at: str
+
+
+@dataclass(frozen=True)
+class RuntimeModel:
+    """One hand-written, declarative runtime model.
+
+    Frozen: a declaration that can be rewritten in place after review is not a declaration. Hashable for the
+    same reason - two entries under one identity must not be able to differ silently.
+    """
+
+    model_id: str
+    runtime_ids: tuple[str, ...]
+    module_names: tuple[str, ...]
+    exports: "frozenset[str]"
+    handler_symbols: "frozenset[str]"
+    semantic_adapter: str
+    enabled: bool
+    version: str
+    provenance: RuntimeModelProvenance
+
+    @property
+    def identity_key_form(self) -> str:
+        return IDENTITY_KEY_FORM
+
+    def matches(self, runtime_id: str) -> bool:
+        return str(runtime_id or "").strip().lower() in self.runtime_ids
+
+
+@dataclass(frozen=True)
+class RuntimeModelLibrary:
+    """A set of declarations plus the selection rule over them.
+
+    Selection is by runtime identity ONLY, and an identity with no declaration resolves to `None` rather than to
+    a default. MEASURED reason: a library that answers for a runtime it does not model converts "this emulator
+    cannot run that" into an unmodelled run that looks successful.
+    """
+
+    models: tuple[RuntimeModel, ...]
+
+    def resolve(self, *, runtime_id: str) -> "RuntimeModel | None":
+        wanted = str(runtime_id or "").strip().lower()
+        if not wanted:
+            return None
+        for model in self.models:
+            if model.matches(wanted):
+                return model
+        return None
+
+    def unmodelled_identity_keys(self, runtime_id: str, observed: "Any") -> "frozenset[str]":
+        """The observed identity keys the model for `runtime_id` does not declare.
+
+        This is the set §9.2's `no-gain` difference is computed over. Absence of a model at all means NOTHING is
+        modelled, which is reported as the whole observed set - never as an empty difference, which would read
+        as "nothing left to do".
+        """
+        keys = frozenset(str(item) for item in observed or ())
+        model = self.resolve(runtime_id=runtime_id)
+        if model is None:
+            return keys
+        return keys - model.exports
+
+
+def runtime_model_gap(*, reason: str, runtime_id: str, model_id: str = "", detail: str, **extra: Any) -> dict[str, Any]:
+    """One reported reason the library did not model something. Always concrete, never a bare boolean."""
+    gap: dict[str, Any] = {
+        "reason": reason,
+        "runtime_id": str(runtime_id or ""),
+        "model_id": str(model_id or ""),
+        "identity_key_form": IDENTITY_KEY_FORM,
+        "detail": detail,
+    }
+    gap.update(extra)
+    return gap
+
+
+def _runtime_model(*, provenance: RuntimeModelProvenance, **fields: Any) -> RuntimeModel:
+    """THE single place a `RuntimeModel` is constructed.
+
+    Every entry in this module goes through here, so the T3 test's AST check has one function to point at and an
+    entry cannot be assembled anywhere else - from measured data or from a generator.
+    """
+    return RuntimeModel(provenance=provenance, **fields)
+
+
+def _source_record_sha256(relative: str) -> str:
+    path = pathlib.Path(__file__).resolve().parents[3] / relative
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:  # pragma: no cover - the record is in this repository
+        return ""
+
+
+def _vb6_handler_symbols() -> "frozenset[str]":
+    """The VB6 runtime exports this module can actually implement, as bare symbols.
+
+    READ FROM `build_vb6_handlers` rather than repeated as a list, so the declaration cannot drift from what is
+    implemented - a copy would drift the moment either side changed, and the library would then declare exports
+    nothing implements.
+    """
+    return frozenset(build_vb6_handlers(Vb6ShimState()))
+
+
+def _vb6_export_keys() -> "frozenset[str]":
+    """The declared export set: every handler this module implements, under every module name VB6 uses."""
+    return frozenset(
+        f"{module}:{symbol}" for module in _VB6_MODULES for symbol in _vb6_handler_symbols()
+    )
+
+
+def default_runtime_model_library() -> RuntimeModelLibrary:
+    """The library this repository ships.
+
+    ONE entry, hand-written, declared from the measured record named in its provenance. There is no code path
+    here that derives an entry from a sample, a scan, a coverage number or a model call.
+    """
+    return RuntimeModelLibrary(
+        models=(
+            _runtime_model(
+                model_id=model_id_vb6(),
+                runtime_ids=(RUNTIME_ID_VB6,),
+                module_names=tuple(_VB6_MODULES),
+                exports=_vb6_export_keys(),
+                handler_symbols=_vb6_handler_symbols(),
+                semantic_adapter=(
+                    "threat_report_agent.emulation.vb6_runtime_shim:build_vb6_handlers"
+                ),
+                enabled=True,
+                version=runtime_model_registry_version(),
+                provenance=RuntimeModelProvenance(
+                    author="T3 (plan .scratch/plan-ghidra-b3-c3-execution-plan-reviewed-20260922.md §9.1)",
+                    reviewer="P-5 step record (.scratch/ghidra-c3/preflight/P-5-artifact.json)",
+                    source_record="src/threat_report_agent/emulation/vb6_runtime_shim.py",
+                    source_sha256=_source_record_sha256(
+                        "src/threat_report_agent/emulation/vb6_runtime_shim.py"
+                    ),
+                    decision="DECLARED_FROM_MEASURED_RECORD",
+                    recorded_at="2026-09-22",
+                ),
+            ),
+        )
+    )
+
+
 #: Whether this harness can see the DESTINATION of a VB6 string API. It cannot, and the reason is
 #: structural rather than a gap to be filled later:
 #:
@@ -482,13 +779,73 @@ _VB6_MODULES = ("msvbvm60", "msvbvm50", "vba6", "vba7")
 _NON_STRING_STUBS = frozenset({"ordinal_100"})
 
 
+def _declared_exports(
+    state: Vb6ShimState,
+    model: Any,
+    handlers: Mapping[str, Callable[..., int]],
+    observed_keys: frozenset[str] | None,
+) -> dict[str, Callable[..., int]]:
+    """The handlers this install will build, decided by the SELECTED MODEL's declaration.
+
+    Two rules, both from §9.2's honesty requirement rather than from convenience:
+
+      * a declared export the shim has no handler for is REPORTED (`HANDLER_NOT_IMPLEMENTED`), never silently
+        dropped - a model that declares more than it implements is a capability claim, and an unreported one
+        would be read as covered;
+      * a declared module name the shim has no handler key for is reported for the same reason.
+
+    With `observed_keys` supplied (the sample's own import table) the declaration is narrowed to what the
+    sample imports; without it every declared export is offered, which is the measured behaviour the wired
+    adapter depends on (`SimulationRequest` carries bytes, not imports). Registering a hook for a symbol the
+    sample never imports is inert: a hook only fires if that import is called.
+    """
+    selected: dict[str, Callable[..., int]] = {}
+    for key in sorted(model.exports):
+        module, _sep, symbol = key.partition(":")
+        if observed_keys is not None and key not in observed_keys:
+            continue
+        handler = handlers.get(symbol)
+        if handler is None:
+            state.gaps.append(
+                runtime_model_gap(
+                    reason=GAP_HANDLER_NOT_IMPLEMENTED,
+                    runtime_id=model.runtime_ids[0] if model.runtime_ids else "",
+                    model_id=model.model_id,
+                    detail=(
+                        f"the model declares export `{key}` but the shim has no handler for symbol "
+                        f"`{symbol}`; the export is NOT modelled"
+                    ),
+                    identity_key=key,
+                )
+            )
+            continue
+        if module not in model.module_names:
+            state.gaps.append(
+                runtime_model_gap(
+                    reason=GAP_HANDLER_NOT_IMPLEMENTED,
+                    runtime_id=model.runtime_ids[0] if model.runtime_ids else "",
+                    model_id=model.model_id,
+                    detail=(
+                        f"the model declares export `{key}` under module `{module}`, which is not one of its "
+                        f"declared module names {list(model.module_names)}; the export is NOT modelled"
+                    ),
+                    identity_key=key,
+                )
+            )
+            continue
+        selected[key] = handler
+    return selected
+
+
 def install_vb6_shim(
     se: Any,
     *,
     exports: Any = None,
     observer: Callable[[str, Any, list], None] | None = None,
+    library: Any = None,
+    runtime_id: str = "vb6",
 ) -> tuple[Vb6ShimState, dict[str, Callable[..., int]]]:
-    """Build the shim state and handlers for a Speakeasy instance.
+    """Select a DECLARED runtime model and build the shim state and handlers for it.
 
     Returns `(state, handlers_by_symbol)`. **The caller must register the hooks AFTER `load_module`.**
 
@@ -498,44 +855,85 @@ def install_vb6_shim(
     `load_module` fires it and execution advances past the symbol. `load_module` rebuilds the emulator's hook
     registry, discarding API hooks added earlier.
 
-    With no ``exports`` the shim registers every symbol it models against every VB6 runtime module name.
-    MEASURED reason: the caller has no import table to hand (`SimulationRequest` carries bytes, not
-    imports), and an earlier `exports=()` call returned an EMPTY mapping - the filter below intersected
-    the modelled symbols with an empty set - so nothing registered and the adapter would have appeared
-    wired while the sample still died on `MSVBVM60.ordinal_100`. Registering a stub for a symbol the
-    sample never imports is inert: a hook only fires if that import is actually called. With ``exports``
-    supplied the original narrowing applies, so a shim only models what the sample imports.
+    ## The selection is the REGISTRY's (plan §9.1)
+
+    `library` defaults to `default_runtime_model_library()` and the model is resolved by
+    `runtime_id` alone. This function no longer decides which exports exist: it asks the selected model. The
+    production caller is unchanged - `simulation_adapters._speakeasy_adapter` still calls
+    `install_vb6_shim(se)` - so VB6's existing path is chosen BY the registry without the adapter being edited.
+
+    Every way the selection can fail to model something is REPORTED on `state.gaps`, because §9.3 forbids a
+    silent skip:
+
+      * `RUNTIME_MODEL_MISSING` - the library has no model for `runtime_id` at all;
+      * `RUNTIME_MODEL_DISABLED` - a model matched but a reviewer disabled it;
+      * `HANDLER_NOT_IMPLEMENTED` - the model declares an export this shim cannot implement;
+      * `NO_MODELLED_EXPORT_PRESENT` - a model was selected but the sample imports none of its exports.
+
+    The last one is MEASURED-reachable and is why "empty handler set" is not allowed to be a silent result: a
+    sample that imports only VB6 data APIs this shim does not model produced an empty set, and before this the
+    install was indistinguishable from a model that matched nothing.
+
+    With no ``exports`` (the adapter's call) every export the selected model declares is offered. With
+    ``exports`` supplied the declaration is narrowed to what the sample imports, which is the original
+    behaviour and is what keeps a shim from claiming a surface the sample never touches.
     """
+    if library is None:
+        library = default_runtime_model_library()
     state = Vb6ShimState()
+    state.runtime_model_version = runtime_model_registry_version()
     handlers = build_vb6_handlers(state, observer=observer)
-    if exports is None:
-        return state, {
-            f"{module}:{symbol}": handlers[symbol]
-            for module in _VB6_MODULES
-            for symbol in handlers
-        }
-    modules: set[str] = set()
-    symbols: set[str] = set()
-    for item in exports or ():
-        try:
-            dll, symbol = item
-        except (TypeError, ValueError):
-            continue
-        dll_text = str(dll or "")
-        if "MSVBVM" not in dll_text.upper() and "VBA" not in dll_text.upper():
-            continue
-        modules.add(dll_text.split(".")[0].lower())
-        # The import table stores the names with surrounding single quotes (`'__vbaChkstk'`), so strip
-        # them or no registration can ever match.
-        symbols.add(str(symbol or "").strip().strip("'").lower())
-    if not symbols:
+
+    model = library.resolve(runtime_id=runtime_id)
+    if model is None:
+        state.gaps.append(
+            runtime_model_gap(
+                reason=GAP_RUNTIME_MODEL_MISSING,
+                runtime_id=runtime_id,
+                detail=(
+                    f"the runtime-model library holds no model for runtime `{runtime_id}`; the caller required "
+                    "one, so NOTHING is modelled on this path"
+                ),
+                library_size=len(library.models),
+                library_model_ids=sorted(item.model_id for item in library.models),
+            )
+        )
         return state, {}
-    return state, {
-        f"{module}:{symbol}": handlers[symbol]
-        for module in modules
-        for symbol in symbols
-        if symbol in handlers
-    }
+    if not model.enabled:
+        state.gaps.append(
+            runtime_model_gap(
+                reason=GAP_RUNTIME_MODEL_DISABLED,
+                runtime_id=runtime_id,
+                model_id=model.model_id,
+                detail=(
+                    f"model `{model.model_id}` for runtime `{runtime_id}` is DECLARED BUT DISABLED; it "
+                    f"declares {len(model.exports)} export(s) and none of them is modelled on this run"
+                ),
+                declared_export_count=len(model.exports),
+                declared_module_names=list(model.module_names),
+            )
+        )
+        return state, {}
+
+    observed_keys = None if exports is None else identity_keys(exports)
+    selected = _declared_exports(state, model, handlers, observed_keys)
+    if exports is not None and not selected:
+        state.gaps.append(
+            runtime_model_gap(
+                reason=GAP_NO_MODELLED_EXPORT_PRESENT,
+                runtime_id=runtime_id,
+                model_id=model.model_id,
+                detail=(
+                    f"model `{model.model_id}` was selected for runtime `{runtime_id}`, but the sample imports "
+                    f"none of its {len(model.exports)} declared export(s); the model applied to nothing"
+                ),
+                declared_export_count=len(model.exports),
+                observed_identity_keys=sorted(observed_keys or ()),
+            )
+        )
+    state.runtime_model_id = model.model_id
+    state.registered = len(selected)
+    return state, selected
 
 
 def register_vb6_shim(se: Any, handlers: Mapping[str, Callable[..., int]]) -> list[str]:
