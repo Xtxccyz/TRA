@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-2.1`**；状态机当前允许：`['P-2.1']`
-- 代码提交 `git_head = 1c18937e5f98662cab0742fc920d25ce108c77e7`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 725e66000ed1d9ba9861364b08a30f63c2a3b045`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -89,7 +89,7 @@
 
 ```json
 {
-  "measured_at_head": "1c18937e5f98662cab0742fc920d25ce108c77e7",
+  "measured_at_head": "725e66000ed1d9ba9861364b08a30f63c2a3b045",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -103,7 +103,7 @@
 
 ```json
 {
-  "measured_at_head": "1c18937e5f98662cab0742fc920d25ce108c77e7",
+  "measured_at_head": "725e66000ed1d9ba9861364b08a30f63c2a3b045",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -227,6 +227,15 @@
   - 规则：新增自检 tamper `m2_reencode_a_changed_file`（M2）对**临时副本**复现该形状并被拒绝，真实工作树不被自检触碰
   - 规则：门禁输出流重配置为 UTF-8 + `errors="replace"`：报告违反项时永不崩溃
   - 对步骤状态的影响：直接的：P-1.4 引入的这次编码污染必须先修复，`--step P-1.4` 与 `--step P-1.2` 才会重新通过（P-1.2 因它 own 的那个文件被污染而一度 exit 1，这是门禁**正确**的行为，不是回归）
+- **`a-partial-edit-ledger-is-not-a-record-of-the-edits`**（commit `pending (this commit)`）：`M2_MISSING` 只在 `edit_hashes` **完全为空**时触发，所以「声明 3 个 changed 文件、只哈希 2 个」这种**部分**编辑账本可以通过，其 M2 段落读起来像是满足的，而三分之一的编辑无法核对。这就是主计划 M5 缺陷（把部分记录读成完整）落在编辑账本自己身上。
+  - 实测：触发实测（真实数据，非构造）：P-0.4 的 `changed_files` 有 3 项而 `edit_hashes` 只有 2 项，本会话此前每一次 `--step P-0.4` 都因此判为 clean
+  - 实测：修补实测（两半都能从 git 独立核对）：P-0.3 把该路径记为 CREATED、`sha256_after = 4eb089adb6ea…`；而同时落地 P-0.3/P-0.4 的提交 `3c443d3` 上该文件 blob 是**同一个**摘要 —— 也就是说这个文件在两步之间一个字节都没变，P-0.4 的 `changed_files` **多声明**了它。旧记录若读成「3 个文件被改、2 个有哈希」，把该步的编辑集合高估了三分之一
+  - 实测：向后兼容实测：P-0.3/P-0.4/P-1.1/P-1.2/P-1.3/P-1.4/P-1.5/P-1.6/P-1/P-1.7 十个 artifact 重新校验全部 exit 0
+  - 实测：自检实测：`--step P-1.6 --self-test` exit 0，`17 tamper(s) rejected, 0 skipped`
+  - 规则：新增 `M2_COVERAGE`：`changed_files` 里**每一个**路径都必须有 edit_hash 条目，否则拒绝并列出缺哪些
+  - 规则：新增自检 tamper `m2_drop_one_changed_file_hash`（M2）删掉一条条目复现该形状；只有 1 个 changed 文件时抛 `NotApplicable`，因为它声明不适用而不是伪造一次拒绝
+  - 规则：P-0.4 的账本已按上面的测量补齐（`changed: false`、前后摘要相同），**保留**该声明而不是删掉它，让多声明与否定它的测量同时可见
+  - 对步骤状态的影响：无——instrument 变更。它让一个此前被门禁认证为 clean 的部分记录暴露出来，并把它修成可核对的账本。
 - **`a-negative-control-and-a-tamper-must-fit-the-step-they-claim-to-test`**（commit `pending (this commit)`）：两条门禁规则把「不是 pytest 的东西」当成 pytest 来判：(1) `NEGATIVE_NOT_A_TEST_FAILURE` 只要 evidence 里出现英文单词 `failed` 就套用 exit 必须为 1 的约定，误伤了按自己约定退出 2 的**脚本** control；(2) M4 的两个 tamper 在 `introduces_symbol: false` 的步骤上声称「已行使 M4」，而 `_check_render_proofs` 对这种步骤直接 return，于是 tamper 破坏字段后门禁照样通过。
   - 实测：触发实测 (P-1.7 phase gate)：`--step P-1` 报 `VIOLATION NEGATIVE_NOT_A_TEST_FAILURE: negative control 'the_deployment_gate_really_is_blocked' reports a pytest failure but exited 2; only exit 1 is a failing test` —— 而该 control 是 kind=script，exit 2 是它自己的约定，evidence 只是散文里写了 “the deployment gate FAILED as required”
   - 实测：触发实测 (P-1.7 phase gate)：`--step P-1.7 --self-test` 报 `SELF-TEST FAILED: tamper m4_disconnect_consumer_from_control (M4) was ACCEPTED`，因为 P-1.7 artifact 的 `introduces_symbol` 为 false，`_check_render_proofs` 在 `not artifact.get('introduces_symbol')` 时直接 return

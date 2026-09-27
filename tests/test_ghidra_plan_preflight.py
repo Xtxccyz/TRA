@@ -11,6 +11,7 @@ proved "a good artifact passes" would not be evidence that the hook blocks anyth
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -287,6 +288,39 @@ def test_m6_accepts_a_control_that_proves_its_restore() -> None:
          "sha256_before": "a" * 64, "sha256_restored": "a" * 64, "restore_is_byte_identical": True,
          "evidence": "FAILED tests/test_x.py::test_y - AssertionError: z"}])
     assert _codes(_validate(artifact)) == set(), "a properly restored control was rejected"
+
+
+def test_m2_blocks_a_partial_edit_ledger(tmp_path) -> None:
+    """MEASURED (P-0.4): `changed_files` named three files and `edit_hashes` recorded two. The old rule fired only
+    when the ledger was ENTIRELY empty, so a partial record passed - a partial record read as complete, which is the
+    plan's M5 defect applied to the edit ledger itself."""
+    first = tmp_path / "one.py"
+    second = tmp_path / "two.py"
+    first.write_text("x = 1\n", encoding="utf-8")
+    second.write_text("y = 2\n", encoding="utf-8")
+    digest = hashlib.sha256(first.read_bytes()).hexdigest()
+    entry = {"path": str(first), "sha256_before": digest, "sha256_after": digest,
+             "method": "m", "compile_or_typecheck": "py -m py_compile one.py", "changed": True}
+    artifact = _base_artifact(changed_files=[str(first), str(second)], allowed_files=[str(first), str(second)],
+                              edit_hashes=[entry])
+    assert "M2_COVERAGE" in _codes(PREFLIGHT.validate("P-0.3", STATUS, OWNERSHIP, artifact, [str(first), str(second)]))
+
+
+def test_m2_accepts_a_ledger_that_covers_every_changed_file(tmp_path) -> None:
+    """POSITIVE CONTROL: the same artifact with both entries must pass, so the rule cannot reject a real record."""
+    first = tmp_path / "one.py"
+    second = tmp_path / "two.py"
+    first.write_text("x = 1\n", encoding="utf-8")
+    second.write_text("y = 2\n", encoding="utf-8")
+    entries = []
+    for path in (first, second):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        entries.append({"path": str(path), "sha256_before": digest, "sha256_after": digest,
+                        "method": "m", "compile_or_typecheck": f"py -m py_compile {path.name}", "changed": True})
+    artifact = _base_artifact(changed_files=[str(first), str(second)], allowed_files=[str(first), str(second)],
+                              edit_hashes=entries)
+    codes = _codes(PREFLIGHT.validate("P-0.3", STATUS, OWNERSHIP, artifact, [str(first), str(second)]))
+    assert "M2_COVERAGE" not in codes, "a complete edit ledger was rejected"
 
 
 def test_m2_blocks_a_changed_file_that_is_not_utf8(tmp_path) -> None:

@@ -249,6 +249,17 @@ def _check_edit_hashes(violations: Violations, artifact: Mapping[str, Any]) -> N
     changed = [str(item) for item in artifact.get("changed_files") or []]
     if changed and not edits:
         violations.add("M2_MISSING", "`changed_files` is non-empty but `edit_hashes` records no before/after hash")
+    # EVERY changed file needs its own entry. MEASURED (P-0.4, found by `verify-step-artifact.py`): the rule above
+    # fires only when `edit_hashes` is ENTIRELY empty, so an artifact declaring three changed files and hashing two
+    # passed - its M2 section read as satisfied while a third of its edits were unverifiable. That is the plan's M5
+    # defect (a partial record read as complete) applied to the edit ledger itself, and P-0.4 re-validated as clean
+    # on every run until this rule existed.
+    hashed_paths = {str(edit.get("path")) for edit in edits if isinstance(edit, Mapping)}
+    unhashed = [name for name in changed if name not in hashed_paths]
+    if unhashed:
+        violations.add("M2_COVERAGE", f"`changed_files` names {len(changed)} file(s) but `edit_hashes` records no "
+                                      f"before/after digest for {unhashed}; a partial edit ledger is not a record of "
+                                      f"the edits")
     for index, edit in enumerate(edits):
         if not isinstance(edit, Mapping):
             violations.add("M2_SHAPE", f"edit_hashes[{index}] is not an object")
@@ -812,6 +823,7 @@ def validate(step: str, status: Mapping[str, Any], ownership: Mapping[str, Any],
 TAMPERS: tuple[tuple[str, str], ...] = (
     ("m1_drop_real_field_value", "M1"), ("m1_replace_field_with_getattr_template", "M1"),
     ("m2_remove_edit_hash", "M2"), ("m2_equal_before_after", "M2"),
+    ("m2_drop_one_changed_file_hash", "M2"),
     ("m2_reencode_a_changed_file", "M2"),
     ("m3_corrupt_content_sha256", "M3"), ("m3_drop_negative_control", "M3"),
     ("m4_disconnect_consumer_from_control", "M4"), ("m4_json_only_proof", "M4"),
@@ -852,6 +864,18 @@ def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifa
         artifact["edit_hashes"] = []
     elif name == "m2_equal_before_after":
         need("edit_hashes")[0]["sha256_after"] = need("edit_hashes")[0]["sha256_before"]
+    elif name == "m2_drop_one_changed_file_hash":
+        # The P-0.4 shape: a changed file that the edit ledger simply omits. Needs a step with at least TWO changed
+        # files, so it declares itself inapplicable rather than reporting a fake rejection on a single-file step.
+        edits = need("edit_hashes")
+        changed = need("changed_files")
+        if len(changed) < 2:
+            raise NotApplicable("this step changed fewer than two files, so there is no partial ledger to break")
+        dropped = str(edits[-1].get("path"))
+        remaining = [item for item in edits if str(item.get("path")) != dropped]
+        if not remaining or len(remaining) == len(edits):
+            raise NotApplicable(f"could not drop one entry without emptying the ledger (last path {dropped!r})")
+        artifact["edit_hashes"] = remaining
     elif name == "m2_reencode_a_changed_file":
         # Reproduce the P-1.4 corruption against a THROWAWAY copy: append a Private-Use-Area line to the first changed
         # file and point `changed_files` at the copy, so the real worktree is never touched by the self-test.
