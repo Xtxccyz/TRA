@@ -4,7 +4,7 @@
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
 - **当前步骤 `current_step = P-2.1`**；状态机当前允许：`['P-2.1']`
-- 代码提交 `git_head = 725e66000ed1d9ba9861364b08a30f63c2a3b045`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- 代码提交 `git_head = 08874412331f19169dd8ab06f49c6a401a3c27d8`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -89,7 +89,7 @@
 
 ```json
 {
-  "measured_at_head": "725e66000ed1d9ba9861364b08a30f63c2a3b045",
+  "measured_at_head": "08874412331f19169dd8ab06f49c6a401a3c27d8",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -103,7 +103,7 @@
 
 ```json
 {
-  "measured_at_head": "725e66000ed1d9ba9861364b08a30f63c2a3b045",
+  "measured_at_head": "08874412331f19169dd8ab06f49c6a401a3c27d8",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
@@ -272,5 +272,6 @@
 - `complete` here means the STEP is complete; it never means T1-T8/G5/3080 capability acceptance.
 - The failure node sets above are compared as SETS; a passed/failed count is never the acceptance signal.
 - P-1.3 的否认式自审（skill `analysis-verification`）共 9 条发现：5 条本步修复，其余**如实保留**而不是声称关闭 —— ['F2(HIGH)=RECORDED - the limitation is published i', 'F5(MEDIUM)=OPEN - owned by whoever next touches rep', 'F8(MEDIUM)=RECORDED', 'F9(LOW)=OPEN - owned by P-2']。其中 F2（Unicorn 余量只是**精确计数 + 标注为抽样的身份样本**，不是完整集合）与 F5（boundary record 实测 88,747 B = 文档的 15.6%，且 `enumerated_set` 可由另两个集合重建）是被记录下来的真实代价，不是已完成项；F9 属于 P-2。
+- **P-1.6 的 confidence 三层覆盖：只有 report 层是修好的。** 主计划 P-1.6 要求「覆盖 provider/atomic/report 三层」，实测结果是 —— provider=RECORDED BLOCKED - the plan's P-1.6 list does not include these files, and two of them are not in the ownership lock at all | LOCK STATE CHANGED AFTER ACCEPTANCE: `methodology.py` and `static/static_simulation.py`, which this sentence reports as absent from the lock, are now listed under owner `main-plan:P-1`, as is `contracts.py`. That makes their patches TAKEABLE by a later P-1 phase step; it does NOT make them P-1.6's, because the plan's P-1.6 permission list does not name them - the permission list is the authority, not the lock.；atomic=RECORDED BLOCKED - `models.py` is ABSENT from the ownership lock's file table, so a change to it is refused as `OWNERSHIP_UNLISTED` | LOCK STATE CHANGED AFTER ACCEPTANCE: the plan owner listed this layer's files in `.scratch/ghidra-c3-ownership.json` under owner `main-plan:P-1`, so the patch below is TAKEABLE by a later P-1 phase step. It was NOT retro-fitted into P-1.6, whose permission list is the authority - for the provider layer the plan's P-1.6 list does not name those files at all, and listing them in the lock does not change that.；report=FIXED, with a rendered assertion on both directions。被记 BLOCKED 的两层各自带着**可执行的补丁**与使之安全的测量：atomic 层是 `models.Claim.confidence` 的 `default="MEDIUM"`（补丁 `Mapped[str | None] … nullable=True`；实测 16 个 `Claim(...)` 构造点**全部**显式传了 `confidence=`，所以补丁安全）；provider 层是 `methodology.py:42/:361`、`static/static_simulation.py:93`、`static/static_analysis.py:326` 的 dataclass 默认值，外加 `contracts.py:101` 把 `Hypothesis.confidence` 默认成 `"LOW"`（同一文件 `:37` 却正确地用 `UNVERIFIED`，两个模型不一致）。**report 层的修复挡不住 provider 默认值**：默认值让字段在下游看起来「有人断言过」，所以这三层里真正承重的是 provider 层。这些文件的 ownership 缺口已由我补进 lock（`main-plan:P-1`），但改动属于产品步骤，必须作为独立步骤带 artifact 执行，不得在步骤序列之外顺手改。
 - 每一步都必须交出 artifact（`.scratch/ghidra-c3/preflight/<step>-artifact.json`），并让 `py scripts/ghidra-plan-preflight.py --step <step>` 退出 0；**没有 artifact 的步骤不算完成**。
 - 该 artifact 必须带：真实对象 dump（M1）、编辑前后 SHA256 与编译命令（M2）、绑定 SQL 元数据的 task/revision/content hash（M3）、producer→consumer→官方 Markdown 重渲染证明（M4）、集合差而非计数（M5）、以及**实际非零退出**的负向对照（M6）。
