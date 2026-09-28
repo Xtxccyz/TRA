@@ -55,6 +55,7 @@ from threat_report_agent.facts.dataflow import (
 from threat_report_agent.ghidra_adapter import (
     GhidraHeadlessRunner,
     GhidraRun,
+    entry_identity,
     validate_ghidra_output,
 )
 from threat_report_agent.intake import (
@@ -8692,6 +8693,49 @@ class AnalysisService:
             )
         return child_ids
 
+    @staticmethod
+    def _follow_up_deadline_source(policy: Any) -> dict[str, object]:
+        """The external deadline for a follow-up batch, WITH the source it came from (plan §10.3).
+
+        The value is not chosen here: it is the `max_cpu_seconds` the tool run already carries. The source is
+        named so a reader can re-read the policy and get the same number, which is the difference between "900
+        seconds" and "900 seconds, from this key of this policy version".
+        """
+        return {
+            "key": "tools[ghidra-headless].max_cpu_seconds",
+            "value": policy.max_cpu_seconds,
+            "tool": "ghidra-headless",
+            "policy_version": getattr(policy, "version", "") or "",
+            "policy_resource": "threat_report_agent/policies/tool-policy.json",
+            "carried_by": "ToolPolicy.max_cpu_seconds / ToolRunRequest.parameters['timeout_seconds']",
+        }
+
+    @staticmethod
+    def _frozen_dump_requested_entries(entry: PackageEntry) -> tuple[str, ...]:
+        """The entry set a P-6 frozen dump is built for, named explicitly and with no invented cap.
+
+        WHAT IT IS TODAY: the one function the deterministic PE parser already identified as this artifact's
+        entry point (`pe.entry_rva` relocated by `pe.image_base`). It is read off the artifact's own bytes, it is
+        the function the investigation always reasons about, and it is a set the caller NAMES - not a `[:N]` cut
+        over the function table, which the plan forbids.
+
+        WHAT IT IS NOT: the per-investigation on-demand entry list of plan §11.2 (P-7/T8). Widening this set to
+        the entries an investigation actually asks to decompile is P-7's job; doing it here would pre-empt that
+        step and make the cost of the comparison export unbounded.
+
+        An artifact whose PE entry point cannot be determined returns the EMPTY set, which switches the whole
+        frozen-dump path off and leaves the pre-P-6 behaviour in place.
+        """
+        try:
+            identity = analyze_bytes(entry.content, entry.logical_path)
+            pe = identity.summary.get("pe") or {}
+            entry_rva = int(pe["entry_rva"])
+            image_base = int(pe.get("image_base") or 0)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return ()
+        resolved = entry_identity(format(image_base + entry_rva, "x"))
+        return (resolved,) if resolved else ()
+
     def _run_ghidra(
         self,
         task_id: str,
@@ -8715,6 +8759,11 @@ class AnalysisService:
             trace_id = task.trace_id
             artifact_sha256 = artifact.content_sha256
             artifact_path = artifact.logical_path
+            follow_up_entries = self._frozen_dump_requested_entries(entry)
+            # P-6 §10.1: the frozen dump is built for an EXPLICIT entry set - there is no default set and no
+            # `[:N]` cut. The set is named here, once, and travels with the tool request so the worker and this
+            # process cannot disagree about what D contains. An empty set means "no frozen dump", which leaves
+            # the pre-P-6 behaviour untouched.
             request: ToolRunRequest | None = None
             if self.settings.tool_execution_mode == "temporal":
                 blob = session.get(ContentBlob, artifact.content_sha256)
@@ -8731,7 +8780,11 @@ class AnalysisService:
                     content_sha256=artifact_sha256,
                     storage_key=blob.storage_key,
                     logical_path=artifact_path,
-                    parameters={"timeout_seconds": policy.max_cpu_seconds},
+                    parameters={
+                        "timeout_seconds": policy.max_cpu_seconds,
+                        "tool_policy_version": self.policy.policy_version,
+                    },
+                    follow_up_entries=follow_up_entries,
                     max_cpu_seconds=policy.max_cpu_seconds,
                     max_memory_mb=policy.max_memory_mb,
                     task_queue=self.settings.task_queue_for("ghidra-headless"),
@@ -8812,7 +8865,10 @@ class AnalysisService:
             processor_override: str | None = None
             input_transform: str | None = None
             run = runner.analyze(
-                entry.content, entry.logical_path, timeout_seconds=policy.max_cpu_seconds
+                entry.content,
+                entry.logical_path,
+                timeout_seconds=policy.max_cpu_seconds,
+                requested_entries=follow_up_entries,
             )
             if run.status == "SUCCEEDED":
                 # A malformed Machine field can make Ghidra emit a plausible
@@ -8887,6 +8943,22 @@ class AnalysisService:
             if input_transform:
                 execution_metadata["input_transform"] = input_transform
             runner_configuration = runner.configuration()
+            # P-6: the resident follow-up batch runs only when the caller named an entry set, and only after the
+            # one-shot export that PRODUCES the dump has finished (B2). A blocked follow-up is recorded as a
+            # limitation on an otherwise successful export - it can never turn a missing pseudo-C into a
+            # successful query.
+            if run.status == "SUCCEEDED" and follow_up_entries:
+                follow_up = run_follow_up_batch(
+                    runner,
+                    entry.content,
+                    entry.logical_path,
+                    run.output,
+                    entries=list(follow_up_entries),
+                    timeout_seconds=policy.max_cpu_seconds,
+                    deadline_source=self._follow_up_deadline_source(policy),
+                    content_store=self.content_store,
+                )
+                run.output["follow_up"] = follow_up
             stored_output = self.content_store.put(
                 json.dumps(
                     {
@@ -8928,6 +9000,24 @@ class AnalysisService:
             ),
             "symbol_count": len(symbol_rows),
         }
+        # P-6 C4: the follow-up outcome is QUERYABLE, not just prose. The tool run's own `output` column carries
+        # the status, the frozen dump's digest and the ENUMERATED processed/unprocessed entry sets, so a reader
+        # can ask the database why an entry has no pseudo-C instead of re-reading a limitation sentence.
+        if isinstance(run.output.get("follow_up"), dict):
+            follow_up_summary = run.output["follow_up"]
+            difference = follow_up_summary.get("entry_set_difference") or {}
+            output_summary["follow_up"] = {
+                "status": follow_up_summary.get("status"),
+                "dump_sha256": follow_up_summary.get("dump_sha256"),
+                "identity_key": follow_up_summary.get("identity_key"),
+                "requested_entries": follow_up_summary.get("requested_entries"),
+                "processed_entries": follow_up_summary.get("processed_entries"),
+                "unprocessed_entries": follow_up_summary.get("unprocessed_entries"),
+                "expected_minus_actual": difference.get("expected_minus_actual"),
+                "actual_minus_expected": difference.get("actual_minus_expected"),
+                "sealed_digest_matches_store": follow_up_summary.get("sealed_digest_matches_store"),
+                "deadline": follow_up_summary.get("deadline"),
+            }
         return self._persist_ghidra_result(
             task_id=task_id,
             artifact_id=artifact_id,
@@ -9020,7 +9110,40 @@ class AnalysisService:
                     f"{artifact.logical_path}: {run.error}."
                 ]
             self._record_ghidra_evidence(session, task, artifact, tool_run, run.output)
+            return self._follow_up_limitations(run.output)
+
+    @staticmethod
+    def _follow_up_limitations(output: Mapping[str, object] | None) -> list[str]:
+        """P-6 C4's projection: a follow-up batch that is not SUCCEEDED becomes task limitations.
+
+        BOTH HALVES ARE PROJECTED, and that is deliberate. MEASURED (gate-owner finding #3): projecting only
+        `summary_limitation` meant the official Markdown carried the reason code but NOT the `entry` the reader
+        actually needs - and the M4 render proof still "passed", because it asserted against a per-outcome string
+        this projection never emitted. So the summary line is emitted AND one line per unprocessed entry, each
+        naming its `entry`. The per-entry list is bounded by the caller's EXPLICIT request set (there is no
+        default set and no `[:N]` cut), not by a cap introduced here.
+
+        The strings are produced by `ghidra_adapter` (the producer) and only carried here; the reader is the
+        existing `[pipeline]` -> `analyst_report_limitations` -> `render_official_markdown` channel, so this
+        method must NOT invent wording of its own - an invented sentence would be a second, unreviewed statement
+        about the same fact.
+        """
+        if not isinstance(output, Mapping):
             return []
+        follow_up = output.get("follow_up")
+        if not isinstance(follow_up, Mapping):
+            return []
+        limitations: list[str] = []
+        summary = str(follow_up.get("summary_limitation") or "").strip()
+        if summary:
+            limitations.append(summary)
+        per_entry = follow_up.get("limitations")
+        if isinstance(per_entry, list):
+            for item in per_entry:
+                text = str(item).strip()
+                if text and text not in limitations:
+                    limitations.append(text)
+        return limitations
 
     @classmethod
     def _parse_static_address(cls, value: object) -> int | None:

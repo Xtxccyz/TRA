@@ -8,7 +8,9 @@ from datetime import datetime, timedelta
 import hashlib
 import json
 import re
+import tempfile
 import threading
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,7 +29,11 @@ with workflow.unsafe.imports_passed_through():
         ToolRunStorageGrant,
     )
     from threat_report_agent.database import Database
-    from threat_report_agent.ghidra_adapter import GhidraHeadlessRunner
+    from threat_report_agent.ghidra_adapter import (
+        GhidraHeadlessRunner,
+        entry_identity,
+        run_follow_up_batch,
+    )
     from threat_report_agent.intake import IntakeGateRequired, PackageEntry, expand_submission
     from threat_report_agent.models import AnalysisTask, TaskSecret, ToolRun, utcnow
     from threat_report_agent.secret_store import SecretCipher
@@ -100,6 +106,10 @@ class ToolRunRequest(BaseModel):
     storage_key: str = Field(min_length=1, max_length=512)
     logical_path: str = Field(min_length=1, max_length=1024)
     parameters: dict[str, object] = Field(default_factory=dict)
+    #: P-6 §10.1: the entry set the CALLER asked to be decompiled into the frozen dump. Empty means "do not
+    #: build a frozen dump at all", which is the pre-P-6 behaviour verbatim - the cost of a comparison export
+    #: plus a resident service is only paid by a caller that explicitly asks for follow-up queries.
+    follow_up_entries: tuple[str, ...] = ()
     max_cpu_seconds: int = Field(ge=1, le=3600)
     max_memory_mb: int = Field(ge=64, le=32768)
     control_task_queue: str = Field(default="static-control", min_length=1, max_length=120)
@@ -111,7 +121,7 @@ class ToolRunRequest(BaseModel):
 
     @property
     def idempotency_key(self) -> str:
-        material = {
+        material: dict[str, object] = {
             "task_id": self.task_id,
             "artifact_id": self.artifact_id,
             "content_sha256": self.content_sha256,
@@ -123,6 +133,16 @@ class ToolRunRequest(BaseModel):
             "task_queue": self.task_queue,
             "environment_version": self.environment_version,
         }
+        # THE LEGACY DIGEST IS PRESERVED. MEASURED (gate-owner finding #2 on this diff): adding
+        # `follow_up_entries` to this material UNCONDITIONALLY changed the idempotency key - and therefore
+        # `workflow_id` - of EVERY ghidra-headless request, including the legacy path where the field is empty.
+        # A replay of an already-recorded request would then de-duplicate against nothing and run a SECOND time.
+        # The deployed database holds 463 ghidra-headless `tool_runs` (457 SUCCEEDED / 3 FAILED / 1 TIMED_OUT /
+        # 2 CANCELLED) whose workflow ids would stop matching. So the field joins the material ONLY when it is
+        # non-empty: a request that asks for no follow-up query hashes byte-for-byte as it did before P-6, and
+        # only the callers that actually opt in get a new identity.
+        if self.follow_up_entries:
+            material["follow_up_entries"] = list(self.follow_up_entries)
         encoded = json.dumps(material, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -847,6 +867,17 @@ class StaticToolActivities:
             }
             if processor:
                 analyze_kwargs["processor"] = processor
+            follow_up_entries = [
+                identity
+                for identity in (
+                    entry_identity(item) for item in request.follow_up_entries
+                )
+                if identity
+            ]
+            if follow_up_entries:
+                # P-6 §10.1: the one-shot export is the dump's producer, so the requested entry set has to be
+                # known BEFORE it runs.
+                analyze_kwargs["requested_entries"] = follow_up_entries
             run = runner.analyze(
                 content,
                 request.logical_path,
@@ -875,6 +906,19 @@ class StaticToolActivities:
             }
             status = run.status
             error = run.error
+            if run.status == "SUCCEEDED" and follow_up_entries:
+                # ONLY follow-up queries run against the resident service; the dump itself was already produced
+                # by the one-shot export above (B2). A failure here is a LIMITATION on an otherwise successful
+                # export, never a silent success and never a fabricated pseudo-C.
+                #
+                # THE RECORD LIVES INSIDE `output`, not beside it: `AnalysisService` re-reads the stored payload
+                # and projects `run.output["follow_up"]` onto the task's limitations, so a top-level key would be
+                # written and never read - exactly the "producer with no consumer" shape this plan forbids.
+                # MEASURED: the first version of this call site put it at the top level and `p6-m3.py` caught it
+                # (`the follow-up record did not reach the tool output`).
+                run.output["follow_up"] = self._follow_up_batch(
+                    runner, content, request, run.output, follow_up_entries, cancellation_requested, content_store
+                )
         elif request.tool_name == "controlled-emulator":
             payload, status, error = self._execute_controlled_emulator(
                 request, content, cancellation_requested
@@ -892,6 +936,37 @@ class StaticToolActivities:
             error = None
         return self._store_result(
             request, payload, status, error, content_store, worker_metadata=analysis_metadata
+        )
+
+    def _follow_up_batch(
+        self,
+        runner: GhidraHeadlessRunner,
+        content: bytes,
+        request: ToolRunRequest,
+        export_output: dict[str, object],
+        entries: list[str],
+        cancellation_requested: Callable[[], bool] | None,
+        content_store: object,
+    ) -> dict[str, object]:
+        """Run the frozen-dump + resident-query batch through the adapter's single durability seam."""
+        deadline_source = {
+            "key": "tools[ghidra-headless].max_cpu_seconds",
+            "value": int(request.parameters.get("timeout_seconds") or request.max_cpu_seconds),
+            "tool": "ghidra-headless",
+            "policy_version": str(request.parameters.get("tool_policy_version") or ""),
+            "policy_resource": "threat_report_agent/policies/tool-policy.json",
+            "carried_by": "ToolRunRequest.parameters['timeout_seconds'] set by AnalysisService._run_ghidra",
+        }
+        return run_follow_up_batch(
+            runner,
+            content,
+            request.logical_path,
+            export_output,
+            entries=entries,
+            timeout_seconds=request.max_cpu_seconds,
+            deadline_source=deadline_source,
+            cancellation_requested=cancellation_requested,
+            content_store=content_store,
         )
 
     def _execute_controlled_emulator(

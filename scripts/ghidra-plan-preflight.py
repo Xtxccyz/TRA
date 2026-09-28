@@ -341,7 +341,13 @@ SQL_COLUMNS = ("task_id", "revision_id", "content_sha256", "started_at", "finish
 
 
 def _check_sql_records(violations: Violations, artifact: Mapping[str, Any]) -> None:
-    if not artifact.get("claims_runtime_fact"):
+    # EVIDENCE TRIGGERS THE CHECK. MEASURED (round 274, the plan's standing hardening item): this gate used to read
+    # `claims_runtime_fact` as a SWITCH, so an artifact that recorded SQL rows while declaring the boolean false
+    # skipped M3 entirely - a self-declared field suppressing the check that exists because of it. The boolean may
+    # still turn the check ON (an artifact can claim a runtime fact and be told it recorded no row), but it can no
+    # longer turn it OFF once the evidence is present. MEASURED before the change: no recorded STEP artifact has
+    # records with the boolean false (only the non-step P-3.2 does), so no accepted verdict moves.
+    if not (artifact.get("claims_runtime_fact") or artifact.get("task_revision_content_records")):
         return
     records = artifact.get("task_revision_content_records") or []
     if not records:
@@ -395,7 +401,12 @@ def _check_sql_records(violations: Violations, artifact: Mapping[str, Any]) -> N
 # M4: producer -> consumer -> re-rendered official Markdown
 # ---------------------------------------------------------------------------------------------------------------------
 def _check_render_proofs(violations: Violations, artifact: Mapping[str, Any]) -> None:
-    if not artifact.get("introduces_symbol"):
+    # EVIDENCE TRIGGERS THE CHECK (round 274): a recorded producer/consumer/render proof is checked whether or not
+    # the artifact declares `introduces_symbol`. MEASURED before the change: P-1.7 and P-1 are the only recorded
+    # steps with proofs and the boolean false, and BOTH pass M4 with the boolean forced true (P-1.7 -> READY,
+    # P-1 -> only its pre-existing PHASE_DECISION), so no accepted verdict moves while the "declare no symbol to
+    # skip M4" hole is closed.
+    if not (artifact.get("introduces_symbol") or artifact.get("producer_consumer_render_proof")):
         return
     proofs = artifact.get("producer_consumer_render_proof") or []
     if not proofs:
@@ -425,7 +436,10 @@ def _check_render_proofs(violations: Violations, artifact: Mapping[str, Any]) ->
 # M5: publish set differences, not a pseudo-complete count
 # ---------------------------------------------------------------------------------------------------------------------
 def _check_set_differences(violations: Violations, artifact: Mapping[str, Any]) -> None:
-    if not artifact.get("publishes_collection"):
+    # EVIDENCE TRIGGERS THE CHECK (round 274): recorded set differences are validated whether or not the artifact
+    # declares `publishes_collection`. MEASURED before the change: no recorded STEP artifact carries sets with the
+    # boolean false (only the non-step P-3.2 does), so no accepted verdict moves.
+    if not (artifact.get("publishes_collection") or artifact.get("set_differences")):
         return
     sets = artifact.get("set_differences") or []
     if not sets:
@@ -599,6 +613,16 @@ def _nodes_from_capture(path: pathlib.Path) -> set[str]:
     return {match.group(1) for match in _CAPTURE_NODE_RE.finditer(text.replace("\x00", ""))}
 
 
+#: Steps whose RECORDED artifacts predate `full_suite_capture`. MEASURED (round 275, with `grep` after a PowerShell
+#: `ConvertFrom-Json` scan silently skipped three of them because their JSON contains duplicate keys differing only in
+#: case): P-0.3, P-0.4, P-1.1, P-1.2, P-1.3, P-1.4, P-1.5 and P-1.6 all carry `full_failure_nodes_after` while naming
+#: no capture (the last three name it as an empty string), so the recomputation below never ran for them - their
+#: declared failure set was taken on trust. Requiring the field unconditionally would invalidate eight ACCEPTED steps,
+#: which the plan's hardening item forbids ("必须重新验证十个已记录 artifact 仍 exit 0"), so the exemption is written
+#: down explicitly instead of the rule being weakened for everybody. Every step from P-1.7 on names a capture.
+LEGACY_WITHOUT_SUITE_CAPTURE = ("P-0.3", "P-0.4", "P-1.1", "P-1.2", "P-1.3", "P-1.4", "P-1.5", "P-1.6")
+
+
 def _check_failure_node_sets(violations: Violations, artifact: Mapping[str, Any], status: Mapping[str, Any]) -> None:
     """P-1.7's own condition: "全量失败节点集合不得新增". This compares SETS, never counts.
 
@@ -615,6 +639,13 @@ def _check_failure_node_sets(violations: Violations, artifact: Mapping[str, Any]
         violations.add("REGRESSION_NEW_FAILURES", f"the full-suite failure set gained node(s) that are in no baseline: "
                                                   f"{regressions}")
     capture = str(artifact.get("full_suite_capture") or "").strip()
+    if not capture and str(artifact.get("step") or "") not in LEGACY_WITHOUT_SUITE_CAPTURE:
+        # WITHOUT A NAMED CAPTURE THE SET ABOVE IS UNVERIFIABLE. The recomputation below is the only thing that stops
+        # an artifact from declaring an empty failure set while the run it refers to had failures; leaving the field
+        # out switched that recomputation off. The five steps exempted above are the measured historical exception.
+        violations.add("CAPTURE_NOT_NAMED",
+                       f"{artifact.get('step')!r} reports `full_failure_nodes_after` but names no "
+                       f"`full_suite_capture`, so its failure set cannot be recomputed from the run it cites")
     if capture:
         path = ROOT / capture
         if not path.is_file():
@@ -697,6 +728,21 @@ _PYTEST_ERROR_LINE = re.compile(r"(?m)^\s*ERROR\s+\S*(?:test_|_test|conftest)\S*
 #: as required" was then rejected as `NEGATIVE_NOT_A_TEST_FAILURE` for exiting 2 - its own documented convention.
 #: Requiring the node shape keeps the rule aimed at pytest output instead of at the English word.
 _PYTEST_FAILURE_EVIDENCE = re.compile(r"FAILED\s+\S+::\S+|assertionerror|short test summary", re.IGNORECASE)
+#: A non-zero exit must be produced by the PRODUCT. MEASURED (round 273, found in P-6's container acceptance): one
+#: control recorded `exit_code: 1` with `observed: {}` and an `evidence` that was a Python traceback ending in
+#: `NameError: name 'SAMPLE' is not defined` raised INSIDE the control script at its own line 225. The control never
+#: touched the product, and a rule that only looks at the exit code counts it as "failed as required" - the same
+#: family as P-1.3's ten pytest COLLECTION errors certified as "all controls failed as required".
+#:
+#: THE RULE IS A CONJUNCTION ON PURPOSE. MEASURED over the ten already-accepted artifacts: P-1.4 and P-2.2 carry
+#: Python tracebacks with none of these exception names (captured stderr of a real failing run), and P-4.1 and P-5
+#: carry the names with no traceback, so requiring BOTH leaves every accepted step's verdict unchanged - while a rule
+#: on either half alone would have produced four false findings. `AttributeError` is deliberately NOT in the list: a
+#: product failing that way can be a legitimate observation, and this rule is about the HARNESS breaking.
+_HARNESS_TRACEBACK = re.compile(r"Traceback \(most recent call last\)")
+_HARNESS_EXCEPTION = re.compile(
+    r"\b(?:NameError|UnboundLocalError|ImportError|ModuleNotFoundError|IndentationError|SyntaxError)\b"
+)
 
 
 def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]) -> None:
@@ -722,10 +768,22 @@ def _check_negative_controls(violations: Violations, artifact: Mapping[str, Any]
         if code is None or int(code) == 0:
             violations.add("NEGATIVE_EXIT", f"negative control {name or index!r} exited {code!r}; a control that does "
                                             f"not fail proves nothing")
+        # A control that records an observation must OBSERVE something. An empty block is the shape a harness that
+        # died before it reached the product leaves behind; no accepted artifact uses the field at all, so this
+        # cannot change an existing verdict.
+        if "observed" in control and not control.get("observed"):
+            violations.add("NEGATIVE_NO_OBSERVATION",
+                           f"negative control {name or index!r} carries an EMPTY `observed` block: whatever its exit "
+                           f"code came from, it did not observe the product")
         evidence = str(control.get("evidence") or "").strip()
         if not evidence:
             violations.add("NEGATIVE_EVIDENCE", f"negative control {name or index!r} records no evidence")
             continue
+        if _HARNESS_TRACEBACK.search(evidence) and _HARNESS_EXCEPTION.search(evidence):
+            violations.add("NEGATIVE_HARNESS_ERROR",
+                           f"negative control {name or index!r} failed because its OWN harness raised "
+                           f"{_HARNESS_EXCEPTION.search(evidence).group(0)}: a non-zero exit from the control script "
+                           f"is not evidence about the product. evidence={evidence[-200:]!r}")
         folded = evidence.casefold()
         if any(marker in folded for marker in _PYTEST_NO_TEST_RAN) or _PYTEST_ERROR_LINE.search(evidence):
             violations.add("NEGATIVE_NO_TEST_RAN",
@@ -826,9 +884,14 @@ TAMPERS: tuple[tuple[str, str], ...] = (
     ("m2_drop_one_changed_file_hash", "M2"),
     ("m2_reencode_a_changed_file", "M2"),
     ("m3_corrupt_content_sha256", "M3"), ("m3_drop_negative_control", "M3"),
+    ("m3_evidence_without_the_boolean", "M3"),
     ("m4_disconnect_consumer_from_control", "M4"), ("m4_json_only_proof", "M4"),
+    ("m4_evidence_without_the_boolean", "M4"),
     ("m5_publish_count_only", "M5"), ("m5_drop_expected_minus_actual", "M5"),
+    ("m5_evidence_without_the_boolean", "M5"),
+    ("full_suite_capture_not_named", "M5"),
     ("negative_control_zero_exit", "M6"), ("negative_control_collection_error", "M6"),
+    ("negative_control_harness_error", "M6"), ("negative_control_empty_observation", "M6"),
     ("negative_control_restore_not_proven", "M6"),
     ("ownership_overlap", "M6"),
     ("scope_escape", "M6"),
@@ -925,6 +988,44 @@ def _tamper(name: str, status: dict[str, Any], ownership: dict[str, Any], artifa
         control["exit_code"] = 4
         control["evidence"] = "ERROR tests/test_analyst_report_acceptance.py"
         control.pop("node", None)
+    elif name == "full_suite_capture_not_named":
+        # The suppression hole measured in round 275: omitting `full_suite_capture` switched off the recomputation
+        # of `full_failure_nodes_after`, so the declared set was taken on trust.
+        artifact["step"] = "P-6"
+        artifact.pop("full_suite_capture", None)
+    elif name == "m3_evidence_without_the_boolean":
+        # A step that records SQL rows while declaring it claims no runtime fact must still be checked.
+        record = need("task_revision_content_records")[0]
+        for column in ("content_sha256", "task_id"):
+            record.pop(column, None)
+        artifact["claims_runtime_fact"] = False
+    elif name == "m4_evidence_without_the_boolean":
+        # A broken render proof plus `introduces_symbol: false` used to skip M4 entirely.
+        need("producer_consumer_render_proof")[0].pop("renderer", None)
+        artifact["introduces_symbol"] = False
+    elif name == "m5_evidence_without_the_boolean":
+        # A count-only set block plus `publishes_collection: false` used to skip M5 entirely.
+        block = need("set_differences")[0]
+        block.pop("expected_minus_actual", None)
+        block["count_only"] = True
+        artifact["publishes_collection"] = False
+    elif name == "negative_control_harness_error":
+        # The shape P-6's container acceptance actually produced (round 273): the control script itself raised
+        # `NameError: name 'SAMPLE' is not defined`, so its exit 1 was the harness breaking, not the product being
+        # refused. A validator that only reads `exit_code` accepts this as a control that "failed as required".
+        control = need("negative_controls")[0]
+        control["exit_code"] = 1
+        control["evidence"] = (
+            "Traceback (most recent call last):\n"
+            '  File "/work/tmp/p6acc/p6_acc_controls.py", line 225, in main\n'
+            '    ["/opt/ghidra/support/analyzeHeadless", str(project), "broken", "-import", str(SAMPLE),\n'
+            "NameError: name 'SAMPLE' is not defined"
+        )
+    elif name == "negative_control_empty_observation":
+        # The same control's other tell: it recorded `observed: {}`, i.e. nothing was observed at all.
+        control = need("negative_controls")[0]
+        control["exit_code"] = 1
+        control["observed"] = {}
     elif name == "negative_control_restore_not_proven":
         # The shape P-1.3's F4 produced: the control ran and failed as required, but the RESTORE did not complete,
         # so the worktree still held the test tamper while the record claimed a pass.

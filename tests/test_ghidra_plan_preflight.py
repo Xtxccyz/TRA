@@ -55,6 +55,11 @@ def _base_artifact(**overrides) -> dict:
         "commands": ["py -m pytest -q tests/test_ghidra_plan_preflight.py"],
         "focused_failure_nodes_after": [],
         "full_failure_nodes_after": [],
+        # A step that REPORTS a failure set must name the capture it came from (round 275 hardening), so the fixture
+        # points at the plan's own recorded 0-node baseline rather than being exempted from the rule. The gate
+        # re-parses this file and requires it to agree with `full_failure_nodes_after`, so the fixture cannot drift
+        # from the artifact it claims to describe.
+        "full_suite_capture": ".scratch/ghidra-c3/baseline/pytest-r170-failures.txt",
         "negative_controls": [{"name": "a_control_that_fails", "exit_code": 1, "evidence": "assertion failed"}],
         "edit_hashes": [{"path": "scripts/ghidra-plan-preflight.py", "created": True, "sha256_before": "(absent)",
                          "sha256_after": "2" * 64, "method": "whole-file write",
@@ -223,6 +228,94 @@ def test_m6_blocks_a_collection_error_recorded_as_a_negative_control() -> None:
     codes = _codes(_validate(artifact))
     assert "NEGATIVE_NO_TEST_RAN" in codes, "a collection error was accepted as a failing negative control"
     assert "NEGATIVE_EXIT" not in codes, "the exit code is non-zero; the rejection must name the real reason"
+
+
+def test_a_step_must_name_the_capture_its_failure_set_comes_from() -> None:
+    """MEASURED (round 275): `full_suite_capture` was optional, so an artifact that omitted it switched OFF the
+    recomputation of `full_failure_nodes_after` - the declared set was taken on trust, and a step could report an
+    empty failure set for a run that had failures. Eight recorded steps predate the field (they are listed in
+    `LEGACY_WITHOUT_SUITE_CAPTURE` with their measured reason); every later step must name one."""
+    artifact = _base_artifact(step="P-6", full_failure_nodes_after=[])
+    artifact.pop("full_suite_capture", None)
+    assert "CAPTURE_NOT_NAMED" in _codes(_validate(artifact))
+
+    legacy = _base_artifact(step="P-1.4", full_failure_nodes_after=[])
+    legacy.pop("full_suite_capture", None)
+    assert "CAPTURE_NOT_NAMED" not in _codes(_validate(legacy)), (
+        "the measured historical exemption was lost, so an accepted step would now be reported as a violation"
+    )
+
+
+def test_the_recorded_evidence_triggers_each_check_even_when_the_boolean_says_no() -> None:
+    """MEASURED (round 274, the plan's standing hardening item): `claims_runtime_fact`, `introduces_symbol` and
+    `publishes_collection` were SWITCHES, so an artifact that recorded the evidence while declaring the boolean
+    false skipped the very check that exists because of it. The boolean may still turn a check ON; it may no longer
+    turn it OFF once the evidence is present.
+
+    Each case below is broken in a way the corresponding check must catch, with the boolean set false:
+      * M3: a SQL row missing its task id and content hash, `claims_runtime_fact: false`;
+      * M4: a proof without a `renderer`, `introduces_symbol: false`;
+      * M5: a count-only set block, `publishes_collection: false`."""
+    m3 = _base_artifact(claims_runtime_fact=False, task_revision_content_records=[
+        {"revision_id": "r", "sql_text": "select 1", "connection": "sqlite://x", "schema_query": "pragma",
+         "exit_code": 0, "rows": [{"n": 1}]}])
+    assert "M3_COLUMNS" in _codes(_validate(m3)), "a recorded SQL row was not checked once the boolean was false"
+
+    m4 = _base_artifact(introduces_symbol=False, producer_consumer_render_proof=[
+        {"symbol": "s", "producer": "p", "consumer": "c", "rendered_markdown_contains": "x",
+         "consumer_disconnect_control": "control_x"}],
+        negative_controls=[{"name": "control_x", "exit_code": 1, "evidence": "the naive claim is false"}])
+    assert "M4_FIELD" in _codes(_validate(m4)), "a recorded render proof was not checked once the boolean was false"
+
+    m5 = _base_artifact(publishes_collection=False, set_differences=[
+        {"name": "s", "identity_key": "entry", "enumerated_set": ["a"], "retrieved_set": [], "count_only": True,
+         "actual_minus_expected": []}])
+    assert "M5_FIELD" in _codes(_validate(m5)) and "M5_COUNT_ONLY" in _codes(_validate(m5)), (
+        "a recorded set difference was not checked once the boolean was false"
+    )
+
+
+def test_m6_blocks_a_control_that_died_in_its_own_harness() -> None:
+    """MEASURED (round 273, in P-6's container acceptance): a control recorded `exit_code: 1` whose `evidence` was a
+    Python traceback ending in `NameError: name 'SAMPLE' is not defined` raised INSIDE the control script. The
+    product was never exercised, and a rule that reads only the exit code counts it as "failed as required".
+
+    The rule is deliberately a CONJUNCTION (traceback AND a harness-level exception name): P-1.4 and P-2.2 carry
+    real captured tracebacks with none of those names, and P-4.1/P-5 carry the names with no traceback, so neither
+    half alone can be used without producing false findings against already-accepted steps."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "broken_java_script_still_runs", "exit_code": 1, "observed": {},
+         "evidence": "Traceback (most recent call last):\n"
+                     '  File "/work/tmp/p6acc/p6_acc_controls.py", line 225, in main\n'
+                     '    ["/opt/ghidra/support/analyzeHeadless", str(project), "broken", "-import", str(SAMPLE),\n'
+                     "NameError: name 'SAMPLE' is not defined"}])
+    codes = _codes(_validate(artifact))
+    assert "NEGATIVE_HARNESS_ERROR" in codes, "a harness traceback was accepted as a failing control"
+    assert "NEGATIVE_NO_OBSERVATION" in codes, "an empty `observed` block was accepted as an observation"
+
+
+def test_m6_accepts_a_control_that_records_what_it_observed() -> None:
+    """The positive half, so the two rules above cannot be satisfied by rejecting every control: a script control
+    that observed the product refusing, and recorded that observation, is accepted."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "reset_is_reported_as_down", "exit_code": 1,
+         "observed": {"query": {"kind": "reset", "status": "BLOCKED", "code": "GHIDRA_RESIDENT_CLOSED_MID_ANSWER"}},
+         "evidence": "the naive claim 'a resident that accepts and then RESETS is reported as down' is false"}])
+    codes = _codes(_validate(artifact))
+    assert "NEGATIVE_HARNESS_ERROR" not in codes and "NEGATIVE_NO_OBSERVATION" not in codes
+
+
+def test_m6_does_not_fire_on_a_real_captured_traceback_without_a_harness_exception() -> None:
+    """BACKWARD COMPATIBILITY, measured against the recorded artifacts: a control may legitimately quote a traceback
+    the PRODUCT produced (P-1.4 and P-2.2 do). Only a harness-level exception name together with the traceback is a
+    harness failure."""
+    artifact = _base_artifact(negative_controls=[
+        {"name": "product_crashed", "exit_code": 1,
+         "evidence": "Traceback (most recent call last):\n"
+                     '  File "/app/src/threat_report_agent/report/reporting.py", line 10, in render\n'
+                     "ValueError: the projection produced no body"}])
+    codes = _codes(_validate(artifact))
+    assert "NEGATIVE_HARNESS_ERROR" not in codes
 
 
 def test_m6_blocks_a_pytest_failure_reported_with_a_non_failure_exit_code() -> None:
