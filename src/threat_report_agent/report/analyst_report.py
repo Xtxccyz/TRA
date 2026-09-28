@@ -33,6 +33,7 @@ from threat_report_agent.report.reporting import (
     _STRING_FACT_PATTERNS,
     _is_file_hash_source,
     build_process_flag_projections,
+    dataflow_placeholder_prose,
     string_fact_class,
 )
 from threat_report_agent.static.static_analysis import credible_windows_process_creation_flags
@@ -252,6 +253,30 @@ _START_RE = re.compile(
 _FUN_DUMP_RE = re.compile(r"FUN_[0-9a-fA-F]{6,}@[0-9a-fA-F]{6,}:")
 _FUN_NAME_RE = re.compile(r"FUN_[0-9A-Fa-f]{4,}(?:@[0-9A-Fa-f]+)?")
 _UNKNOWN_TOKEN_RE = re.compile(r"UNKNOWN\([^)]+\)", re.IGNORECASE)
+
+# P-8/T7. `UNKNOWN(consumer)` names TWO different things in one document and a reader cannot tell them apart:
+# the DATAFLOW placeholder ("no object-level join was recovered, so the consumer is unknown") in 正文, and the
+# ten-question SLOT named `consumer` in the appendix. Measured on the acceptance file's own fixtures
+# (`.scratch/ghidra-c3/preflight/p8-probe-token-locations.json`): 3 primary occurrences and 3 appendix
+# occurrences in one 2,963-character body. The plan's T7 acceptance is G1: "机器令牌在正文中只保留一个含义；
+# 数据流占位改以散文呈现". So the machine token is confined to the slot appendix, and the primary body states
+# the fact in prose. The prose string deliberately contains no `UNKNOWN(` token of its own.
+CONSUMER_NAMESPACE_PROSE = "命名消费者未从静态证据中恢复，因此该数据流消费链仍未闭合"
+#: The reverse index of the prose above, so the acceptance test can assert the primary body really says it.
+CONSUMER_SLOT_TOKEN = "UNKNOWN(consumer)"
+#: Tokens that belong to the dataflow namespace. `consumer` is the one §12.2 names; the others carry the same
+#: shape and are NOT changed by this step (recorded in the artifact as still-carrying-the-pattern).
+_DATAFLOW_TOKEN_NAMES: tuple[str, ...] = ("consumer",)
+
+# P-8/T6. A 20-character-record splice reaches the report as ONE recovered string
+# (`explorer.exeInitializeProcThreadAttributeList failedUpdateProcThreadAttribute failedCreateProcessW …`) and was
+# published under a heading that claims it is a list of API names. The class whose label makes that claim is the
+# one that has to stop accepting a concatenated run.
+_NAME_LISTING_FACT_CLASSES: frozenset[str] = frozenset({"execution_api"})
+_SPLICE_BOUNDARY_SENTENCE = (
+    "（上述名称是从下面这条固定长度记录拼接得到的原始字节串中逐字拆出的名称；"
+    "未拆出的拼接剩余片段不作为名称发布，原始字节串本身逐字保留在下一行。）"
+)
 
 # Wiring D: three ways an analysis can stop, kept apart on purpose.
 #
@@ -627,6 +652,16 @@ def primary_analyst_violations(markdown: str) -> list[str]:
     primary, _appendix = split_analyst_markdown(markdown)
     folded = primary.casefold()
     violations: list[str] = []
+    # P-8/T7: an EMPTY body is not a clean body. MEASURED at P-8: `primary_analyst_violations("")` returned `[]`,
+    # so a caller that handed the gate a body it never produced got the same verdict as a correct report. That is
+    # the vacuous-checker shape (the plan's "a grader nobody has seen reject anything is not evidence"), and the
+    # plan's T7 acceptance requires the empty body to fail.
+    empty = _empty_body_violation(primary, code="PRIMARY_EMPTY_BODY")
+    if empty:
+        violations.append(empty)
+        return violations
+    # P-8/T7: the dataflow placeholder must not share the ten-question slot's spelling in 正文.
+    violations.extend(consumer_namespace_violations(markdown))
     for marker in _PRIMARY_JARGON:
         if marker in folded:
             violations.append(f"primary report contains ledger jargon: {marker}")
@@ -1919,6 +1954,238 @@ def _evidence_string_text(row: Mapping[str, object]) -> str:
     return ""
 
 
+_WORD_RUN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _split_spliced_name_runs(value: str, attested: Sequence[str]) -> tuple[str, ...]:
+    """The names inside a CONCATENATED value, each one taken out of the identifier run it is FUSED into.
+
+    P-8/T6. The recovered bytes are a 20-character-record table, so a real API name arrives fused with the
+    fragment on either side of the record boundary and with its neighbours:
+
+        explorer.exeInitializeProcThreadAttributeList failedUpdateProcThreadAttribute failedCreateProcessW …
+
+    The signal is exact and needs no name list: an identifier run that is STRICTLY LONGER than an attested name
+    yet ENDS (or STARTS) with it - `failedCreateProcessW` ends with `CreateProcessW`. That is the splice. A run
+    that merely CONTAINS a name in the middle (`CreateProcessWin` inside `xCreateProcessWin`) is not published,
+    because the name is not at a boundary; and an absent name is never invented.
+
+    `attested` is what the caller can show is real (the projection's standalone names plus the artifact's
+    import-symbol names). A value nothing in that set reaches returns `()` and is published VERBATIM.
+    """
+    text = str(value or "")
+    attested_set = {str(item) for item in attested if str(item or "").strip()}
+    if not text or not attested_set:
+        return ()
+    names: list[str] = []
+    for match in _WORD_RUN_RE.finditer(text):
+        run = match.group(0)
+        if run in attested_set or len(run) < 6:
+            continue
+        best = ""
+        for name in attested_set:
+            if len(name) < 6 or len(name) >= len(run):
+                continue
+            if run.endswith(name) or run.startswith(name):
+                if len(name) > len(best):
+                    best = name
+        if best:
+            names.append(best)
+    return tuple(dict.fromkeys(names))
+
+
+#: The words the REAL recovered splice uses as its connector between names. MEASURED on artifact `8cbe71d9-…`:
+#: every gap between two name-bearing runs is exactly ` failed`, and the trailing fragment is
+#: `not foundsnapshot failed`. They are the resolver's own status strings, not prose. Kept as a source-cited
+#: constant rather than a length heuristic, because a length heuristic cannot tell `failed` from `Copyright`.
+_SPLICE_CONNECTOR_WORDS: frozenset[str] = frozenset({"failed", "not", "found"})
+
+
+def _name_list_values_are_concatenated(value: str, names: Sequence[str]) -> bool:
+    """Whether a value is names FUSED into the same 20-character-record blob - the splice, not a name list.
+
+    MEASURED reason this is not `'\\.exe[A-Za-z]' in value`: `.scratch/t6-confirmed-in-published-body.md`
+    recorded that the same regex over-matches raw VERSIONINFO string-table content
+    (`…All rights reserved.AcroRd32.exeAcroCEF.exe…`), where the product spliced nothing. So the predicate uses
+    the SHAPE the audit measured and no count:
+
+      * at least one identifier run is a name FUSED with the fragment on either side of a record boundary,
+        i.e. a run strictly longer than an attested name that ENDS/STARTS with it (`failedCreateProcessW`);
+      * between two name-bearing runs there is NOTHING but the record boundary (`.`, whitespace) and the
+        resolver's own connector words (`_SPLICE_CONNECTOR_WORDS`).
+
+    On the real value every gap is ` failed`, so it is a splice; on the VERSIONINFO value the corresponding gap is
+    `Copyright 1984-2023 Adobe Inc. All rights reserved.`, so the lookalike is NOT reported - which is the
+    measured over-match the audit recorded.
+    """
+    text = str(value or "")
+    if not text or len(names) < 2:
+        return False
+    if text.strip() in {str(item) for item in names}:
+        return False
+    fused = False
+    records: list[tuple[int, int]] = []
+    for run_match in _WORD_RUN_RE.finditer(text):
+        run = run_match.group(0)
+        matched = ""
+        if run in names:
+            matched = run
+        else:
+            # NESTED ATTESTATIONS ARE NOT A FUSION. MEASURED on the fixture's VERSIONINFO row:
+            # `Adobe Acrobat Reader DC …` produces the run `AdobeAcrobatReaderDC23`, which `AdobeAcrobat` (a real
+            # product string) is a prefix of - but the rest of the run is ANOTHER attested name, not a record
+            # fragment. So an attested name that is itself a prefix of a LONGER attested name in the same run
+            # cannot be what got fused.
+            candidates = [
+                name
+                for name in names
+                if 6 <= len(name) < len(run) and (run.endswith(name) or run.startswith(name))
+            ]
+            candidates = [
+                name
+                for name in candidates
+                if not any(
+                    other != name and name in other and (other in run)
+                    for other in names
+                )
+            ]
+            if candidates:
+                matched = max(candidates, key=len)
+                fused = True
+        if matched:
+            at = text.find(matched, run_match.start(), run_match.end())
+            records.append((at, at + len(matched)))
+    if not fused or len(records) < 2:
+        return False
+    records.sort()
+    for (_start, end), (next_start, _next_end) in zip(records, records[1:]):
+        gap = text[end:next_start]
+        for word in re.findall(r"[A-Za-z]+", gap):
+            if word not in _SPLICE_CONNECTOR_WORDS:
+                return False
+        if re.search(r"\d", gap):
+            return False
+    return True
+
+
+def string_fact_class_is_name_list(fact_class: object) -> bool:
+    """Whether a fact class's published LABEL claims a structured list of names."""
+    return str(fact_class or "").strip() in _NAME_LISTING_FACT_CLASSES
+
+
+def _spliced_name_values(
+    facts: Sequence[tuple[str, str]],
+    attested: Sequence[str] = (),
+) -> dict[str, tuple[str, ...]]:
+    """`{value: names}` for every name-list fact whose value is a concatenation of real names.
+
+    `attested` is the set of names the caller can show are real (the projection's own standalone name rows plus
+    the artifact's import-symbol names). Nothing outside it is ever published as a name, so the enumeration
+    cannot invent one; and a value the attestation does not reach is published VERBATIM rather than split.
+    """
+    names = tuple(
+        dict.fromkeys(
+            [
+                text
+                for fact_class, text in facts
+                if string_fact_class_is_name_list(fact_class) and text.isidentifier()
+            ]
+            + [str(item) for item in attested if str(item or "").strip()]
+        )
+    )
+    if not names:
+        return {}
+    spliced: dict[str, tuple[str, ...]] = {}
+    for fact_class, text in facts:
+        if not string_fact_class_is_name_list(fact_class):
+            continue
+        if text.isidentifier():
+            continue
+        run = _split_spliced_name_runs(text, names)
+        if len(run) >= 2 and _name_list_values_are_concatenated(text, run):
+            spliced[text] = run
+    return spliced
+
+
+def name_listing_violations(markdown: str, retrieved_names: Iterable[object]) -> list[str]:
+    """P-8/T6 checker: every name a "list of names" heading publishes must be in `retrieved_names`.
+
+    Two independent failures are reported, because they are different defects:
+      * a published token that is a CONCATENATION (a real name fused into a longer token) - the splice artefact
+        the audit measured (`explorer.exeInitializeProcThreadAttributeList`), published as if it were a name;
+      * a published token that no Evidence row contains standalone - an invented or mis-joined name.
+
+    `retrieved_names` is the caller's independently enumerated set (stable identity key: the exact name). The
+    returned list is empty only when every published name is a member.
+    """
+    names = {str(item) for item in retrieved_names if str(item or "").strip()}
+    violations: list[str] = []
+    label = _STRING_FACT_LABELS.get("execution_api", "")
+    for line in str(markdown or "").splitlines():
+        if label and not line.startswith(f"- {label}"):
+            continue
+        for token in re.findall(r"`([^`]+)`", line):
+            if token in names:
+                continue
+            pieces = tuple(name for name in names if name and name in token)
+            if len(pieces) >= 2 and not token.isidentifier():
+                violations.append(
+                    f"a name-list line publishes a CONCATENATED token, not a name: {token!r} "
+                    f"(contains {sorted(pieces)})"
+                )
+            else:
+                violations.append(
+                    f"a name-list line publishes {token!r}, which no Evidence row in the fixture carries standalone"
+                )
+    return violations
+
+
+def _empty_body_violation(markdown: object, *, code: str = "BODY") -> str:
+    if not str(markdown or "").strip():
+        return (
+            f"{code}: the body is EMPTY: nothing was checked, and an unchecked body is not a clean one"
+        )
+    return ""
+
+
+def consumer_namespace_violations(markdown: str) -> list[str]:
+    """P-8/T7 checker: the `consumer` machine token keeps exactly ONE meaning in one document.
+
+    The token is legal in the appendix, where it names the ten-question slot. It is NOT legal in the primary
+    body, where the same spelling was also the dataflow placeholder - the collision `check-slot-grounding.py`
+    records as `RESOLVED-BUT-STILL-UNKNOWN: ['consumer']` and the plan's T7 G1 names.
+
+    The second rule (the appendix must still carry the slot) fires only when the DATAFLOW SOURCE (the row's own
+    `how`) still holds the placeholder - i.e. when this renderer is looking at a document where the slot's name
+    actually exists somewhere. MEASURED at P-8, in order: firing on "the token appears anywhere" rejected a
+    healthy body whose appendix legitimately carries no `consumer` slot
+    (`test_the_task_limitations_reach_the_document_and_the_rendered_body`); firing on "the primary states the
+    dataflow prose" rejected it again. What the plan requires is ONE MEANING for the token, so the hard rule is
+    the first one, and the second is scoped to the only case where it is checkable.
+    """
+    violations: list[str] = []
+    empty = _empty_body_violation(markdown, code="NAMESPACE_EMPTY_BODY")
+    if empty:
+        return [empty]
+    text = str(markdown)
+    primary, appendix = split_analyst_markdown(text)
+    for slot in _DATAFLOW_TOKEN_NAMES:
+        token = f"UNKNOWN({slot})"
+        if token in primary:
+            violations.append(
+                f"the dataflow placeholder {token!r} is still published in 正文; that spelling must name only the "
+                f"ten-question slot, and the dataflow fact must be prose"
+            )
+        # `token in text` is exactly "the name exists somewhere": the appendix-only case must NOT be reported,
+        # and an appendix that exists but never named the slot must not be reported either.
+        if token in text and appendix.strip() and token not in appendix:
+            violations.append(
+                f"the document still carries the slot name {token!r} but its appendix does not: confining the "
+                f"token must not move it somewhere the slot table cannot be read"
+            )
+    return violations
+
+
 def _string_facts_section(document: Mapping[str, object]) -> list[str]:
     """Publish the curated string facts so the body carries them, not just the ledger.
 
@@ -1929,12 +2196,17 @@ def _string_facts_section(document: Mapping[str, object]) -> list[str]:
     """
     facts: list[tuple[str, str]] = []
     boundary: Mapping[str, object] = {}
+    attested: list[str] = []
     projection = document.get("string_facts")
     if isinstance(projection, list):
         for item in projection:
             if not isinstance(item, Mapping):
                 continue
             text = str(item.get("value") or "").strip()
+            for name in item.get("attested_names") or []:
+                candidate = str(name or "").strip()
+                if candidate:
+                    attested.append(candidate)
             if not text:
                 continue
             facts.append((str(item.get("fact_class") or "string"), text))
@@ -1960,12 +2232,26 @@ def _string_facts_section(document: Mapping[str, object]) -> list[str]:
         "",
     ]
     seen: set[str] = set()
+    # P-8/T6: a value that is a CONCATENATION of real names is not a name. The names it is built out of are
+    # published one per bullet (each one attested by a standalone Evidence row of the same projection), and the
+    # concatenated form is stated as such rather than published under a heading that claims a structured list.
+    spliced = _spliced_name_values(facts, attested)
     for fact_class, text in facts:
         folded = text.casefold()
         if folded in seen:
             continue
         seen.add(folded)
         label = _STRING_FACT_LABELS.get(fact_class, "字符串")
+        if text in spliced:
+            lines.append(f"- {label}（拼接名称逐条拆分）：" + "、".join(f"`{name}`" for name in spliced[text]))
+            lines.append(f"  - {_SPLICE_BOUNDARY_SENTENCE}")
+            # P-8/T6: the recovered bytes are EVIDENCE and stay published VERBATIM. Deleting them was the design
+            # note's REJECTED option 2 (EC-1/EC-4: absence published as if the evidence did not exist), and the
+            # section header above promises verbatim publication of every value on this page - so the fix is the
+            # LABEL, not the omission. The value goes on an INDENTED line under its own label ("raw recovered byte
+            # string, not a name list"), which is why the heading that claims a name list no longer publishes it.
+            lines.append(f"  - 原始恢复字节串（逐字发布，不是名称列表）：`{text}`")
+            continue
         lines.append(f"- {label}：`{text}`")
     lines.append("")
     return lines
@@ -2806,6 +3092,11 @@ def _chapter_evidence_detail(
         for token in _extra_unknown_tokens(
             row.get("how"), row.get("unknowns"), row.get("what"), row.get("missing_fields")
         ):
+            # P-8/T7: a dataflow placeholder is not a missing ten-question slot. MEASURED
+            # (`p8-probe-token-locations.json`): this line printed `缺 `UNKNOWN(consumer)`` in 正文, which is the
+            # second meaning of the same token. The fact is already carried by the chapter's own prose.
+            if _official_unknown_slot(token) in set(_DATAFLOW_TOKEN_NAMES):
+                continue
             if token not in missing:
                 missing.append(token)
 
@@ -3240,9 +3531,7 @@ def _topic_body(
                     "不得把解密结果写成已经进入执行。"
                 )
             if unknown_consumer or not named_consumer:
-                lines.append(
-                    "`UNKNOWN(consumer)`：明文消费者未闭合，不能把解密输出当成已启动的后续阶段。"
-                )
+                lines.append(f"{CONSUMER_NAMESPACE_PROSE}：不能把解密输出当成已启动的后续阶段。")
         if xor_formula or plaintext:
             detail = "静态恢复到 XOR/配置解码"
             if xor_formula:
@@ -3264,12 +3553,12 @@ def _topic_body(
                 # Retracted over-claim: an endpoint value alone is not a consumer.
                 detail += (
                     f"解码产物含 endpoint `{_decoded_endpoint_value(rows)}`（配置值）。"
-                    "`UNKNOWN(consumer)`：传输机制只记录了 API 名称出现，"
+                    f"{CONSUMER_NAMESPACE_PROSE}：传输机制只记录了 API 名称出现，"
                     "没有对象级证据表明该明文就是被这些 API 当作参数消费的，"
                     "因此不得写成已闭合的消费链。"
                 )
             elif unknown_consumer or not named_consumer:
-                detail += "`UNKNOWN(consumer)`：同一输出缓冲尚未进入具体 API 参数，不能写成已闭合的消费链。"
+                detail += f"{CONSUMER_NAMESPACE_PROSE}：同一输出缓冲尚未进入具体 API 参数，不能写成已闭合的消费链。"
             if _joined_static(blob):
                 detail += "`JOINED_STATIC`：解码明文与命名消费者接到同一输出缓冲。"
             if plaintext.casefold().startswith("http://") or plaintext.casefold().startswith("https://"):
@@ -3319,7 +3608,8 @@ def _topic_body(
                 "**恢复文本中出现的标识符**（逐字检索恢复文本所得，按出现次数排序）："
                 + "、".join(f"`{item}`" for item in identifiers)
                 + "。标识符出现在文本里，只说明恢复出的脚本引用了该名称，"
-                "**不代表对应行为已在目标主机上发生**；调用链是否成立仍以 `UNKNOWN(consumer)` 为准。"
+                "**不代表对应行为已在目标主机上发生**；调用链是否成立仍以「"
+                + CONSUMER_NAMESPACE_PROSE + "」为准。"
             )
         lines.append("")
         return lines
@@ -3539,7 +3829,7 @@ def _topic_body(
             "没有生产者到暂存再到网络出口的关系时，不能写成已经外传。"
         )
         if not has_sink:
-            lines.append("`UNKNOWN(consumer)`：外传出口未恢复。")
+            lines.append(f"{CONSUMER_NAMESPACE_PROSE}：外传出口未恢复。")
         lines.append("")
         return lines
 
@@ -4218,6 +4508,15 @@ def _synthesis(
             "隔离模拟观察（`EMULATION_OBSERVED`）不是目标主机上的运行时执行，也不是感染结论。"
         )
     unknowns = _collect_official_unknowns(rows, topics, document)
+    # P-8/T7: a dataflow placeholder is NOT an unresolved slot. MEASURED (`p8-probe-token-locations.json`): this
+    # paragraph printed `未恢复槽位：`UNKNOWN(consumer)``, and the SAME spelling is the ten-question slot name in
+    # the appendix - two meanings, one token, one document. The slot set keeps the tokens that really are slots;
+    # the dataflow ones are stated in prose, because that is the only reading of `consumer` the appendix leaves.
+    slot_unknowns = [
+        item for item in unknowns if _official_unknown_slot(item) not in set(_DATAFLOW_TOKEN_NAMES)
+    ]
+    dataflow_unknowns = [item for item in unknowns if item not in slot_unknowns]
+    unknowns = slot_unknowns
     if unknowns:
         # P-1.6 TRUNCATION 4 of 5, and the CONSUMER half of the pair the collector used to hold. The display bound
         # stays where it always was (eight), but it is DECLARED now: the total this run enumerated and the
@@ -4236,8 +4535,20 @@ def _synthesis(
                 + "）"
             )
         paragraph += "。"
+    if dataflow_unknowns:
+        # The dataflow placeholders keep their FACT; only their spelling changes. The count is stated so a reader
+        # can still see how many dataflow chains are open, and the SLOT NAMES are deliberately not re-printed here
+        # - this is 正文, and re-printing `UNKNOWN(consumer)` would put the machine token back into it.
+        paragraph += (
+            f"{CONSUMER_NAMESPACE_PROSE}（本次共 {len(dataflow_unknowns)} 条数据流占位；"
+            "槽位名见附录的十问槽位表）。"
+        )
     outcome = str(document.get("analysis_outcome") or "UNKNOWN")
     analysis_class = str(document.get("analysis_class") or "UNKNOWN")
+    # P-8/T7: the summary paragraph is 正文, so the dataflow placeholder is stated in prose here rather than as the
+    # token that names the appendix's ten-question slot. MEASURED: without this, `_synthesis` printed the token in
+    # `未恢复槽位：` (one of the three primary occurrences in `p8-probe-token-locations.json`).
+    paragraph = dataflow_placeholder_prose(paragraph)
     return [
         "### 结论摘要",
         "",
@@ -5900,6 +6211,21 @@ def _runtime_sequence_section(document: Mapping[str, object]) -> list[str]:
         # be replaced by a pointer: the structural prefix (module + artifact digest) is kept, only the
         # payload value is dropped.
         how = _strip_payload_but_keep_structure(how)
+        # P-8/T7: the phase `how` is a RECOVERED row's text, so it can carry `consumer=UNKNOWN(consumer)`. That
+        # spelling names the ten-question slot in the appendix, so 正文 states the fact in prose instead.
+        #
+        # THE ORDER IS LOAD-BEARING, AND IT WAS MEASURED THE HARD WAY. `dataflow_placeholder_prose` injects CJK
+        # into the value, and `_is_raw_decoded_fragment` treats "CJK fused with Latin" as the signature of a pasted
+        # payload slice - so running the rewrite BEFORE the payload strip made `_strip_payload_but_keep_structure`
+        # replace the WHOLE phase line. MEASURED on the real revision
+        # (`.scratch/ghidra-c3/preflight/p8-diagnose-d1c.json`, the real Phase-3 `how`, 632 characters): with the old
+        # order the published line became `UNKNOWN(该阶段的输入/变换/输出未成文；…)` and the recovered named consumer
+        # `consumer=DAT_14004c8e1`, the endpoint and the formula all disappeared from the body - the EC-1/EC-4
+        # defect (a fix for a token collision deleting recovered facts) that this step exists to remove. With the
+        # rewrite AFTER the strip, the same line keeps every fact and carries the prose instead of the token
+        # (`tests/test_p8_t6_splice_and_t7_consumer_namespace.py::
+        # test_the_t7_prose_does_not_hide_the_recovered_phase_facts` pins it).
+        how = dataflow_placeholder_prose(how)
         # Stripping the function names can empty a phase that was nothing but a name; say so instead of
         # printing a blank bullet.
         if not how.strip():

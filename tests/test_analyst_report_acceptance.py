@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from threat_report_agent.analyst_report import (
     ANALYST_APPENDIX_HEADING,
     ANALYST_CONCLUSION_HEADING,
+    CONSUMER_NAMESPACE_PROSE,
     _emulation_status_section,
     apply_model_topic_plan,
     compose_official_markdown,
@@ -662,7 +663,16 @@ def test_xor_url_named_winhttp_consumer_is_visible_in_official_conclusion() -> N
 
 
 def test_xor_url_without_consumer_is_not_live_c2_in_official_conclusion() -> None:
-    """C3: XOR URL with no consumer stays UNKNOWN(consumer); HTTP ≠ live C2."""
+    """C3: XOR URL with no consumer stays an open dataflow chain, stated as prose; HTTP ≠ live C2.
+
+    P-8/T7 CHANGED WHAT THIS ASSERTS, MORE STRICTLY. It used to require the ``UNKNOWN(consumer)`` marker in the
+    crypto chapter. That spelling is also the ten-question SLOT's name in the appendix, so the same token named
+    two different things in one document (measured in
+    `.scratch/ghidra-c3/preflight/p8-probe-token-locations.json`: 3 primary + 3 appendix occurrences, and
+    `check-slot-grounding.py` reports it as `RESOLVED-BUT-STILL-UNKNOWN: ['consumer']`). The chapter now states
+    the dataflow fact in prose, and the assertion below is stronger: the prose must be present, the machine token
+    must be ABSENT from 正文, and the chapter must still refuse the "live C2" reading.
+    """
     official = render_official_markdown(
         _v3_document(
             {
@@ -683,8 +693,11 @@ def test_xor_url_without_consumer_is_not_live_c2_in_official_conclusion() -> Non
         )
     )
     crypto = _chapter(official, "编码、解密与配置还原")
+    primary, appendix = split_analyst_markdown(official)
     assert ANALYST_CONCLUSION_HEADING in official
-    assert "UNKNOWN(consumer)" in crypto
+    assert CONSUMER_NAMESPACE_PROSE in crypto
+    assert "UNKNOWN(consumer)" not in primary
+    assert "UNKNOWN(consumer)" in appendix
     assert "http://69.48.228.74/miaom-c.pdf" in crypto
     assert "不是活 C2" in official or "不是当时存活的 C2" in official
     assert "c2 active" not in official.casefold()

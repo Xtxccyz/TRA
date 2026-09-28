@@ -273,7 +273,7 @@ def build_verified_security_findings(
             "claim_ids": ordered_claim_ids,
             "evidence_ids": valid_evidence[:5],
             "what": statement or f"Verified mechanism targets {target}.",
-            "how": how or str(getattr(claim, "mechanism", "")),
+            "how": how or dataflow_placeholder_prose(str(getattr(claim, "mechanism", ""))),
             "target": target,
             "inputs": field_values("inputs"),
             "transformation_or_control": field_values("transformation_or_control"),
@@ -2090,7 +2090,46 @@ def build_string_fact_projection(
         out[0]["classified_count"] = classified_total
         out[0]["total_string_rows"] = total_strings
         out[0]["selection_limit"] = limit
+        # P-8/T6: the NAMES this artifact can attest as real, carried PRODUCER-side so the renderer can tell a
+        # name from a concatenation of names. MEASURED (`.scratch/ghidra-c3/preflight/p8-probe-before.json` plus a
+        # live SQL count on the deployed artifact): the splice's names are NOT published projection facts. The 21
+        # classified rows carry only four of them as identifier-shaped `execution_api` string facts, the projection
+        # publishes only the values `string_fact_class` selects, and the names the splitter needs
+        # (`InitializeProcThreadAttributeList`, `UpdateProcThreadAttribute`, `OpenProcess`) live in SYMBOL-TABLE
+        # rows. A name that also exists as a raw `kind='string'` row is still not a projection fact, because
+        # `string_fact_class()` returns "" for it - so a renderer restricted to the string projection cannot attest
+        # these names and would have to invent the set, which is what this field prevents.
+        # CORRECTION, disclosed: this comment used to claim `InitializeProcThreadAttributeList` "is NOT a string
+        # row". That was WRONG - it IS a `kind='string'` row of that artifact (SQL count = 1) - and the P-8
+        # analysis-verification audit measured it (findings P8-AV9 / P8-D4). The field is needed because of the
+        # classification and the bounded selection above, not because of the row's absence.
+        # Membership is a stable identity key (the exact symbol name).
+        attested = sorted(
+            {
+                str(symbol)
+                for item in evidence
+                for symbol in [_symbol_name(_evidence_mapping(item))]
+                if symbol
+            }
+        )
+        if attested:
+            out[0]["attested_names"] = attested
+            out[0]["attested_name_source"] = "evidence rows whose kind is a symbol table (import/export)"
     return out
+
+
+def _symbol_name(row: Mapping[str, object]) -> str:
+    """The name of a symbol-table Evidence row, or "" for anything else.
+
+    Only rows that ARE a declared symbol count: a `string` row's text is recovered payload and may itself be a
+    concatenation, so it cannot attest anything.
+    """
+    if str(row.get("kind") or "").casefold() not in {"import_symbol", "export_symbol"}:
+        return ""
+    value = row.get("value")
+    raw = value.get("name") if isinstance(value, Mapping) else None
+    name = str(raw or "").strip()
+    return name if name.isidentifier() else ""
 
 
 def _summarize_evidence_rows(
@@ -2321,11 +2360,11 @@ def _claim_row(
         "model_call_id": getattr(claim, "model_call_id", None),
         "finding": claim.statement,
         "what": claim.statement,
-        "how": claim.mechanism,
+        "how": dataflow_placeholder_prose(claim.mechanism),
         "subject": claim.subject,
         "action": claim.action,
         "object": claim.object,
-        "mechanism": claim.mechanism,
+        "mechanism": dataflow_placeholder_prose(claim.mechanism),
         "condition": claim.condition,
         "status": claim.status,
         "confidence": claim.confidence,
@@ -4314,6 +4353,59 @@ _NAME_ONLY_HOW_RE = re.compile(
     r"(?:\s*(?:->|,|;)\s*(?:[A-Za-z_][A-Za-z0-9]*)(?:A|W)?)*$"
 )
 
+#: P-8/T7. The DATAFLOW placeholder spells itself `UNKNOWN(consumer)`, which is ALSO the name of a ten-question
+#: slot in the appendix. MEASURED before this constant existed (`p8-probe-token-locations.json`): the same
+#: document carried the token 3x in 正文 and 3x in the appendix, so a reader (and `check-slot-grounding.py`, which
+#: records it as `RESOLVED-BUT-STILL-UNKNOWN: ['consumer']`) could not tell "the slot was resolved" from "the
+#: dataflow chain is open". This is the producer for the `how=` field built at `_persist_argument_how`, and the
+#: renderer treats a slot named `consumer` as a resolved slot - so the placeholder must not travel as a token.
+#: MEASURED consequence of NOT fixing it here: the report gate raised
+#: `the dataflow placeholder 'UNKNOWN(consumer)' is still published in 正文` on two pre-existing acceptance
+#: tests whose fixture writes `consumer=UNKNOWN(consumer)` into the claim's mechanism.
+_DATAFLOW_PLACEHOLDER_PROSE: dict[str, str] = {
+    "consumer": "命名消费者未从静态证据中恢复，因此该数据流消费链仍未闭合",
+}
+
+
+def _prose_for_dataflow_placeholder(value: object) -> str:
+    """The prose form of a dataflow placeholder, or "" when the value is not one.
+
+    A placeholder is `<slot>=UNKNOWN(<slot>)` for a slot in `_DATAFLOW_PLACEHOLDER_PROSE` - the canonical shape
+    the investigation layer emits (`derivation.py` `"consumers": consumers or ["UNKNOWN(consumer)"]`).
+    """
+    text = str(value or "").strip()
+    if not text.startswith("UNKNOWN(") or not text.endswith(")"):
+        return ""
+    inner = text[len("UNKNOWN(") : -1].strip()
+    return _DATAFLOW_PLACEHOLDER_PROSE.get(inner.casefold(), "")
+
+
+_DATAFLOW_PLACEHOLDER_ASSIGNMENT_RE = re.compile(
+    r"(?:[A-Za-z_][A-Za-z0-9_]*\s*[=:]\s*)?`{0,2}UNKNOWN\(\s*(?P<slot>consumer)\s*\)`{0,2}",
+    re.IGNORECASE,
+)
+
+
+def dataflow_placeholder_prose(value: object) -> str:
+    """Rewrite every dataflow placeholder inside a text into its prose form.
+
+    Used where a RECOVERED row's text is published into 正文 - with OR without a `consumer=` label, because the
+    plan's T7 rule is that the spelling means ONE thing in the document and that meaning is the appendix slot.
+    MEASURED on the REAL stored document (`.data/logs/official-document.json`): the runtime-sequence line
+    published ``consumed by `UNKNOWN(consumer)` ``, a bare token with no label, and the label-only rule left it in
+    正文. The recorded Evidence is not touched: only the rendered string changes, so the raw spelling survives in
+    the appendix, where it is the ten-question slot's name.
+    """
+    text = str(value or "")
+    if "UNKNOWN(" not in text:
+        return text
+
+    def repair(match: re.Match[str]) -> str:
+        prose = _DATAFLOW_PLACEHOLDER_PROSE.get(str(match.group("slot")).casefold(), "")
+        return prose or match.group(0)
+
+    return _DATAFLOW_PLACEHOLDER_ASSIGNMENT_RE.sub(repair, text)
+
 
 def _semantic_scalar(value: object) -> str:
     """Return the first recovered scalar, skipping UNKNOWN placeholders."""
@@ -4664,12 +4756,19 @@ def _module_how_from_finding(finding: Mapping[str, object]) -> str:
     for label, text in labeled:
         if not text or is_empty_marker(text):
             continue
-        echoed = _api_seed_tokens(text)
+        # P-8/T7: a dataflow placeholder travels as PROSE, not as the slot's spelling. See
+        # `_DATAFLOW_PLACEHOLDER_PROSE` for the measured collision this prevents.
+        prose = _prose_for_dataflow_placeholder(text)
+        if prose:
+            text = prose
+            echoed = ""
+        else:
+            echoed = _api_seed_tokens(text)
         if echoed and echoed <= seed_tokens and _how_text_is_name_only_seed(text):
             continue
         if any(text in part for part in parts):
             continue
-        parts.append(f"{label}={text}")
+        parts.append(f"{label}={text}" if not prose else text)
     return "; ".join(parts[:8]) or "not recovered"
 
 
