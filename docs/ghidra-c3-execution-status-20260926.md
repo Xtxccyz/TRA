@@ -3,8 +3,8 @@
 > 本文件由 `.scratch/ghidra-c3-execution-status.json` **程序化生成**（`.scratch/render-ghidra-status.py`）。`.scratch/` 被 gitignore，因此把主计划的权威状态在此留一份被跟踪的记录。**本文件与结构计划的状态是两套状态，不得合并**：结构计划见 `docs/structure-execution-status-20260922.md`。
 
 - 计划版本：`20260922-reviewed-r1`；`plan_sha256 = fbd363ba6ff815cc…`（preflight 会与磁盘上的计划实算值比对，不一致即非零退出）
-- **当前步骤 `current_step = P-7`**；状态机当前允许：`['P-7']`
-- 代码提交 `git_head = f9e7afc65e747f9d4da157f1f86f8bd13f7656ef`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
+- **当前步骤 `current_step = P-8`**；状态机当前允许：`['P-8']`
+- 代码提交 `git_head = 6a9bdb66ac20b3ed1fc0fe5ecabcd0079003b29a`；结构计划被核验提交 `structure_head = 4226e64b1fee243b0ad6fe3672681f3f46a0dc40`（结构 `current_step = BEHAVIOR-B01-B05 (structure plan frozen; P3.7 REQUIRES_REDESIGN; see behavior_plan_state)`）
 - `git_head` 是**写下该状态时实测的 HEAD**，不是「包含本文件的提交」：状态文件与本文档的更新本身又会移动 HEAD，任何文件都无法正确写出包含自己的提交。因此每一步都另记 `source_sha`/`worktree_manifest_sha`（工作树内容哈希），部署门禁按 commit + 工作树清单复核，而不是按本字段。
 - **capability_status = `UNVERIFIED`**（步骤 `complete` 只代表该步骤完成，**不代表 T1-T8/G5/3080 能力验收**）
 
@@ -30,6 +30,7 @@
 | P-4 | complete | `.scratch/ghidra-c3/preflight/P-4-artifact.json` | 4 file(s) changed; 5 negative control(s), 5 with a real non-zero exit; mechanisms exercised ['M1', 'M3', 'M5', 'M6']; render proof: the concrete blocker <DLL>!<export> that bounded an isolated simulation; SQL-bound task c582712e |
 | P-5 | complete | `.scratch/ghidra-c3/preflight/P-5-artifact.json` | 2 file(s) changed; 8 negative control(s), 8 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: vb6_shim.registered; SQL-bound task cc3be4d4 |
 | P-6 | complete | `.scratch/ghidra-c3/preflight/P-6-artifact.json` | 6 file(s) changed; 14 negative control(s), 14 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: ghidra_follow_up_outcome_limitation; SQL-bound task e0a53fa5 |
+| P-7 | complete | `.scratch/ghidra-c3/preflight/P-7-artifact.json` | 6 file(s) changed; 10 negative control(s), 10 with a real non-zero exit; mechanisms exercised ['M1', 'M2', 'M3', 'M4', 'M5', 'M6']; render proof: decompiled_functions (the on-demand pseudo-C publication); SQL-bound task efce79c9 |
 | P-0.2-r2 | blocked | `.scratch/ghidra-c3/baseline/pytest-wave1-failures.txt` | re-measured on the settled tree after the B02/B03 + B05 + B00/B04 wave: 9 node(s) vs the P-0.2 0; NEW (regressions) = ['tests/test_analysis_api.py::test_end_to_end_static_analysis_and_report_revisions', 'tests/test_deep_static_recovery.py::test_seed_clustering_opens_unique_os_thread_from_recovered_start', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_flags_a_self_referential_and_resource_digest_indicator', 'tests/test_detection_rule_indicator_correctness.py::test_the_verifier_is_quiet_on_a_correct_rule', 'tests/test_structure_diff_gate.py::test_the_narrow_limitation_case_is_recorded_as_accepted_and_that_is_the_known_gap', 'tests/test_t3_callback_fixture.py::test_t3_one_start_discovers_global_relation_for_behavior_explanation', 'tests/test_t3_callback_fixture.py::test_t3_protocol_answers_callback_global_and_keeps_missing_consumer', 'tests/test_t3_callback_fixture.py::test_t3_service_does_not_replay_no_gain_when_unrelated_evidence_arrives', 'tests/test_t3_callback_fixture.py::test_t3_service_one_start_enqueues_multiple_distinct_actions']; GONE (fixed) = none. The tree carried all three tracks' work and the tree-level gates passed. |
 
 ## 二、当前失败节点集合（按集合比较，不按计数）
@@ -95,7 +96,7 @@
 
 ```json
 {
-  "measured_at_head": "f9e7afc65e747f9d4da157f1f86f8bd13f7656ef",
+  "measured_at_head": "6a9bdb66ac20b3ed1fc0fe5ecabcd0079003b29a",
   "finding": "the PRODUCER the step asks for already exists in `src/threat_report_agent/task/limitations.py`: `failed_tool_run_limitations(session, task_id)` selects `(tool_name, status, error)` for every ToolRun whose status is not SUCCEEDED, and `merge_operational_limitations(document, task)` merges them into the Report Document. The file's own docstring records the measured damage it was written against: published bodies contain `CANCELLED`/`TIMED_OUT` in 0 of 551 revisions while the database held 7 timed-out runs, 2 cancelled runs and 49 cancelled tasks.",
   "what_is_still_missing": [
     "the WIRING: P-1.1 measured that the merge is unreachable because `service._overlay_analyst_report_plan` returns early when model calls are disabled or `environment == \"test\"`",
@@ -109,7 +110,7 @@
 
 ```json
 {
-  "measured_at_head": "f9e7afc65e747f9d4da157f1f86f8bd13f7656ef",
+  "measured_at_head": "6a9bdb66ac20b3ed1fc0fe5ecabcd0079003b29a",
   "p1_3_observation_cap": {
     "sites_measured_by_ast": [
       {
