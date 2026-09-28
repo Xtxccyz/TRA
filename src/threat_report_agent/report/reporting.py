@@ -2465,6 +2465,136 @@ def _occurrence_qualified(keys: Sequence[str]) -> list[str]:
     return qualified
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# P-7: the on-demand decompilation reaches the Report Document, and from there the official appendix
+# ---------------------------------------------------------------------------------------------------------------------
+#: The Document key that carries the pseudo-C the resident decompiler produced for the entries the investigation
+#: requested. It is a TOP-LEVEL key rather than a module row on purpose: the code is not an analyst claim about
+#: the sample, it is decompiler output, and the renderer prints it in the appendix where this project's convention
+#: keeps address-level (`FUN_`) vocabulary - the primary body rejects those names by gate
+#: (`analyst_report.primary_analyst_violations`).
+DECOMPILED_FUNCTIONS_DOCUMENT_KEY = "decompiled_functions"
+
+
+def _row_mapping(item: Any) -> dict[str, object]:
+    """`{kind, value, anchor, evidence_id}` for an ORM Evidence row or an already-mapping payload."""
+    if isinstance(item, Mapping):
+        payload = dict(item)
+        payload.setdefault("evidence_id", payload.get("id"))
+        return payload
+    return {
+        "kind": getattr(item, "kind", ""),
+        "value": getattr(item, "value", {}) or {},
+        "anchor": getattr(item, "anchor", {}) or {},
+        "evidence_id": getattr(item, "id", ""),
+        "artifact_id": getattr(item, "artifact_id", ""),
+        "nature": getattr(item, "nature", ""),
+    }
+
+
+def decompiled_function_block_lines(row: Mapping[str, object]) -> list[str]:
+    """The EXACT Markdown lines one published pseudo-C entry contributes, fence and provenance included.
+
+    ONE producer for this text, used by BOTH the renderer (which prints it) and the bound in
+    `build_decompiled_function_projection` (which measures it). Two spellings would let the measured size and the
+    published size disagree, which is how a bound stops bounding anything.
+    """
+    entry = str(row.get("function_entry") or "")
+    digest = str(row.get("pseudo_c_sha256") or "")
+    lines = str(row.get("pseudo_c") or "").splitlines()
+    header = (
+        f"`entry {entry}` - Ghidra pseudo-C SHA-256 `{digest}`, {len(lines)} line(s)"
+        f"{', agreement with the frozen dump: ' + str(row.get('agreement_with_frozen_dump')) if row.get('agreement_with_frozen_dump') else ''}"
+        f"{', ' + str(row.get('decompiled_millis')) + ' ms' if row.get('decompiled_millis') is not None else ''}"
+        f"（来源：{row.get('decompiler') or 'Ghidra DecompInterface'}；静态反编译产物，不是运行时观察）"
+    )
+    return [header, "", "```c", *lines, "```", ""]
+
+
+def build_decompiled_function_projection(
+    evidence: Sequence[Any],
+    *,
+    boundaries: list[dict[str, object]] | None = None,
+    budget_bytes: int | None = None,
+) -> list[dict[str, object]]:
+    """Project `decompiled_pseudo_c` Evidence into the pseudo-C the report publishes.
+
+    THE SET IS NOT CAPPED BY A NUMBER OF FUNCTIONS. Every `decompiled_pseudo_c` row the run produced becomes a
+    row here, in `entry` order, with its FULL text: `reporting._evidence_scalar_strings` walks nested payloads
+    with a `value[:4096]` slice, and the gate owner measured `entry=1400012d0` of the repo fixture at 10,171
+    characters - routing this text through that helper would publish a silently cut function. The code is read
+    directly from the Evidence value instead.
+
+    THE ONE BOUND IS THE REPORT'S OWN RECORDED DISPLAY BUDGET (`REPORT_MAX_MARKDOWN_BYTES`). The report gate FAILS
+    a body above it (`report_bloat_violations`), so publishing an unbounded amount of decompiled code could gain
+    exactly the violation §11.3 forbids. When the budget removes a row, `boundaries` receives the repository's
+    standard boundary record (`_bound_published_collection`): the enumerated set, the published set, BOTH
+    differences and the NAME of the constant - so the omission is stated rather than discovered.
+    """
+    rows: list[dict[str, object]] = []
+    for item in evidence:
+        payload = _row_mapping(item)
+        if str(payload.get("kind") or "") != "decompiled_pseudo_c":
+            continue
+        value = payload.get("value") if isinstance(payload.get("value"), Mapping) else {}
+        text = value.get("pseudo_c")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        anchor = payload.get("anchor") if isinstance(payload.get("anchor"), Mapping) else {}
+        entry = str(value.get("function_entry") or anchor.get("function_entry") or "")
+        rows.append(
+            {
+                "type": "decompiled_function",
+                "function_entry": entry,
+                "pseudo_c": text,
+                "pseudo_c_sha256": str(value.get("pseudo_c_sha256") or ""),
+                "pseudo_c_lines": value.get("pseudo_c_lines") or len(text.splitlines()),
+                "decompiler": str(value.get("decompiler") or ""),
+                "agreement_with_frozen_dump": value.get("agreement_with_frozen_dump"),
+                "frozen_dump_sha256": value.get("frozen_dump_sha256"),
+                "decompiled_millis": value.get("decompiled_millis"),
+                "resident_entry": value.get("resident_entry"),
+                "deadline": value.get("deadline") if isinstance(value.get("deadline"), Mapping) else {},
+                "on_demand": bool(value.get("on_demand", True)),
+                "static_only": bool(value.get("static_only", True)),
+                "evidence_ids": [payload.get("evidence_id")] if payload.get("evidence_id") else [],
+            }
+        )
+    rows.sort(key=lambda row: int(str(row["function_entry"]), 16) if str(row["function_entry"]) else 0)
+    if not rows:
+        return []
+    budget = int(REPORT_MAX_MARKDOWN_BYTES if budget_bytes is None else budget_bytes)
+    used = 0
+    published: list[dict[str, object]] = []
+    for row in rows:
+        size = len("\n".join(decompiled_function_block_lines(row)).encode("utf-8")) + 1
+        if published and used + size > budget:
+            break
+        if not published and size > budget:
+            # A single function larger than the whole budget is NOT published cut: it is dropped whole and
+            # enumerated, so the reader never sees a body that looks complete and is not.
+            break
+        published.append(row)
+        used += size
+    if len(published) == len(rows):
+        return published
+    _, boundary = _bound_published_collection(
+        rows,
+        name=DECOMPILED_FUNCTIONS_DOCUMENT_KEY,
+        identity_key="entry",
+        identity=lambda row: str(row.get("function_entry") or ""),
+        cap=len(published),
+        cap_source=(
+            "reporting.REPORT_MAX_MARKDOWN_BYTES (the report's recorded display budget, applied to the rendered "
+            "byte size of the pseudo-C blocks; the same constant `report_bloat_violations` enforces)"
+        ),
+    )
+    boundary["published_bytes"] = used
+    if boundaries is not None:
+        boundaries.append(boundary)
+    return published
+
+
 def _timeline_row_identity(row: Mapping[str, object]) -> str:
     """Stable identity of one timeline row: its phase plus the most specific ledger id it carries.
 
@@ -10838,6 +10968,17 @@ def build_report_document(
     callsite_flag_projection = build_creation_flags_callsite_projection(evidence_by_id)
     if callsite_flag_projection:
         document["creation_flags_callsite"] = callsite_flag_projection
+    # P-7: the pseudo-C the on-demand decompilation produced for the entries the investigation requested. It is
+    # carried as a top-level Document key so the canonical official renderer can print it in the appendix; the
+    # bound (when the recorded display budget removes a row) lands in the SAME boundary list P-1.3 established, so
+    # one renderer states every remainder.
+    decompiled_functions = build_decompiled_function_projection(
+        evidence, boundaries=observation_boundaries
+    )
+    if decompiled_functions:
+        document[DECOMPILED_FUNCTIONS_DOCUMENT_KEY] = decompiled_functions
+        if observation_boundaries and OBSERVATION_BOUNDARIES_DOCUMENT_KEY not in document:
+            document[OBSERVATION_BOUNDARIES_DOCUMENT_KEY] = observation_boundaries
     _stamp_one_round_readiness(document)
     # M04/M06 run LAST so they judge the assembled revision: every behavior
     # finding, security finding and critic row is already projected, and the

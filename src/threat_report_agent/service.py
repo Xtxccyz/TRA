@@ -8710,31 +8710,323 @@ class AnalysisService:
             "carried_by": "ToolPolicy.max_cpu_seconds / ToolRunRequest.parameters['timeout_seconds']",
         }
 
+    #: Selector keys whose value names an ABSOLUTE address (Ghidra's own `entry`), and keys whose value names an
+    #: RVA. The distinction is measured, not assumed (`p7-requested-shapes.md`): the investigation's `target` is
+    #: absolute (`1400ad4d0`, `0x140047500`) while the PMA static plan's `function_entry` is an RVA (`0x1d40`).
+    _REQUESTED_ENTRY_ABSOLUTE_KEYS = ("target", "entry", "address")
+    _REQUESTED_ENTRY_RVA_KEYS = ("function_entry", "entry_rva", "rva")
+
     @staticmethod
-    def _frozen_dump_requested_entries(entry: PackageEntry) -> tuple[str, ...]:
-        """The entry set a P-6 frozen dump is built for, named explicitly and with no invented cap.
+    def _entry_token_identity(value: object) -> tuple[str | None, str]:
+        """`(identity, rule)` for one selector token; `identity` is None when no rule applies.
 
-        WHAT IT IS TODAY: the one function the deterministic PE parser already identified as this artifact's
-        entry point (`pe.entry_rva` relocated by `pe.image_base`). It is read off the artifact's own bytes, it is
-        the function the investigation always reasons about, and it is a set the caller NAMES - not a `[:N]` cut
-        over the function table, which the plan forbids.
-
-        WHAT IT IS NOT: the per-investigation on-demand entry list of plan §11.2 (P-7/T8). Widening this set to
-        the entries an investigation actually asks to decompile is P-7's job; doing it here would pre-empt that
-        step and make the cost of the comparison export unbounded.
-
-        An artifact whose PE entry point cannot be determined returns the EMPTY set, which switches the whole
-        frozen-dump path off and leaves the pre-P-6 behaviour in place.
+        MEASURED SHAPES in the deployed database (`p7-requested-shapes.md`, 1,826 `GET_DECOMPILE` rows):
+        `{"target": "1400ad4d0"}` (1,625), `{"target": "0x140047500"}` (129), `{"target": "FUN_1400a3a40"}`
+        (12), `{"function_entry": ...}` (5), and 60 tokens that are not addresses at all. `entry_identity`
+        already normalises the first two; the `FUN_`/`sub_`/`thunk_` names are addresses in disguise and are
+        parsed rather than dropped; `entrypoint` is resolved by an explicit rule.
         """
+        text = str(value or "").strip()
+        if not text:
+            return None, ""
+        direct = entry_identity(text)
+        if direct:
+            return direct, "hex_address"
+        lowered = text.casefold()
+        if lowered in {"entrypoint", "entry_point", "pe_entry_point"}:
+            return None, "entrypoint_token"
+        for prefix in ("fun_", "sub_", "thunk_", "label_", "lab_"):
+            if lowered.startswith(prefix):
+                identity = entry_identity(text[len(prefix):])
+                if identity:
+                    return identity, f"{prefix.rstrip('_')}_symbol"
+                return None, "symbol_without_address"
+        head, _, tail = text.partition("@")
+        if tail:
+            identity = entry_identity(tail)
+            if identity:
+                return identity, "label_at_address"
+        return None, "no_address_token"
+
+    @classmethod
+    def _requested_decompile_entries(
+        cls, session: Session, task_id: str, artifact_id: str
+    ) -> dict[str, object]:
+        """The entries THIS investigation actually asked to decompile (plan §11.2: "按调查实际请求的 entry 优先").
+
+        MEASURED GAP (recon F5 + the gate owner's `p7-requested-entries.json` / `p7-requested-shapes.md`): before
+        P-7 the frozen dump was built for the PE entry point ALONE, so an entry the investigation asked for
+        through `GET_DECOMPILE` sat outside D and could only ever answer "not in the frozen dump". The requests
+        are already durable: one `investigation_actions` row per catalog action, with the target in
+        `target_selector` / `parameters`.
+
+        THREE ENUMERATED SETS COME OUT, because one would hide a silent narrowing:
+          * `raw_requests` - what the rows actually said, per key, each with the `rule` that read it;
+          * `entries` - the identities those raw requests resolved to, deduplicated and ordered by address
+            (RVA-class tokens are NOT yet relocated here; relocation happens against the artifact's own PE header
+            in `_frozen_dump_requested_entries`, which the caller runs next);
+          * `unresolved_requests` - the tokens NO rule covers, each with its raw text, its key and a reason. An
+            address-only set would drop those 60-of-1,826 tokens silently, which is the invented cut §11.2
+            forbids.
+
+        Scoped to the task's own `artifact_id` because the table spans several image bases
+        (`0x140047500` and `0x1800011c0` both appear); no cap is applied.
+        """
+        rows = session.scalars(
+            select(InvestigationActionRecord).where(
+                InvestigationActionRecord.task_id == task_id,
+                InvestigationActionRecord.artifact_id == artifact_id,
+                InvestigationActionRecord.action_type == ActionType.GET_DECOMPILE.value,
+            )
+        ).all()
+        raw_requests: list[dict[str, object]] = []
+        unresolved: list[dict[str, object]] = []
+        for row in rows:
+            seen_raw: set[tuple[str, str]] = set()
+            for source_name, source in (("target_selector", row.target_selector), ("parameters", row.parameters)):
+                if not isinstance(source, Mapping):
+                    continue
+                for key in (*cls._REQUESTED_ENTRY_ABSOLUTE_KEYS, *cls._REQUESTED_ENTRY_RVA_KEYS):
+                    if source.get(key) in (None, ""):
+                        continue
+                    # ONE REQUEST PER (row, key, value). The investigation writes the same selector into both
+                    # columns on some paths, and counting it twice would inflate the raw set the artifact
+                    # publishes; `target_selector` is the measured shape, so it wins the first sighting.
+                    if (key, str(source.get(key))) in seen_raw:
+                        continue
+                    seen_raw.add((key, str(source.get(key))))
+                    identity, rule = cls._entry_token_identity(source.get(key))
+                    raw_requests.append(
+                        {
+                            "action_id": row.id,
+                            "source": source_name,
+                            "key": key,
+                            "raw": source.get(key),
+                            "identity": identity,
+                            "rule": rule,
+                            "rva_class": key in cls._REQUESTED_ENTRY_RVA_KEYS,
+                            "entrypoint_token": rule == "entrypoint_token",
+                        }
+                    )
+                    if identity is None and rule != "entrypoint_token":
+                        unresolved.append(
+                            {
+                                "action_id": row.id,
+                                "source": source_name,
+                                "key": key,
+                                "raw": str(source.get(key)),
+                                "reason": rule or "no_address_token",
+                            }
+                        )
+        return {
+            "raw_requests": raw_requests,
+            # The resolved identities, so a reader (or an independent checker) does not have to re-derive them
+            # from `raw_requests`. ADDED after the gate owner's H1 harness pointed out that the docstring promised
+            # this set while the return only carried `action_rows`; `raw_requests[].identity` is unchanged, which
+            # is the field that harness reads.
+            "entries": sorted(
+                {
+                    str(item["identity"])
+                    for item in raw_requests
+                    if item.get("identity") not in (None, "")
+                },
+                key=lambda item: int(item, 16),
+            ),
+            "unresolved_requests": unresolved,
+            "action_rows": len(rows),
+        }
+
+    @staticmethod
+    def _frozen_dump_requested_entries(
+        entry: PackageEntry,
+        resolution: Mapping[str, object] | None = None,
+    ) -> tuple[tuple[str, ...], str, dict[str, object]]:
+        """`(entry set, source name, the resolution record)` for a frozen dump, with no invented cap.
+
+        THE INVESTIGATION'S OWN REQUESTS COME FIRST. When it asked for entries, they ARE the set - that is what
+        §11.2 requires the run to prioritise, and it is what makes H1's "returned set == requested set" a
+        statement about the investigation rather than about a test-only list.
+
+        THE FALLBACK IS THE PE ENTRY POINT, and only when nothing was requested: `pe.entry_rva` relocated by
+        `pe.image_base`, read off the artifact's own bytes. It is one named function, not a `[:N]` cut of the
+        function table, and the source travels with the set so a reader can tell the two cases apart.
+
+        RELOCATION IS EXPLICIT AND MEASURED PER VALUE (gate-owner measurements #5 and #8): the static plan's
+        `function_entry` is an **RVA** (`0x1d40`), while the investigation's `target` is an ABSOLUTE address
+        (`1400ad4d0`); comparing one against the other would produce a permanent, meaningless
+        "requested != returned". The decision is made on the VALUE, not on the key name: a token BELOW the image
+        base cannot be an absolute address in this image, so it is relocated by the image base from the artifact's
+        own PE header; a token at or above it is already absolute and is used as written. Keying the decision on
+        the key name instead was MEASURED wrong while writing the P-7 tests - the same investigation writes
+        `0x1d40` and `140001d40` under `function_entry`, and a key-based rule relocated the second one to
+        `280001d40`.
+        """
+        record: dict[str, object] = {
+            "raw_requests": list((resolution or {}).get("raw_requests") or []),
+            "unresolved_requests": list((resolution or {}).get("unresolved_requests") or []),
+            "action_rows": int((resolution or {}).get("action_rows") or 0),
+        }
         try:
             identity = analyze_bytes(entry.content, entry.logical_path)
             pe = identity.summary.get("pe") or {}
-            entry_rva = int(pe["entry_rva"])
             image_base = int(pe.get("image_base") or 0)
+            entry_rva = int(pe["entry_rva"])
         except (AttributeError, KeyError, TypeError, ValueError):
-            return ()
-        resolved = entry_identity(format(image_base + entry_rva, "x"))
-        return (resolved,) if resolved else ()
+            record["image_base"] = None
+            record["relocation_source"] = "unavailable: the artifact's PE header could not be parsed"
+            return (), "unavailable", record
+        record["image_base"] = format(image_base, "x")
+        record["relocation_source"] = (
+            "the artifact's own PE header (analyze_bytes(...).summary['pe']['image_base']), the same source the "
+            "PE entry point fallback uses"
+        )
+        record["relocation_rule"] = (
+            "a token below the image base is an RVA and is relocated; a token at or above it is already an "
+            "absolute address and is used as written"
+        )
+        resolved: dict[str, dict[str, object]] = {}
+        for item in record["raw_requests"]:
+            if not isinstance(item, Mapping):
+                continue
+            identity_text = item.get("identity")
+            if identity_text in (None, ""):
+                continue
+            value = int(str(identity_text), 16)
+            relocated = False
+            if image_base and value < image_base:
+                value += image_base
+                relocated = True
+            final = entry_identity(format(value, "x"))
+            if not final:
+                continue
+            entry_record = resolved.setdefault(
+                final,
+                {
+                    "identity": final,
+                    "keys": [],
+                    "relocated_from_rva": relocated,
+                    "raw": [],
+                },
+            )
+            entry_record["keys"].append(str(item.get("key")))
+            entry_record["raw"].append(str(item.get("raw")))
+        for item in record["raw_requests"]:
+            if isinstance(item, Mapping) and item.get("entrypoint_token"):
+                token = entry_identity(format(image_base + entry_rva, "x"))
+                if token:
+                    entry_record = resolved.setdefault(
+                        token,
+                        {"identity": token, "keys": [str(item.get("key"))], "relocated_from_rva": True,
+                         "raw": [str(item.get("raw"))]},
+                    )
+                    entry_record["rule"] = "entrypoint_token"
+        record["resolved_entries"] = [
+            resolved[key] for key in sorted(resolved, key=lambda item: int(item, 16))
+        ]
+        if resolved:
+            return (
+                tuple(sorted(resolved, key=lambda item: int(item, 16))),
+                "investigation_actions:GET_DECOMPILE",
+                record,
+            )
+        fallback = entry_identity(format(image_base + entry_rva, "x"))
+        return ((fallback,) if fallback else ()), "pe.entry_rva", record
+
+    @staticmethod
+    def _follow_up_summary_projection(
+        output: Mapping[str, object] | None,
+        *,
+        requested_entry_source: str = "",
+    ) -> dict[str, object]:
+        """The follow-up record as the TOOL RUN publishes it: queryable fields, no prose.
+
+        P-7 adds the stop contract (`stopped_reason` / `stopped_phase` / the measured `stopped_after_seconds`)
+        and the name of the source the requested entry set came from. The keys are copied, never re-derived: a
+        run that did not stop has NO `stopped_reason` key here either, so "no reason" cannot be manufactured at
+        the projection layer either.
+        """
+        if not isinstance(output, Mapping):
+            return {}
+        follow_up = output.get("follow_up")
+        if not isinstance(follow_up, Mapping):
+            return {}
+        difference = follow_up.get("entry_set_difference") or {}
+        projected: dict[str, object] = {
+            "status": follow_up.get("status"),
+            "dump_sha256": follow_up.get("dump_sha256"),
+            "identity_key": follow_up.get("identity_key"),
+            "requested_entries": follow_up.get("requested_entries"),
+            "processed_entries": follow_up.get("processed_entries"),
+            "unprocessed_entries": follow_up.get("unprocessed_entries"),
+            "expected_minus_actual": difference.get("expected_minus_actual"),
+            "actual_minus_expected": difference.get("actual_minus_expected"),
+            "sealed_digest_matches_store": follow_up.get("sealed_digest_matches_store"),
+            "deadline": follow_up.get("deadline"),
+        }
+        if requested_entry_source:
+            projected["requested_entry_source"] = requested_entry_source
+        for key in ("stopped_reason", "stopped_phase", "stopped_after_seconds", "stopped_detail"):
+            if follow_up.get(key) not in (None, ""):
+                projected[key] = follow_up.get(key)
+        return projected
+
+    @staticmethod
+    def _decompiled_pseudo_c_evidence(output: Mapping[str, object] | None) -> list[dict[str, object]]:
+        """The REAL pseudo-C of every SUCCEEDED on-demand entry, as structured Evidence payloads.
+
+        WHY THIS EXISTS (plan §11.2: "使用真实 `DecompInterface`，伪 C 写入结构化 Evidence"). Before P-7 the
+        decompiled text existed only inside the tool run's own output; it reached no Evidence row, so the report
+        could not cite it and a reader could not check it. Each payload carries the provenance a reader needs to
+        trust it: the `entry`, the recomputed digest of the text, the agreement with the frozen dump, the
+        measured decompile time and the NAMED deadline that bounded the run.
+
+        THE TEXT IS NOT BOUNDED HERE. A bound that lives in the producer would be a silent truncation of the very
+        artifact this step exists to publish; the report projection is where a recorded display budget may apply,
+        and it publishes what it removed.
+        """
+        if not isinstance(output, Mapping):
+            return []
+        follow_up = output.get("follow_up")
+        if not isinstance(follow_up, Mapping):
+            return []
+        deadline = follow_up.get("deadline") if isinstance(follow_up.get("deadline"), Mapping) else {}
+        payloads: list[dict[str, object]] = []
+        for item in follow_up.get("outcomes") or []:
+            if not isinstance(item, Mapping):
+                continue
+            if str(item.get("status") or "") != "SUCCEEDED":
+                continue
+            text = item.get("pseudo_c")
+            if not isinstance(text, str) or not text:
+                continue
+            entry = str(item.get("entry_identity") or item.get("entry") or "")
+            payloads.append(
+                {
+                    "kind": "decompiled_pseudo_c",
+                    "value": {
+                        "function_entry": entry,
+                        "pseudo_c": text,
+                        "pseudo_c_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                        "pseudo_c_lines": len(text.splitlines()),
+                        "decompiler": "Ghidra DecompInterface (resident follow-up service, one program per query)",
+                        "agreement_with_frozen_dump": item.get("agreement_with_frozen_dump"),
+                        "frozen_dump_sha256": follow_up.get("dump_sha256"),
+                        "dump_sha256_before_query": item.get("dump_sha256_before_query"),
+                        "dump_sha256_after_query": item.get("dump_sha256_after_query"),
+                        "decompiled_millis": item.get("decompile_millis"),
+                        "resident_entry": item.get("resident_entry"),
+                        "deadline": dict(deadline),
+                        "on_demand": True,
+                        "static_only": True,
+                    },
+                    "anchor": {
+                        "type": "function_entry",
+                        "function_entry": entry,
+                        "entry": entry,
+                    },
+                }
+            )
+        return payloads
 
     def _run_ghidra(
         self,
@@ -8759,7 +9051,14 @@ class AnalysisService:
             trace_id = task.trace_id
             artifact_sha256 = artifact.content_sha256
             artifact_path = artifact.logical_path
-            follow_up_entries = self._frozen_dump_requested_entries(entry)
+            # P-7 §11.2: the entries the INVESTIGATION requested come first; the PE entry point is the named
+            # fallback when it requested nothing. The SOURCE of the set, and every request that could NOT be
+            # resolved to an address, travel to the tool run with it - a silent narrowing of the requested set is
+            # the invented cut §11.2 forbids, so the exclusions are published rather than dropped.
+            requested_resolution = self._requested_decompile_entries(session, task_id, artifact_id)
+            follow_up_entries, requested_entry_source, requested_entry_resolution = (
+                self._frozen_dump_requested_entries(entry, requested_resolution)
+            )
             # P-6 §10.1: the frozen dump is built for an EXPLICIT entry set - there is no default set and no
             # `[:N]` cut. The set is named here, once, and travels with the tool request so the worker and this
             # process cannot disagree about what D contains. An empty set means "no frozen dump", which leaves
@@ -9000,24 +9299,20 @@ class AnalysisService:
             ),
             "symbol_count": len(symbol_rows),
         }
-        # P-6 C4: the follow-up outcome is QUERYABLE, not just prose. The tool run's own `output` column carries
-        # the status, the frozen dump's digest and the ENUMERATED processed/unprocessed entry sets, so a reader
-        # can ask the database why an entry has no pseudo-C instead of re-reading a limitation sentence.
+        # P-6 C4 / P-7 H2: the follow-up outcome is QUERYABLE, not just prose. The tool run's own `output` column
+        # carries the status, the frozen dump's digest and the ENUMERATED processed/unprocessed entry sets, so a
+        # reader can ask the database why an entry has no pseudo-C instead of re-reading a limitation sentence.
+        # P-7 adds the STOP contract (`stopped_reason` and the phase/elapsed it stopped at) and the name of the
+        # source the requested entry set came from; a run that did not stop carries no `stopped_reason` here
+        # either, because the projection copies the producer's record instead of inventing one.
         if isinstance(run.output.get("follow_up"), dict):
-            follow_up_summary = run.output["follow_up"]
-            difference = follow_up_summary.get("entry_set_difference") or {}
-            output_summary["follow_up"] = {
-                "status": follow_up_summary.get("status"),
-                "dump_sha256": follow_up_summary.get("dump_sha256"),
-                "identity_key": follow_up_summary.get("identity_key"),
-                "requested_entries": follow_up_summary.get("requested_entries"),
-                "processed_entries": follow_up_summary.get("processed_entries"),
-                "unprocessed_entries": follow_up_summary.get("unprocessed_entries"),
-                "expected_minus_actual": difference.get("expected_minus_actual"),
-                "actual_minus_expected": difference.get("actual_minus_expected"),
-                "sealed_digest_matches_store": follow_up_summary.get("sealed_digest_matches_store"),
-                "deadline": follow_up_summary.get("deadline"),
-            }
+            output_summary["follow_up"] = self._follow_up_summary_projection(
+                run.output, requested_entry_source=requested_entry_source
+            )
+            # The request-set RESOLUTION is queryable beside the outcome: which raw requests the investigation
+            # recorded, which of them became Ghidra identities, and which were excluded and why.
+            output_summary["follow_up"]["requested_entry_resolution"] = requested_entry_resolution
+            output_summary["requested_entry_source"] = requested_entry_source
         return self._persist_ghidra_result(
             task_id=task_id,
             artifact_id=artifact_id,
@@ -11103,6 +11398,20 @@ class AnalysisService:
             ),
             {"type": "capability_probe", "phase": self.settings.simulation_profile},
         )
+
+        # P-7 §11.2: the REAL pseudo-C of every on-demand entry the resident answered about becomes structured
+        # Evidence here, so the report can cite the decompiled function itself instead of a claim that one exists.
+        # The payloads carry their own provenance (entry, recomputed digest, agreement with the frozen dump, the
+        # measured decompile time and the named deadline), and an entry with no pseudo-C produces NO row - the B2
+        # service-down control must leave nothing behind to mistake for output.
+        for payload in self._decompiled_pseudo_c_evidence(output):
+            value = payload.get("value") if isinstance(payload.get("value"), Mapping) else {}
+            anchor = payload.get("anchor") if isinstance(payload.get("anchor"), Mapping) else {}
+            emit(
+                str(payload.get("kind") or "decompiled_pseudo_c"),
+                dict(value),
+                {**dict(anchor), "type": "function_entry"},
+            )
 
         # Turn the Ghidra call/instruction view into a small, auditable
         # mechanism layer before emitting per-function rows. This is the

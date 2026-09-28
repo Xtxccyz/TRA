@@ -2480,11 +2480,31 @@ def _has_verified_attribution(document: Mapping[str, object]) -> bool:
     return False
 
 
+#: A fenced code block, from its opening fence to its closing one, at line starts. Used to keep the two
+#: whole-body prose scrubs below OUT of published code.
+_FENCED_CODE_RE = re.compile(r"(?ms)^[ \t]*```[^\n]*\n.*?^[ \t]*```[ \t]*$")
+
+
 def _scrub_unattributed_actors(text: str, document: Mapping[str, object]) -> str:
+    """Drop unverified attribution family names, and collapse prose whitespace - NEVER inside a code fence.
+
+    P-7 FINDING (gate owner's `p7-h3-adversarial.json`, 2 of its 9 checks): the whitespace collapse below used to
+    run over the WHOLE body, including fenced blocks. P-7 is the first step to publish code into that path, and
+    the collision was measured on real pseudo-C: every run of two or more spaces became one, so the decompiled
+    body's indentation was rewritten in the report - while the provenance line above it printed the digest of the
+    SOURCE text. A reader who recomputed the digest from the visible code got a different value: the report
+    contradicting its own provenance, and the published code not being the decompiler's code.
+
+    So both scrubs are applied to the text OUTSIDE fences, and fenced blocks are returned byte-identical. The
+    fast path (no fence at all) returns the input unchanged when it holds no attribution token, which keeps every
+    non-code body byte-for-byte what it was before this fix.
+    """
     if _has_verified_attribution(document):
         return text
-    scrubbed = _APT_TOKEN_RE.sub("UNKNOWN(attribution)", text)
-    return re.sub(r"[ \t]{2,}", " ", scrubbed)
+    return _outside_fences(
+        lambda segment: re.sub(r"[ \t]{2,}", " ", _APT_TOKEN_RE.sub("UNKNOWN(attribution)", segment)),
+        text,
+    )
 
 
 def _protocol_slot_raw(row: Mapping[str, object], protocol_key: str) -> object:
@@ -4746,6 +4766,97 @@ def _observation_boundary_lines(document: Mapping[str, object]) -> list[str]:
     return [OBSERVATION_BOUNDARY_HEADING, "", OBSERVATION_BOUNDARY_PREAMBLE, "", *blocks, ""]
 
 
+def _decompiled_function_lines(document: Mapping[str, object]) -> list[str]:
+    """The on-demand decompilation, printed in the APPENDIX from the Document's own projection (P-7, plan §11.3).
+
+    WHY THE APPENDIX, MEASURED RATHER THAN PREFERRED. The gate owner ran the product's own gate over the real
+    pseudo-C the deployed image produced for the benign fixture
+    (`.scratch/ghidra-c3/preflight/p7-pseudoc-publication.json`): in the PRIMARY body it produces
+    `primary report dumps FUN_ call-sequence ledger lines` and `primary report contains FUN_ ledger names`, and
+    `_scrub_primary_jargon` does NOT remove the `FUN_` label; the same content in the appendix produces 0
+    violations. That matches this project's convention: `FUN_` is decompiler vocabulary for an unnamed function,
+    and address-level material belongs to the appendix, which this heading says is an internal ledger.
+
+    THIS IS THE SINGLE OFFICIAL RENDERER. There is no second composition path and no post-processing step: the
+    Document carries the decompiled rows (`reporting.decompiled_function_block_lines` builds the exact lines, so
+    the bound the producer applied and the text printed here cannot disagree), and `render_official_markdown`
+    prints them here. A document without the key renders nothing at all, so an older revision gains no section.
+
+    The tokens are printed for what they are: the sample's own decompiler output, static, with the digest of the
+    text and the frozen dump it was checked against. Nothing here upgrades a decompilation into a runtime fact.
+    """
+    from threat_report_agent.report.reporting import (  # function-local: the report layer must not import us
+        DECOMPILED_FUNCTIONS_DOCUMENT_KEY,
+        decompiled_function_block_lines,
+    )
+
+    rows = document.get(DECOMPILED_FUNCTIONS_DOCUMENT_KEY)
+    if not isinstance(rows, (list, tuple)):
+        return []
+    blocks: list[list[str]] = [
+        decompiled_function_block_lines(row) for row in rows if isinstance(row, Mapping)
+    ]
+    blocks = [block for block in blocks if block]
+    if not blocks:
+        return []
+    lines = [
+        # P-7: a NEW heading for the report body, so it is recorded in `docs/structure-surface.json` deliberately
+        # (`--record-surface`, the P-1.5 precedent) instead of slipping past the surface net. The first spelling of
+        # this heading ended in `）`, which the extractor's "a heading ends in a word" rule filters out - a new
+        # section would then have been published while the surface read "no change".
+        "### 按需反编译片段：Ghidra 伪 C 与调查请求入口的对应",
+        "",
+        "本段是本次调查实际请求反编译的函数入口的 Ghidra 反编译原文，按 `entry` 标识；`FUN_` 是反编译器对"
+        "未命名函数的占位名，地址级词汇按本报告约定只出现在附录。这些是**静态反编译产物**，不是运行时行为"
+        "观察；入口、摘要与冻结转储的摘要一并给出，未列出的入口在附录的观测上限记录中枚举。",
+        "",
+    ]
+    for block in blocks:
+        lines.extend(block)
+    return lines
+
+
+def _outside_fences(transform, text: str) -> str:
+    """Apply `transform` to the text OUTSIDE fenced code blocks and return the fences byte-identical.
+
+    P-7 introduced the first published code into this renderer, and every whole-body prose pass then became a
+    candidate for rewriting it: `_scrub_unattributed_actors` was measured doing exactly that (gate-owner finding
+    #9 - indentation collapsed, printed digest no longer matching the code). This helper is the ONE place that
+    rule lives, so a future pass joins it instead of re-deriving the split. A body with no fence takes the fast
+    path and is transformed exactly once, so every pre-P-7 body is byte-for-byte unchanged.
+    """
+    if "```" not in text:
+        return transform(text)
+    parts: list[str] = []
+    position = 0
+    for match in _FENCED_CODE_RE.finditer(text):
+        parts.append(transform(text[position : match.start()]))
+        parts.append(match.group(0))
+        position = match.end()
+    parts.append(transform(text[position:]))
+    return "".join(parts)
+
+
+def _prose_only(text: str) -> str:
+    """The text with every fenced code block REMOVED - what a prose GATE must judge.
+
+    `static_wording_violations` is a rule about how the report TALKS, and P-7 publishes decompiler output that
+    may contain any word at all (a symbol, a string literal). Judging the code by that rule would either reject a
+    whole report because a decompiled function contains the word `executed`, or force the code to be rewritten.
+    The gate therefore sees prose only; the code is covered instead by its own provenance line and digest, and by
+    the appendix placement the primary-body gate measured.
+    """
+    if "```" not in text:
+        return text
+    parts: list[str] = []
+    position = 0
+    for match in _FENCED_CODE_RE.finditer(text):
+        parts.append(text[position : match.start()])
+        position = match.end()
+    parts.append(text[position:])
+    return "".join(parts)
+
+
 def _verification_note(document: Mapping[str, object], rows: Sequence[Mapping[str, object]]) -> list[str]:
     coverage = document.get("analysis_coverage")
     if not isinstance(coverage, Mapping):
@@ -5854,6 +5965,11 @@ def render_analyst_chapters(
     # appendix bookkeeping because the collections it describes (investigation timeline, behavior relations) are
     # ledger material; a run that lost nothing prints nothing.
     lines.extend(_observation_boundary_lines(document))
+    # P-7: the on-demand decompilation. The code goes HERE and not in the primary body, and that is a measured
+    # decision rather than a preference: `primary_analyst_violations` rejects `FUN_[0-9A-Fa-f]{4,}` in the primary
+    # section (2 violations for one real decompiled function, `.scratch/ghidra-c3/preflight/p7-pseudoc-publication.json`),
+    # while the appendix is clean - which is also where this project's convention keeps address-level vocabulary.
+    lines.extend(_decompiled_function_lines(document))
     # Bounded to ONE token per occurrence and gated on the payload's own signature, so a line without
     # payload is returned byte-identical. Verified on the real lines: the repair clears the fragment while
     # keeping the sibling `UNKNOWN(loop: ...)` / `UNKNOWN(fallback)` tokens intact
@@ -6084,8 +6200,15 @@ def render_official_markdown(document: Mapping[str, object]) -> str:
     #
     # The gate below still runs, and still raises on a residue: the table is deliberately small, so a leftover
     # violation means the wording is genuinely unpublishable rather than merely unqualified.
-    rendered = repair_static_runtime_wording(rendered)
-    violations = static_wording_violations(rendered)
+    #
+    # P-7: BOTH the repair and the gate below run on the text OUTSIDE fenced code, for the same measured reason
+    # `_scrub_unattributed_actors` is fence-aware: the fenced blocks are decompiler output whose digest is
+    # printed beside them, so any rewrite inside a fence makes the report contradict its own provenance - and a
+    # decompiled body that happens to contain a word from the repair table (a symbol or a string literal) would
+    # otherwise rewrite the code, or fail the whole report at the gate. Prose is still repaired and still gated
+    # exactly as before; only the published code is exempt, and it is labelled static and digested.
+    rendered = _outside_fences(repair_static_runtime_wording, rendered)
+    violations = static_wording_violations(_prose_only(rendered))
     if violations:
         raise ValueError("static-only wording gate rejected report: " + ", ".join(violations))
     extra = primary_analyst_violations(rendered)

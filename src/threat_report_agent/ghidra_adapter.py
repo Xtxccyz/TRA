@@ -173,6 +173,8 @@ class GhidraHeadlessRunner:
         timeout_seconds: int = 600,
         deadline_source: Mapping[str, object] | None = None,
         cancellation_requested: Callable[[], bool] | None = None,
+        deadline_at: float | None = None,
+        run_started_at: float | None = None,
     ) -> dict[str, object]:
         """Start the RESIDENT service once, ask it every follow-up question, then shut it down.
 
@@ -188,6 +190,9 @@ class GhidraHeadlessRunner:
         against the exporter removes that race instead of hoping it does not fire.
         """
         configuration = self.configuration()
+        started = run_started_at if run_started_at is not None else time.monotonic()
+        if deadline_at is None:
+            deadline_at = started + float(timeout_seconds)
         if not configuration["available"]:
             return _follow_up_summary(
                 frozen,
@@ -240,10 +245,10 @@ class GhidraHeadlessRunner:
                 shell=False,
                 **process_options,
             )
-            deadline = time.monotonic() + timeout_seconds
+            deadline = float(deadline_at)
             port: int | None = None
-            outcomes: list[FollowUpOutcome] = []
             resident_error: str | None = None
+            summary: dict[str, object] | None = None
             try:
                 while time.monotonic() < deadline:
                     if ready_path.is_file():
@@ -259,20 +264,24 @@ class GhidraHeadlessRunner:
                     time.sleep(0.1)
                 if port is None and resident_error is None:
                     resident_error = "GHIDRA_RESIDENT_UNAVAILABLE"
-                if port is not None:
-                    transport = loopback_query_transport(port)
-                    for identity in wanted:
-                        if cancellation_requested is not None and cancellation_requested():
-                            resident_error = "GHIDRA_FOLLOW_UP_CANCELLED"
-                            break
-                        outcomes.append(
-                            query_frozen_dump(
-                                frozen,
-                                identity,
-                                transport=transport,
-                                deadline_seconds=max(1.0, deadline - time.monotonic()),
-                            )
-                        )
+                # THE QUERY LOOP RUNS WHILE THE RESIDENT IS ALIVE. MEASURED (P-7 container acceptance, first
+                # run): an earlier version of this refactor called `run_resident_queries` AFTER the `finally`
+                # block below had already shut the resident down, so every query came back
+                # `GHIDRA_RESIDENT_UNAVAILABLE` - the injected-transport tests cannot see that ordering, and the
+                # container caught it. The loop itself is still the ONE shared implementation, so the deadline,
+                # the cancellation check, `stopped_reason` and the published set difference cannot drift between
+                # this real-socket path and the focused tests.
+                if resident_error is None:
+                    summary = run_resident_queries(
+                        frozen,
+                        entries=wanted,
+                        deadline_at=deadline,
+                        deadline_source=deadline_source,
+                        run_started_at=started,
+                        timeout_seconds=timeout_seconds,
+                        transport_factory=lambda sealed_dump: loopback_query_transport(int(port)),
+                        cancellation_requested=cancellation_requested,
+                    )
             finally:
                 transcript = (
                     transcript_path.read_text(encoding="utf-8", errors="replace")
@@ -280,15 +289,22 @@ class GhidraHeadlessRunner:
                     else ""
                 )
                 shutdown = self._shutdown_resident(process, port)
-            return _follow_up_summary(
-                frozen,
-                wanted,
-                outcomes,
-                deadline_source=deadline_source,
-                transcript=transcript,
-                resident_error=resident_error,
-                resident_shutdown=shutdown,
-            )
+            if summary is None:
+                summary = run_resident_queries(
+                    frozen,
+                    entries=wanted,
+                    deadline_at=deadline,
+                    deadline_source=deadline_source,
+                    run_started_at=started,
+                    timeout_seconds=timeout_seconds,
+                    resident_error=resident_error or "GHIDRA_RESIDENT_UNAVAILABLE",
+                )
+            summary["resident"] = {
+                "shutdown": dict(shutdown or {}),
+                "transcript": str(transcript or "")[-4000:],
+                "error": resident_error or "",
+            }
+            return summary
 
     def follow_up_batch(
         self,
@@ -316,29 +332,42 @@ class GhidraHeadlessRunner:
 
         A failure in phase 1 is terminal for the batch: a dump that cannot be sealed with its instability record
         is not evidence, so the batch returns BLOCKED with an explicit limitation and publishes nothing.
+
+        THE DEADLINE IS ONE ABSOLUTE INSTANT FOR THE WHOLE BATCH (P-7). It is read from the NAMED source the
+        caller passed (`deadline_source["value"]`), never chosen here and never shrunk: §11.2 forbids a smaller
+        number invented inside product code, and the gate owner's measurement
+        (`.scratch/ghidra-c3/preflight/p7-export-deadline-probe.json`) shows the one-shot export finishes 81/81
+        entries in ~10 s, so the phase a small deadline can honestly stop is the RESIDENT one. The comparison
+        export is therefore bounded by what is LEFT of that instant, and the resident phase gets the same
+        instant - not a fresh budget.
         """
         identities = sorted(
             {identity for identity in (entry_identity(item) for item in entries) if identity},
             key=lambda item: int(item, 16),
         )
-        deadline = dict(deadline_source or {})
-        if not deadline:
-            deadline = {
-                "key": "timeout_seconds (positional argument)",
-                "value": int(timeout_seconds),
-                "source": "UNSOURCED: the caller passed a bare number instead of naming the policy it came from",
-            }
+        started = time.monotonic()
+        deadline, deadline_record = _resolve_deadline(None, timeout_seconds, deadline_source)
         if not identities:
             return self._batch_failure(
                 "GHIDRA_FOLLOW_UP_NO_REQUESTED_ENTRIES",
                 "no entry was requested, so there is nothing to decompile and nothing to query; an empty request "
                 "set must not be reported as a successful follow-up",
-                deadline=deadline,
+                deadline=deadline_record,
+            )
+        if deadline - time.monotonic() <= 0:
+            # The named deadline was already spent before the dump could be sealed. This is a FAILED batch, not a
+            # stopped one: nothing was measured, so no per-entry outcome and no set difference exists to publish,
+            # and it is given its own reason rather than being reported as a deadline-stopped run.
+            return self._batch_failure(
+                "GHIDRA_FOLLOW_UP_DEADLINE_BEFORE_COMPARISON_EXPORT",
+                "the named external deadline was already reached before the comparison export, so no dump was "
+                "sealed and no requested entry was queried",
+                deadline=deadline_record,
             )
         comparison = self.analyze(
             content,
             logical_path,
-            timeout_seconds,
+            max(1, int(deadline - time.monotonic())),
             cancellation_requested=cancellation_requested,
             requested_entries=identities,
         )
@@ -347,7 +376,7 @@ class GhidraHeadlessRunner:
                 "GHIDRA_FROZEN_DUMP_COMPARISON_EXPORT_FAILED",
                 f"the second (comparison) export did not succeed ({comparison.status}/{comparison.error}), so the "
                 "dump's instability could not be measured and it must not be sealed",
-                deadline=deadline,
+                deadline=deadline_record,
             )
         instability = compute_dump_instability(export_output, comparison.output)
         frozen = seal_frozen_dump(
@@ -362,8 +391,10 @@ class GhidraHeadlessRunner:
             frozen,
             entries=identities,
             timeout_seconds=timeout_seconds,
-            deadline_source=deadline,
+            deadline_source=deadline_record,
             cancellation_requested=cancellation_requested,
+            deadline_at=deadline,
+            run_started_at=started,
         )
         summary["frozen_dump_path"] = str(frozen.path)
         summary["instability"] = {
@@ -431,7 +462,28 @@ class GhidraHeadlessRunner:
             except subprocess.TimeoutExpired:
                 self._terminate_process_tree(process)
                 process.communicate()
-        return {"shutdown_requested": asked, "exit_code": process.returncode}
+        # P-7 DIAGNOSTIC (gate-owner finding #11): `analyzeHeadless` reports a post-script that throws by
+        # `REPORT SCRIPT ERROR ... file:line` and can still exit 0, so a resident that "exited cleanly" without
+        # ever answering is invisible unless its OWN output is captured. The process writes to a pipe; whatever it
+        # produced is read here and returned with the exit code, so the next failure of this shape diagnoses itself
+        # instead of needing two probes to see.
+        output = ""
+        try:
+            stream = process.stdout
+            if stream is not None:
+                remaining = stream.read()
+                output = remaining if isinstance(remaining, str) else str(remaining or "")
+        except (OSError, ValueError):
+            output = ""
+        if not output:
+            declared = getattr(process, "args", None)
+            output = f"(the resident produced no stdout; launch command={declared!r})" if declared else ""
+        return {
+            "shutdown_requested": asked,
+            "exit_code": process.returncode,
+            "stdout_tail": str(output)[-2000:],
+            "stdout_chars": len(str(output)),
+        }
 
     @staticmethod
     def _prepare_analysis_content(
@@ -1035,6 +1087,11 @@ class FollowUpOutcome:
             "pseudo_c_sha256": (
                 hashlib.sha256(self.pseudo_c.encode("utf-8")).hexdigest() if self.pseudo_c is not None else None
             ),
+            # P-7: the TEXT travels with the outcome. Before this step the summary published only a digest and a
+            # boolean, so no downstream consumer could put the decompiled function into Evidence or the report -
+            # "the pseudo-C reached the reader" would have been unbacked. It is published ONLY for a SUCCEEDED
+            # outcome; every other status carries None here by construction.
+            "pseudo_c": self.pseudo_c,
             "decompile_millis": self.decompile_millis,
             "limitation": self.limitation.as_dict() if self.limitation else None,
         }
@@ -1326,26 +1383,40 @@ def _follow_up_summary(
     transcript: str,
     resident_error: str | None = None,
     resident_shutdown: Mapping[str, object] | None = None,
+    stopped_reason: str = "",
+    stopped_phase: str = "",
+    stopped_after_seconds: float | None = None,
+    unanswered_code: str = "",
+    unanswered_detail: str = "",
+    unanswered_status: str = "PARTIAL",
 ) -> dict[str, object]:
     """Turn the per-entry outcomes into one publishable record: SETS, a status, and the limitations.
 
     Every requested entry gets exactly one outcome. An entry the resident never got to is filled in with the
     reason it was not answered, so `requested_minus_processed` can never be silently empty because a loop was cut
     short.
+
+    P-7 adds the STOP contract (plan §11.3 H2): when the loop was cut short by its deadline, the summary carries
+    `stopped_reason` / `stopped_phase` / the measured `stopped_after_seconds`, and every unqueried entry is
+    filled with `unanswered_code` instead of vanishing. A summary that stopped for no reason carries NO
+    `stopped_reason` key at all - the field is evidence of a stop, never a label on a successful run.
     """
     completed = list(outcomes)
     answered = {outcome.entry_identity for outcome in completed}
-    if resident_error:
+    filler_code = unanswered_code or resident_error or ""
+    if filler_code:
         for identity in wanted:
             if identity not in answered:
                 completed.append(
                     follow_up_unavailable_outcome(
                         frozen,
                         identity,
-                        resident_error,
-                        _RESIDENT_ERROR_DETAIL.get(
-                            resident_error, "the resident follow-up service did not answer this entry"
+                        filler_code,
+                        unanswered_detail
+                        or _RESIDENT_ERROR_DETAIL.get(
+                            filler_code, "the resident follow-up service did not answer this entry"
                         ),
+                        status=unanswered_status if unanswered_code else "BLOCKED",
                     )
                 )
     successful = [outcome.entry_identity for outcome in completed if outcome.status == "SUCCEEDED"]
@@ -1360,7 +1431,7 @@ def _follow_up_summary(
         status = "SUCCEEDED"
     limitations = [outcome.limitation_text for outcome in completed if outcome.limitation is not None]
     requested = [identity for identity in wanted]
-    return {
+    summary: dict[str, object] = {
         "schema_version": GHIDRA_FOLLOW_UP_SCHEMA_VERSION,
         "status": status,
         "identity_key": ENTRY_IDENTITY_KEY,
@@ -1385,6 +1456,16 @@ def _follow_up_summary(
             "transcript": transcript[-4000:],
         },
     }
+    if stopped_reason:
+        summary["stopped_reason"] = stopped_reason
+        summary["stopped_phase"] = stopped_phase
+        summary["stopped_after_seconds"] = stopped_after_seconds
+        summary["stopped_detail"] = (
+            f"the run stopped in phase {stopped_phase or 'unknown'} with reason {stopped_reason} after "
+            f"{stopped_after_seconds}s; {len(summary['unprocessed_entries'])} of {len(requested)} requested "
+            "entry(ies) were not queried and no pseudo-C is published for them"
+        )
+    return summary
 
 
 _RESIDENT_ERROR_DETAIL: dict[str, str] = {
@@ -1416,6 +1497,133 @@ _RESIDENT_ERROR_DETAIL: dict[str, str] = {
         "the comparison export failed, so the dump's instability could not be measured and the dump was not sealed"
     ),
 }
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# P-7: the deadline that STOPS a run, and the set difference it publishes when it does (plan §11.2/§11.3)
+# ---------------------------------------------------------------------------------------------------------------------
+#: The published stop reasons. `external_deadline` is §11.3's H2 token; `cancelled` reuses C4's existing
+#: cancellation signal instead of inventing a second word for the same event. A run that stopped for neither
+#: reason carries NO `stopped_reason` key at all - a reason that was never reached must not be fabricated.
+STOPPED_REASON_EXTERNAL_DEADLINE = "external_deadline"
+STOPPED_REASON_CANCELLED = "cancelled"
+#: Which phase the deadline stopped. The measured relation (gate-owner messages #1/#2) is
+#: `~10 s export + N x ~0.3 s resident`, so with a deadline too small to finish, the phase that runs out is the
+#: resident query loop - the export finishes 81/81 entries in ~10 s and cannot honestly be starved on this input.
+STOP_PHASE_RESIDENT_QUERY = "resident_query"
+STOP_DETAIL_EXTERNAL_DEADLINE = (
+    "the external deadline named by the follow-up batch was reached before this entry was queried, so it is "
+    "published as unprocessed and NO pseudo-C is published for it"
+)
+_RESIDENT_ERROR_DETAIL["GHIDRA_FOLLOW_UP_EXTERNAL_DEADLINE"] = STOP_DETAIL_EXTERNAL_DEADLINE
+
+
+def _resolve_deadline(
+    deadline_at: float | None,
+    timeout_seconds: int | None,
+    deadline_source: Mapping[str, object] | None,
+) -> tuple[float, dict[str, object]]:
+    """`(absolute monotonic instant, the named record that justifies it)`.
+
+    THE VALUE IS READ FROM THE NAMED SOURCE, not chosen here: when `deadline_source` carries a numeric `value`,
+    that value is the deadline. A caller that passes only a positional number gets a record whose `source` says
+    `UNSOURCED`, so a bare number can never be read later as a policy value (plan §11.2: "artifact 必须给出该
+    deadline 的 policy/DB 来源和值"). Nothing in this module shrinks the deadline.
+    """
+    record = dict(deadline_source or {})
+    raw = record.get("value")
+    seconds: float | None = None
+    if isinstance(raw, bool):
+        seconds = None
+    elif isinstance(raw, (int, float)):
+        seconds = float(raw)
+    elif isinstance(raw, str) and raw.strip().isdigit():
+        seconds = float(raw.strip())
+    if seconds is None:
+        seconds = float(timeout_seconds or 0)
+        if not record:
+            record = {
+                "key": "timeout_seconds (positional argument)",
+                "value": int(seconds),
+                "source": "UNSOURCED: the caller passed a bare number instead of naming the policy it came from",
+            }
+    if deadline_at is not None:
+        return float(deadline_at), record
+    return time.monotonic() + max(0.0, seconds), record
+
+
+def run_resident_queries(
+    frozen: FrozenDump,
+    *,
+    entries: Sequence[str] = (),
+    deadline_at: float | None = None,
+    deadline_source: Mapping[str, object] | None = None,
+    run_started_at: float | None = None,
+    timeout_seconds: int | None = None,
+    transport_factory: Callable[[FrozenDump], Callable[[Mapping[str, object], float], Mapping[str, object]]]
+    | None = None,
+    cancellation_requested: Callable[[], bool] | None = None,
+    resident_error: str | None = None,
+    transcript: str = "",
+    resident_shutdown: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """The ONE resident query loop: ask about the requested entries until the deadline, then SAY what stopped it.
+
+    WHY THIS IS A MODULE FUNCTION AND NOT INLINED. `GhidraHeadlessRunner.serve_follow_up_queries` reaches it with
+    a real loopback transport after launching the resident, and the focused tests reach it with an injected
+    transport. Two loops would be two chances to disagree about the deadline, and the deadline is the whole
+    point of H2: the loop checks the ABSOLUTE instant before EVERY query, so a query is never handed a fresh
+    budget the reported deadline does not cover.
+
+    The published contract when it stops:
+      * `stopped_reason` = `external_deadline` (or `cancelled`), plus `stopped_phase` and the MEASURED
+        `stopped_after_seconds` since the run started;
+      * every requested entry still has exactly one outcome, and the unqueried ones carry
+        `GHIDRA_FOLLOW_UP_EXTERNAL_DEADLINE` with a non-`SUCCEEDED` status;
+      * `processed_entries` / `unprocessed_entries` and BOTH directions of the set difference stay enumerated by
+        `_follow_up_summary`, so a stopped run can never read as a smaller successful one;
+      * a run that stopped for neither reason carries NO `stopped_reason` key.
+    """
+    started = run_started_at if run_started_at is not None else time.monotonic()
+    deadline, record = _resolve_deadline(deadline_at, timeout_seconds, deadline_source)
+    wanted = [identity for identity in (entry_identity(item) for item in entries) if identity]
+    if not wanted:
+        wanted = [identity for identity in frozen.requested_entries if identity]
+    outcomes: list[FollowUpOutcome] = []
+    stopped_reason = ""
+    stopped_phase = ""
+    unanswered_code = ""
+    if resident_error is None and transport_factory is not None:
+        transport = transport_factory(frozen)
+        for identity in wanted:
+            if cancellation_requested is not None and cancellation_requested():
+                stopped_reason = STOPPED_REASON_CANCELLED
+                stopped_phase = STOP_PHASE_RESIDENT_QUERY
+                unanswered_code = "GHIDRA_FOLLOW_UP_CANCELLED"
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                stopped_reason = STOPPED_REASON_EXTERNAL_DEADLINE
+                stopped_phase = STOP_PHASE_RESIDENT_QUERY
+                unanswered_code = "GHIDRA_FOLLOW_UP_EXTERNAL_DEADLINE"
+                break
+            outcomes.append(
+                query_frozen_dump(frozen, identity, transport=transport, deadline_seconds=remaining)
+            )
+    return _follow_up_summary(
+        frozen,
+        wanted,
+        outcomes,
+        deadline_source=record,
+        transcript=transcript,
+        resident_error=resident_error,
+        resident_shutdown=resident_shutdown,
+        stopped_reason=stopped_reason,
+        stopped_phase=stopped_phase,
+        stopped_after_seconds=(round(time.monotonic() - started, 2) if stopped_reason else None),
+        unanswered_code=unanswered_code,
+        unanswered_detail=_RESIDENT_ERROR_DETAIL.get(unanswered_code, ""),
+    )
 
 
 def follow_up_summary_limitation(

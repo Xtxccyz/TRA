@@ -44,7 +44,7 @@
     "prompts/triage-system-v1.md": "28820d17a605ca71"
   },
   "report_schema": {
-    "count": 36,
+    "count": 37,
     "headings": [
       "# 静态分析报告",
       "## 1. Executive Assessment",
@@ -78,6 +78,7 @@
       "### Static analysis plan",
       "### 十问槽位",
       "### 恢复到的字符串事实",
+      "### 按需反编译片段：Ghidra 伪 C 与调查请求入口的对应",
       "### 样本概况",
       "### 模型合成候选",
       "### 结论摘要",
