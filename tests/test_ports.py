@@ -506,8 +506,14 @@ def test_the_model_action_contract_is_defined_once_and_only_reexported() -> None
     #: `import json`, `import re` and `from enum import Enum, StrEnum`, which the moved `canonical_action_key`,
     #: `_FUNCTION_LOCATOR`, `ActionType` and `InvestigationThreadState` need. Its two other import changes are
     #: in-line (`dataclasses` gained `field`, `typing` gained `Iterable, Mapping`) and add no line. 142 + 4 = 146.
-    #: In both cases the assertion below still proves the substance (exactly ONE definition, in the contract layer).
-    assert definitions == ["contracts.py:146"], (
+    #: MEASURED shift 146 -> 172 (B00-contract, +26 lines): `FailureInterpretation` and the derived
+    #: `FAILURE_INTERPRETATION_TOKENS` had to be hoisted ABOVE every model that annotates with them. Placed below this
+    #: class, `Literal[*FAILURE_INTERPRETATION_TOKENS]` was an unresolvable forward reference while `contracts.py` was
+    #: still executing, so a mid-import chain raised `ImportError: cannot import name 'Proposal' from
+    #: 'threat_report_agent.contracts'` and `python -m threat_report_agent.cli --help` exited 1 - invisible to a
+    #: focused test that imports fresh, caught by the full suite. In all three cases the assertion below still proves
+    #: the substance (exactly ONE definition, in the contract layer).
+    assert definitions == ["contracts.py:172"], (
         f"expected exactly one definition, in contracts.py; found {definitions}. The canonical class is the contract "
         "layer's and every other path must only re-export it"
     )
@@ -541,4 +547,4 @@ def test_the_duplicate_definition_check_can_fail() -> None:
         _definitions_of("DynamicPlanAction", PACKAGE, source="class SomethingElse:\n    pass\n")
         == []
     )
-    assert _definitions_of("DynamicPlanAction", PACKAGE) == ["contracts.py:146"]  # same pin as above: M-1 142 -> 146
+    assert _definitions_of("DynamicPlanAction", PACKAGE) == ["contracts.py:172"]  # same pin as above: M-1 142 -> 146, B00 146 -> 172

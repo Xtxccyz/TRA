@@ -34,7 +34,11 @@ from sqlalchemy import text
 from threat_report_agent.config import Settings
 from threat_report_agent.investigation import normalize_target_selector
 from threat_report_agent.auth import require_permission, AuthAdapter
-from threat_report_agent.contracts import BackgroundContextInput
+from threat_report_agent.contracts import (
+    BackgroundContextInput,
+    FAILURE_INTERPRETATION_TOKENS,
+    FailureInterpretation,
+)
 from threat_report_agent.content_store import LocalContentStore, S3ContentStore
 from threat_report_agent.database import Database
 from threat_report_agent.observability import (
@@ -201,7 +205,16 @@ class EvidenceQueryRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
 
 
-_FAILURE_INTERPRETATION_TOKENS = ("NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "UNKNOWN", "MODEL_TRANSPORT_FAILURE")
+#: The accepted vocabulary is NOT restated here: it is the ONE contract in `contracts.py`, imported above. `main.py`
+#: used to carry its own four-token tuple (and a three-token Literal below), which is exactly how the DSH side came to
+#: believe the field was a closed three-token dialect and filed a provider 402 as a static boundary of the sample.
+_FAILURE_INTERPRETATION_TOKENS: tuple[str, ...] = FAILURE_INTERPRETATION_TOKENS
+
+#: Token values are read off the enum so this module cannot silently drift from the contract.
+_UNKNOWN = FailureInterpretation.UNKNOWN.value
+_NO_NEW_EVIDENCE = FailureInterpretation.NO_NEW_EVIDENCE.value
+_STATIC_BOUNDARY = FailureInterpretation.STATIC_BOUNDARY.value
+_MODEL_TRANSPORT_FAILURE = FailureInterpretation.MODEL_TRANSPORT_FAILURE.value
 
 #: Prose markers that can only describe the MODEL/TRANSPORT side of a failed action, never the artifact. Deliberately
 #: excludes a bare `TIMEOUT`/`TIMED_OUT`, which can equally describe a TOOL timeout (a real extraction gap).
@@ -217,6 +230,14 @@ _MODEL_TRANSPORT_MARKERS = (
     "RATE_LIMIT",
     "UNAVAILABLE",
     "DEPENDENCY",
+    # The transport error classes `ModelGateway._is_retryable` treats as retryable
+    # (`model_gateway.py:582`): each one is a fault on the wire, never a property of the artifact.
+    "READTIMEOUT",
+    "CONNECTTIMEOUT",
+    "POOLTIMEOUT",
+    "WRITETIMEOUT",
+    "REMOTEPROTOCOLERROR",
+    "CONNECTERROR",
 )
 
 
@@ -226,16 +247,21 @@ def _coerce_failure_interpretation(raw: object) -> tuple[str, str]:
     TRANSPORT IS CHECKED FIRST, ON PURPOSE. MEASURED (B00/B04 handoff): a client that writes
     "could not establish STATIC_BOUNDARY: provider returned 402" must be recorded as a MODEL transport failure. The
     substring loop below would otherwise see `STATIC_BOUNDARY` and file a platform fault as a property of the SAMPLE.
+
+    Returns `(token, leftover_prose)`, where `token` is always a member of `FAILURE_INTERPRETATION_TOKENS`:
+    a provider 402 / timeout / empty reply -> MODEL_TRANSPORT_FAILURE, a no-gain negative result -> NO_NEW_EVIDENCE,
+    an honest artifact limit -> STATIC_BOUNDARY, and anything else (e.g. an ordinary TOOL failure such as a tool
+    timeout, which is a real extraction gap) -> UNKNOWN.
     """
     text = str(raw or "").strip()
     if text in _FAILURE_INTERPRETATION_TOKENS:
         return text, ""
     folded_early = text.upper().replace("-", "_").replace(" ", "_")
     if any(marker.replace(" ", "_") in folded_early for marker in _MODEL_TRANSPORT_MARKERS):
-        return "MODEL_TRANSPORT_FAILURE", text
+        return _MODEL_TRANSPORT_FAILURE, text
     folded = text.upper().replace("-", "_")
-    token = "UNKNOWN"
-    for candidate in ("NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "UNKNOWN"):
+    token = _UNKNOWN
+    for candidate in (_NO_NEW_EVIDENCE, _STATIC_BOUNDARY, _UNKNOWN):
         if candidate in folded.replace(" ", "_") or candidate in text.upper():
             token = candidate
             break
@@ -258,9 +284,9 @@ class WorkbenchActionRequest(BaseModel):
     target_selector: dict[str, str | int]
     expected_evidence_kinds: list[str] = Field(min_length=1, max_length=32)
     success_condition: str = Field(default="new_targeted_evidence", min_length=1, max_length=160)
-    failure_interpretation: Literal[
-        "UNKNOWN", "NO_NEW_EVIDENCE", "STATIC_BOUNDARY", "MODEL_TRANSPORT_FAILURE"
-    ] = "UNKNOWN"
+    # Derived from `FAILURE_INTERPRETATION_TOKENS`, i.e. from `contracts.FailureInterpretation`. The literal used to be
+    # written out here as a third copy, so this request model accepted tokens the contract enum did not define.
+    failure_interpretation: Literal[*FAILURE_INTERPRETATION_TOKENS] = "UNKNOWN"
 
     @model_validator(mode="before")
     @classmethod

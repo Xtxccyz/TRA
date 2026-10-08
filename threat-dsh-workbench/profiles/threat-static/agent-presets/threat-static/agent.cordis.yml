@@ -174,8 +174,13 @@
       the bounded way to ask -- it is not a second chat route and it does not
       replace a static action.
       FAILURE_INTERPRETATION AND FAILURE_MEANING ARE DIFFERENT FIELDS.
-      failure_interpretation must be exactly UNKNOWN, NO_NEW_EVIDENCE, or STATIC_BOUNDARY
-      -- one machine token, no prose. The branching explanation belongs in
+      failure_interpretation must be exactly UNKNOWN, NO_NEW_EVIDENCE, STATIC_BOUNDARY, or
+      MODEL_TRANSPORT_FAILURE
+      -- one machine token, no prose. NO_NEW_EVIDENCE means this method produced no new
+      evidence, STATIC_BOUNDARY means the artifact itself has a static limit, and
+      MODEL_TRANSPORT_FAILURE means the model/provider call failed on the wire or at the
+      provider (402/payment, timeout, empty reply): that is a fact about the platform, never
+      a static boundary of the sample, and never a negative result. The branching explanation belongs in
       failure_meaning, where prose is expected: "if the window returns nothing,
       try the callee instead". Never write the whole branch story into
       failure_interpretation.

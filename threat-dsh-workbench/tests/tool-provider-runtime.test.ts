@@ -804,7 +804,9 @@ test('a model/transport failure cannot be recorded as STATIC_BOUNDARY in the act
     const body = actionBodies[0]
     assert.notEqual(body.failure_interpretation, 'STATIC_BOUNDARY')
     assert.notEqual(body.failure_interpretation, 'NO_NEW_EVIDENCE')
-    assert.equal(body.failure_interpretation, 'UNKNOWN')
+    // The backend stores MODEL_TRANSPORT_FAILURE as its own token now, so the client must hand over the PLATFORM fault
+    // itself instead of downgrading it to UNKNOWN and hiding it inside prose.
+    assert.equal(body.failure_interpretation, 'MODEL_TRANSPORT_FAILURE')
     assert.match(String(body.failure_meaning), /MODEL_402_PAYMENT_REQUIRED/)
     assert.match(String(body.failure_meaning), /insufficient balance/i)
   } finally { globalThis.fetch = originalFetch }

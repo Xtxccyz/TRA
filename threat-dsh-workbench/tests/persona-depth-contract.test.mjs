@@ -8,12 +8,15 @@ test('threat-static persona requires convergent, evidence-seeking first-pass inv
     'autonomous', 'information-gain', 'initiator', 'consumer', 'failure/fallback',
     'EVIDENCE_GAIN', 'HYPOTHESIS_NARROWED', 'MISSING_INPUT', 'POLICY_DENIED',
     'BUDGET_EXHAUSTED', 'NO_NEW_EVIDENCE', 'frontier item', 'model/provider errors',
+    // The persona is the instruction the conversation model reads every turn, so a
+    // contract token the persona never names is a token the model will not use.
+    'STATIC_BOUNDARY', 'MODEL_TRANSPORT_FAILURE',
   ]) assert.match(source, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `missing convergence requirement: ${token}`)
   assert.match(source, /Do not expose private\s+chain-of-thought/)
   assert.match(source, /successful static run\s+is not dynamic execution/)
   assert.match(source, /Settings → 模型/)
   assert.match(source, /no separate analysis-planner/)
-  assert.match(source, /failure_interpretation must be exactly UNKNOWN,\s*NO_NEW_EVIDENCE, or STATIC_BOUNDARY/)
+  assert.match(source, /failure_interpretation must be exactly UNKNOWN,\s*NO_NEW_EVIDENCE, STATIC_BOUNDARY, or\s*MODEL_TRANSPORT_FAILURE/)
   assert.match(source, /absent from that\s+revision markdown/)
   assert.match(source, /older SUCCEEDED\s+task for the same SHA256/)
   assert.match(source, /do not quote a previous task's\s+report/)
@@ -46,6 +49,8 @@ test('persona and tool-provider keep 402/timeout, policy denial, and STATIC_BOUN
   const tools = await readFile(new URL('../packages/threat-tool-provider/src/index.ts', import.meta.url), 'utf8')
   assert.match(persona, /402\/timeout/)
   assert.match(persona, /do not downgrade into POLICY_DENIED or STATIC_BOUNDARY/)
+  assert.match(persona, /MODEL_TRANSPORT_FAILURE/)
+  assert.match(persona, /fact about the platform, never\s+a static boundary of the sample/)
   assert.match(persona, /then\s+STOP[\s\S]{0,280}GET_DECOMPILE/)
   assert.match(persona, /Do not write to the desktop/)
   assert.match(tools, /A timeout is not a report, not POLICY_DENIED, and not STATIC_BOUNDARY/)

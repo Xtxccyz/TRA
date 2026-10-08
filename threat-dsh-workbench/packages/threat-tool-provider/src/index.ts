@@ -9,11 +9,14 @@ import {
   boundedIds,
   boundedText,
   classifyModelFailure,
+  FAILURE_INTERPRETATION_TOKENS,
   firstRequestInvestigationProtocol,
+  MODEL_TRANSPORT_FAILURE,
   modelFailureFields,
   modelTransportFailureInProse,
   THREAT_TOOL_CONTRACT_VERSION,
   THREAT_SESSION_CONTEXT_PROTOCOL,
+  type FailureInterpretation,
   type ThreatPluginManifest,
 } from '@threat-dsh/plugin-sdk'
 
@@ -83,10 +86,40 @@ function plannerTurnIdOf(args: Record<string, unknown>, exec: SessionExecution):
   return 'dsh-session-unresolved'
 }
 
-function transportFailureAnnotation(payload: Record<string, unknown>, kind: string): Record<string, unknown> {
-  const meaning = textValue(payload.failure_meaning, 1200) || ''
-  const annotation = `${kind}: model/transport fault, not a static boundary and not a negative result (see failure_class in the workbench)`
-  const next: Record<string, unknown> = { ...payload, failure_interpretation: 'UNKNOWN' }
+/**
+ * The backend's real vocabulary, generated from `contracts.FailureInterpretation`. This used to be a hardcoded
+ * three-token array with a comment claiming the backend field was a closed three-token Literal; it was not, and a
+ * provider 402 therefore had to be filed as UNKNOWN or STATIC_BOUNDARY -- a statement about the SAMPLE.
+ *
+ * The type annotation is what makes a missing token a COMPILE error: the generated tuple is `as const`, so narrowing
+ * it to `readonly FailureInterpretation[]` fails `pnpm typecheck` if the generated file names a token the SDK union
+ * does not have.
+ */
+const CATALOG_FAILURE_INTERPRETATION_TOKENS: readonly FailureInterpretation[] =
+  FAILURE_INTERPRETATION_TOKENS
+
+/**
+ * The backend's annotation this client already adds to `failure_meaning` carries transport markers ("402",
+ * "provider", "timeout") that describe a PREVIOUS fault. Re-classifying them on the next submit would make an old
+ * annotation look like a fresh fault in the current prose, so it is removed before the transport scan.
+ */
+const RECORDED_TRANSPORT_ANNOTATION = new RegExp(
+  `(?:^|[;.]\\s*)(?:${[
+    'MODEL_CALLS_DISABLED', 'MODEL_NOT_CONFIGURED', 'MODEL_402_PAYMENT_REQUIRED', 'MODEL_401_AUTH',
+    'MODEL_429_RATE_LIMITED', 'MODEL_TIMEOUT', 'MODEL_EMPTY_REPLY', 'MODEL_GATEWAY_5XX', 'MODEL_TRANSPORT',
+  ].join('|')}):\\s*model/transport fault[^;]*(?:;\\s*)?`,
+  'g',
+)
+
+/**
+ * MODEL_TRANSPORT_FAILURE is the backend token that stores a provider 402 / timeout / empty reply as a PLATFORM fact.
+ * The token alone is too coarse for the operator, so the classification is kept in `failure_meaning` alongside the
+ * original prose -- that field is prose by contract, which is where the branching explanation belongs.
+ */
+function transportFailureAnnotation(next: Record<string, unknown>, transportKind: string): Record<string, unknown> {
+  const meaning = textValue(next.failure_meaning, 1200) || ''
+  const annotation = `${transportKind}: model/transport fault, not a static boundary and not a negative result (failure_interpretation=MODEL_TRANSPORT_FAILURE; see failure_class in the workbench)`
+  next.failure_interpretation = MODEL_TRANSPORT_FAILURE
   next.failure_meaning = (meaning ? `${annotation}; ${meaning}` : annotation).slice(0, 1200)
   return next
 }
@@ -95,28 +128,31 @@ function coerceFailureInterpretation(payload: Record<string, unknown>): Record<s
   const raw = textValue(payload.failure_interpretation, 1200)
   const meaning = textValue(payload.failure_meaning, 1200) || ''
   const reason = textValue(payload.reason, 1200) || ''
-  // A model/transport fault is not a statement about the sample. The backend
-  // field is a closed Literal (UNKNOWN | NO_NEW_EVIDENCE | STATIC_BOUNDARY), so
-  // if this side hands it STATIC_BOUNDARY the failure is *stored* as a static
-  // boundary and later reads back as a product finding. Keep the token UNKNOWN
-  // and name the fault in failure_meaning, which the action row stores.
-  const transportKind = modelTransportFailureInProse(`${raw} ${meaning} ${reason}`)
   const next: Record<string, unknown> = { ...payload }
-  let token = 'UNKNOWN'
-  if (raw && ['UNKNOWN', 'NO_NEW_EVIDENCE', 'STATIC_BOUNDARY'].includes(raw)) {
-    token = raw
+
+  // A model/transport fault is a fact about the PLATFORM, never a boundary of the sample. It is checked FIRST, and it
+  // wins over any STATIC_BOUNDARY substring in the client's prose -- that ordering is the whole point of the token:
+  // "could not establish STATIC_BOUNDARY: provider returned 402" is a 402. The backend stores
+  // MODEL_TRANSPORT_FAILURE as its own token, so there is nothing left to downgrade it into.
+  const transportKind = modelTransportFailureInProse(
+    [raw, meaning.replace(RECORDED_TRANSPORT_ANNOTATION, ' '), reason].join(' '),
+  )
+  if (transportKind !== 'NONE') return transportFailureAnnotation(next, transportKind)
+
+  let token: FailureInterpretation = 'UNKNOWN'
+  if (raw && (CATALOG_FAILURE_INTERPRETATION_TOKENS as readonly string[]).includes(raw)) {
+    token = raw as FailureInterpretation
   } else if (raw) {
     const folded = raw.toUpperCase().replace(/[-\s]/g, '_')
     if (folded.includes('NO_NEW_EVIDENCE') || raw.toUpperCase().includes('NO_NEW_EVIDENCE')) token = 'NO_NEW_EVIDENCE'
     else if (folded.includes('STATIC_BOUNDARY') || raw.toUpperCase().includes('STATIC_BOUNDARY')) token = 'STATIC_BOUNDARY'
+  }
+  if (raw && token !== 'UNKNOWN' && raw !== token && !meaning.includes(raw)) {
     // The explicit annotation is REQUIRED, not cosmetic: `{ ...payload, failure_interpretation: token }` is inferred as
     // `{ failure_interpretation: string }`, dropping the index signature, so the `next.failure_meaning` write below failed
     // `pnpm typecheck` with TS2339 while the function's own return type is `Record<string, unknown>`.
-    if (token !== 'UNKNOWN' && !meaning.includes(raw)) {
-      next.failure_meaning = (meaning ? `${meaning}; ${raw}` : raw).slice(0, 1200)
-    }
+    next.failure_meaning = (meaning ? `${meaning}; ${raw}` : raw).slice(0, 1200)
   }
-  if (transportKind !== 'NONE' && token !== 'UNKNOWN') return transportFailureAnnotation(next, transportKind)
   next.failure_interpretation = token
   return next
 }
@@ -312,7 +348,7 @@ function modelCompleteResult(raw: Record<string, unknown>): Record<string, unkno
       accepted: false,
       ...modelFailureFields(failure),
       instruction:
-        'The model call did not produce a usable completion. This is a model/transport fault: it is not an analysis result, not evidence about the sample, and not a static-analysis boundary. Do not write it into a claim, a finding, or failure_interpretation -- report the model fault itself and keep working with the static tools.',
+        'The model call did not produce a usable completion. This is a model/transport fault: it is not an analysis result, not evidence about the sample, and not a static-analysis boundary. Do not write it into a claim or a finding -- report the model fault itself and keep working with the static tools. If you must record it in an action, failure_interpretation=MODEL_TRANSPORT_FAILURE is the token for exactly this (a fact about the platform); never UNKNOWN or STATIC_BOUNDARY.',
     }
   }
   return compactToolResult({ ...raw, accepted: true }, { preserve: ['content'] })
@@ -690,7 +726,7 @@ export function apply(ctx: Context, config: Config): void {
       success_condition: { type: 'string' },
       failure_interpretation: {
         type: 'string',
-        description: 'Exactly UNKNOWN, NO_NEW_EVIDENCE, or STATIC_BOUNDARY. Put any branching explanation in failure_meaning.',
+        description: 'Exactly one of UNKNOWN, NO_NEW_EVIDENCE, STATIC_BOUNDARY, MODEL_TRANSPORT_FAILURE. NO_NEW_EVIDENCE means this method found nothing; STATIC_BOUNDARY means the artifact itself has a static limit; MODEL_TRANSPORT_FAILURE means the model/provider call 402\'d, timed out or returned an empty reply -- that is a fact about the PLATFORM, never a static boundary of the sample, and it is never a negative result. Put any branching explanation in failure_meaning.',
       },
       evidence_ids: { type: 'array', items: { type: 'string' } },
       origin: { type: 'string' }, planner_turn_id: { type: 'string' },

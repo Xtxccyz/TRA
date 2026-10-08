@@ -371,6 +371,100 @@ def test_a_model_transport_failure_is_never_coerced_into_a_static_boundary() -> 
     assert request.failure_meaning, "the original prose must survive as the failure meaning, not be discarded"
 
 
+def test_each_failure_status_is_its_own_token_and_the_contract_has_one_source() -> None:
+    """B00: 402/timeout/empty reply, no-gain, a real static boundary and a tool failure are four different records.
+
+    This extends `test_a_model_transport_failure_is_never_coerced_into_a_static_boundary` (which pins the
+    transport-first ordering and the surviving prose) with the missing statuses: the static no-gain case, the honest
+    static boundary case and the ORDINARY TOOL FAILURE case, which is not a model fault and therefore must not become
+    MODEL_TRANSPORT_FAILURE.
+
+    It also pins the single-source-of-truth requirement as an executable fact: the accepted vocabulary is derived from
+    `contracts.FailureInterpretation` and neither `contracts.py` nor `main.py` may restate the tokens.
+    """
+    from threat_report_agent.contracts import (
+        FAILURE_INTERPRETATION_TOKENS,
+        DynamicPlanAction,
+        FailureInterpretation,
+    )
+    from threat_report_agent.main import WorkbenchActionRequest, _coerce_failure_interpretation
+
+    # ONE source of truth: the tuple is the enum's values, and both Literal contracts unpack that tuple.
+    assert FAILURE_INTERPRETATION_TOKENS == tuple(member.value for member in FailureInterpretation)
+    assert set(FAILURE_INTERPRETATION_TOKENS) == {
+        "UNKNOWN",
+        "NO_NEW_EVIDENCE",
+        "STATIC_BOUNDARY",
+        "MODEL_TRANSPORT_FAILURE",
+    }, "a member added to or removed from the enum must reach this tuple by derivation, not by editing a second list"
+    # `from __future__ import annotations` keeps `Literal[*FAILURE_INTERPRETATION_TOKENS]` a string until the model is
+    # built, so the published JSON schema is the resolved, client-visible form of this contract.
+    for name, model in (("DynamicPlanAction", DynamicPlanAction), ("WorkbenchActionRequest", WorkbenchActionRequest)):
+        published = model.model_json_schema()["properties"]["failure_interpretation"]["enum"]
+        assert sorted(set(published)) == sorted(FAILURE_INTERPRETATION_TOKENS), (
+            f"{name}.failure_interpretation must publish exactly the contract tokens, saw {published}"
+        )
+
+    # 1. A provider 402, a provider timeout, an empty reply and a transport error are transport facts.
+    for prose in (
+        "provider returned 402 insufficient balance",
+        "ReadTimeout: the provider did not answer within 180s",
+        "ConnectTimeout while calling the model route",
+        "EMPTY_REPLY: the completion body was blank",
+        "RemoteProtocolError from the provider",
+    ):
+        token, leftover = _coerce_failure_interpretation(prose)
+        assert token == "MODEL_TRANSPORT_FAILURE", f"{prose!r} must be a MODEL transport failure, saw {token}"
+        assert leftover == prose, "the raw prose must survive as the failure meaning, not be discarded"
+
+    # 2. A method that produced nothing is a no-gain result about the METHOD.
+    assert _coerce_failure_interpretation("NO_NEW_EVIDENCE")[0] == "NO_NEW_EVIDENCE"
+    assert _coerce_failure_interpretation("no new evidence from this slice")[0] == "NO_NEW_EVIDENCE"
+
+    # 3. A real static boundary of the artifact stays a static boundary.
+    assert _coerce_failure_interpretation("STATIC_BOUNDARY")[0] == "STATIC_BOUNDARY"
+    assert (
+        _coerce_failure_interpretation("STATIC_BOUNDARY: the payload needs a live server")[0]
+        == "STATIC_BOUNDARY"
+    )
+
+    # 4. An ORDINARY TOOL failure is neither of those and is NOT a model transport failure: UNKNOWN is the token for
+    #    "the tool/action itself failed", and the reason carries the detail. A bare TOOL timeout is deliberately not a
+    #    transport marker -- it is a real extraction gap, unlike the model-side ReadTimeout/ConnectTimeout above.
+    for prose in (
+        "tool TIMED_OUT after 30s",
+        "the Ghidra worker exited with code 1",
+        "action GET_DECOMPILE failed: unsupported operand",
+    ):
+        token, leftover = _coerce_failure_interpretation(prose)
+        assert token == "UNKNOWN", f"an ordinary tool failure must stay UNKNOWN, saw {token} for {prose!r}"
+        assert token != "MODEL_TRANSPORT_FAILURE"
+        assert token != "STATIC_BOUNDARY"
+        assert leftover == prose
+
+    tool_failure = WorkbenchActionRequest(
+        action_type="GET_DECOMPILE",
+        target_artifact_id="artifact-1",
+        reason="the Ghidra worker exited with code 1 before returning a slice",
+        target_selector={"function_entry": "0x401000"},
+        expected_evidence_kinds=["decompile_slice"],
+        failure_interpretation="the Ghidra worker exited with code 1",
+    )
+    assert tool_failure.failure_interpretation == "UNKNOWN"
+    assert "Ghidra worker" in tool_failure.failure_meaning
+
+    # An explicit transport token is accepted verbatim (this is the token DSH now hands over).
+    transport = WorkbenchActionRequest(
+        action_type="GET_DECOMPILE",
+        target_artifact_id="artifact-1",
+        reason="model route unavailable",
+        target_selector={"function_entry": "0x401000"},
+        expected_evidence_kinds=["decompile_slice"],
+        failure_interpretation="MODEL_TRANSPORT_FAILURE",
+    )
+    assert transport.failure_interpretation == "MODEL_TRANSPORT_FAILURE"
+
+
 def test_session_action_accepts_dsh_selector_aliases_and_long_success_condition(test_settings) -> None:
     """Live DSH sessions 422'd on function_name, length, and 160-char success_condition."""
     with TestClient(create_app(test_settings)) as client:

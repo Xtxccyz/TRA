@@ -11,6 +11,32 @@ import re
 from enum import Enum, StrEnum
 
 
+class FailureInterpretation(StrEnum):
+    UNKNOWN = "UNKNOWN"
+    NO_NEW_EVIDENCE = "NO_NEW_EVIDENCE"
+    STATIC_BOUNDARY = "STATIC_BOUNDARY"
+    # WHY THIS MEMBER EXISTS: the DSH track measured that a provider 402 / timeout / empty reply never arrives as an
+    # HTTP status - it sits inside `attempts[].http_status/error_type` on an HTTP-200 `{status: "FAILED"}` - and that
+    # the adapter used to collapse all of them into one string. Without a token of its own, a client had to file a
+    # MODEL failure as NO_NEW_EVIDENCE/STATIC_BOUNDARY, i.e. as a statement about the SAMPLE. A model or transport
+    # fault is a fact about the platform and must never be recorded as a static boundary of the artifact.
+    MODEL_TRANSPORT_FAILURE = "MODEL_TRANSPORT_FAILURE"
+
+
+#: THE single source of truth for the failure-interpretation vocabulary. `FailureInterpretation` above is the enum, this
+#: tuple is the same values in a form a `Literal` / a code generator can unpack, and `main.py` + the DSH track both
+#: derive from it. Nothing may re-list the tokens: a second copy is how the DSH side ended up accepting three of the
+#: four tokens and filing a provider 402 as a statement about the sample.
+#:
+#: IT LIVES AT THE TOP OF THIS MODULE, BEFORE EVERY MODEL THAT ANNOTATES WITH IT. MEASURED (gate owner, byte-final full
+#: suite): with the enum and this tuple defined BELOW `DynamicPlanAction`, the annotation
+#: `Literal[*FAILURE_INTERPRETATION_TOKENS]` was an unresolvable forward reference while this module was still executing,
+#: so an import chain that built such a model mid-import raised `ImportError: cannot import name 'Proposal' from
+#: 'threat_report_agent.contracts'` and `python -m threat_report_agent.cli --help` exited 1. A focused test that imports
+#: the module fresh never saw it; the full suite did.
+FAILURE_INTERPRETATION_TOKENS: tuple[str, ...] = tuple(member.value for member in FailureInterpretation)
+
+
 class FrozenContract(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -187,7 +213,10 @@ class DynamicPlanAction(BaseModel):
     expected_evidence: list[str] = Field(default_factory=list)
     expected_evidence_kinds: list[str] = Field(default_factory=list)
     success_condition: str = "new_targeted_evidence"
-    failure_interpretation: Literal["UNKNOWN", "NO_NEW_EVIDENCE", "STATIC_BOUNDARY"] = "UNKNOWN"
+    # Derived from the ONE contract enum above (see `FAILURE_INTERPRETATION_TOKENS`): a hardcoded copy here is how this
+    # field stayed at three tokens while `FailureInterpretation` gained a fourth, so a transport fault could not be
+    # stored as one.
+    failure_interpretation: Literal[*FAILURE_INTERPRETATION_TOKENS] = "UNKNOWN"
     analysis_focus: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
     # What the bounds above removed, as `field:kept/dropped` entries. Present so the truncation is PUBLISHED
@@ -360,18 +389,6 @@ class InvestigationThreadState(str, Enum):
     REJECTED = "REJECTED"
     CONTRADICTED = "CONTRADICTED"
     CLOSED = "CLOSED"
-
-
-class FailureInterpretation(StrEnum):
-    UNKNOWN = "UNKNOWN"
-    NO_NEW_EVIDENCE = "NO_NEW_EVIDENCE"
-    STATIC_BOUNDARY = "STATIC_BOUNDARY"
-    # WHY THIS MEMBER EXISTS: the DSH track measured that a provider 402 / timeout / empty reply never arrives as an
-    # HTTP status - it sits inside `attempts[].http_status/error_type` on an HTTP-200 `{status: "FAILED"}` - and that
-    # the adapter used to collapse all of them into one string. Without a token of its own, a client had to file a
-    # MODEL failure as NO_NEW_EVIDENCE/STATIC_BOUNDARY, i.e. as a statement about the SAMPLE. A model or transport
-    # fault is a fact about the platform and must never be recorded as a static boundary of the artifact.
-    MODEL_TRANSPORT_FAILURE = "MODEL_TRANSPORT_FAILURE"
 
 
 def normalize_target_selector(
